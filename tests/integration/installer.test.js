@@ -84,6 +84,7 @@ test('formats a clear installation plan without ANSI when color is disabled', (t
   assert.match(output, /██████╗/);
   assert.match(output, /Benevolent Dictator For Life/);
   assert.match(output, /DETECTED HOSTS/);
+  assert.match(output, /Ollama \(coming soon\)/);
   assert.match(output, /Claude marketplace registration and plugin install/);
   assert.match(output, new RegExp(paths.claudeSettings.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.doesNotMatch(output, /\u001b\[/);

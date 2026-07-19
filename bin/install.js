@@ -322,7 +322,7 @@ function formatPlan(plan, { color = false, dryRun = false } = {}) {
     c.yellow('DETECTED HOSTS')
   ];
   for (const host of ['claude', 'codex']) lines.push(`  ${plan.hosts.includes(host) ? c.green('✓') : c.dim('○')} ${host === 'claude' ? 'Claude Code' : 'Codex'}`);
-  lines.push(`  ${plan.ollama ? c.green('✓') : c.dim('○')} Ollama ${plan.ollama ? '' : c.dim('(optional, not detected)')}`.trimEnd());
+  lines.push(`  ${c.dim('○')} Ollama ${c.dim('(coming soon)')}`);
   lines.push('', c.yellow(dryRun ? 'DRY-RUN PLAN' : 'INSTALL PLAN'));
   for (const operation of plan.operations) lines.push(`  ${c.dim('→')} ${operationLabel(operation)}`);
   return lines.join('\n');
