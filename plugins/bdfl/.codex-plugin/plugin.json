@@ -1,6 +1,6 @@
 {
   "name": "bdfl",
-  "version": "0.0.0-development",
+  "version": "0.0.0-development+codex.20260719210423",
   "description": "Managed parallel agents with isolated Git worktrees",
   "author": {
     "name": "thisisnsh",
@@ -9,7 +9,12 @@
   "homepage": "https://github.com/thisisnsh/bdfl",
   "repository": "https://github.com/thisisnsh/bdfl",
   "license": "MIT",
-  "keywords": ["agents", "orchestration", "worktrees", "context"],
+  "keywords": [
+    "agents",
+    "orchestration",
+    "worktrees",
+    "context"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
@@ -18,7 +23,10 @@
     "longDescription": "BDFL protects the main context by coordinating parallel agents in isolated worktrees, routing questions through an inbox, and validating work before integration.",
     "developerName": "thisisnsh",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
     "websiteURL": "https://github.com/thisisnsh/bdfl",
     "defaultPrompt": [
       "Use $bdfl:bdfl to turn BDFL orchestration on, or pass off to deactivate it.",
