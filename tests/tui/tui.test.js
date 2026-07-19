@@ -3,12 +3,25 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { TABS, ACTIONS, TuiController } = require('../../src/tui/controller');
-const { bannerFrame, PERIODS } = require('../../src/tui/banner');
+const { bannerFrame, verbForState, VERBS, PERIODS } = require('../../src/tui/banner');
 
 test('uses the exact ordinary-period animation and yellow ANSI color', () => {
   assert.deepEqual(PERIODS, [1, 2, 3, 4, 3, 2]);
   assert.match(bannerFrame(0), /^\u001b\[38;5;220mBDFL is commanding\.\u001b\[0m$/);
   assert.equal(bannerFrame(3, false), 'BDFL is commanding....');
+});
+
+test('selects dynamic verbs from the current process state', () => {
+  assert.equal(VERBS.length, 9);
+  assert.equal(verbForState({ runs: [{ status: 'pending' }] }), 'strategizing');
+  assert.equal(verbForState({ tasks: [{ status: 'pending' }] }), 'delegating');
+  assert.equal(verbForState({ agents: [{ status: 'running' }] }), 'orchestrating');
+  assert.equal(verbForState({ tasks: [{ status: 'running' }] }), 'executing');
+  assert.equal(verbForState({ inbox: [{ status: 'open' }] }), 'awaiting');
+  assert.equal(verbForState({ tasks: [{ status: 'review' }] }), 'reviewing');
+  assert.equal(verbForState({ tasks: [{ status: 'validating' }] }), 'validating');
+  assert.equal(verbForState({ runs: [{ status: 'integrating' }] }), 'integrating');
+  assert.equal(verbForState({}), 'commanding');
 });
 
 test('navigates all tabs, details, Esc, and every contextual action', () => {

@@ -5,7 +5,7 @@ const { loadSettings } = require('../core/settings');
 const { validateModelSpec } = require('../core/model-spec');
 const { StateStore, recoveryOptions } = require('../state/store');
 const { TuiController } = require('../tui/controller');
-const { bannerFrame } = require('../tui/banner');
+const { bannerFrame, verbForState } = require('../tui/banner');
 
 const HELP = `Usage: bdfl [list|help|off|provider:model:effort]
 
@@ -106,7 +106,7 @@ function main(argv = process.argv.slice(2), io = process, root = process.cwd()) 
   }
   try {
     const result = activate(root, command, settings, store);
-    io.stdout.write(`${bannerFrame(0, Boolean(io.stdout.isTTY))}\n`);
+    io.stdout.write(`${bannerFrame(0, Boolean(io.stdout.isTTY), verbForState(result.state))}\n`);
     if (!result.active) {
       io.stderr.write(`Unfinished BDFL state found. Choose: ${result.recovery.choices.join(', ')}.\n`);
       return 2;

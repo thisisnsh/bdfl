@@ -21,5 +21,4 @@ State uses schema version 1 and atomic temporary-file rename. Records include ru
 
 ## Host bridges
 
-Claude Code uses the plugin command and custom status-line script. Codex uses the packaged plugin/skill and prints the banner at activation and inside the shared TUI; no footer patch or parent wrapper is installed.
-
+Claude Code uses the plugin command and custom status-line script. The script reads durable project state and selects a process verb: commanding, strategizing, delegating, orchestrating, executing, awaiting, reviewing, validating, or integrating. Codex uses the same dynamic banner at activation and inside the shared TUI; no footer patch or parent wrapper is installed.

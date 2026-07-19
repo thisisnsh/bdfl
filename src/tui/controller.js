@@ -1,7 +1,7 @@
 'use strict';
 
 const { diffLines } = require('../core/plans');
-const { bannerFrame } = require('./banner');
+const { bannerFrame, verbForState } = require('./banner');
 
 const TABS = Object.freeze(['Runs', 'Plans', 'Tasks', 'Agents', 'Inbox', 'Models']);
 const ACTIONS = Object.freeze({ x: 'stop', r: 'rewind', f: 'follow-up', a: 'approve', i: 'integrate', o: 'open', '?': 'help' });
@@ -63,7 +63,8 @@ class TuiController {
   }
 
   render(frame = 0) {
-    const lines = [bannerFrame(frame, this.color), TABS.map((tab, index) => index === this.tab ? `[${tab}]` : tab).join(' | ')];
+    const state = Object.fromEntries(TABS.map((tab) => [tab.toLowerCase(), this.data[tab]]));
+    const lines = [bannerFrame(frame, this.color, verbForState(state)), TABS.map((tab, index) => index === this.tab ? `[${tab}]` : tab).join(' | ')];
     if (this.help) lines.push('←/→ tabs  ↑/↓ row  Enter details  Esc back  x stop  r rewind  f follow-up  a approve  i integrate  o open  ? help');
     else if (this.detail && TABS[this.tab] === 'Plans') lines.push(...this.renderPlan(this.rows()[this.row]));
     else if (this.detail) lines.push(JSON.stringify(this.rows()[this.row], null, 2));
