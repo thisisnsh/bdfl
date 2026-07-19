@@ -50,10 +50,12 @@ function installerPaths({ platform = process.platform, env = process.env, homedi
     projectRoot,
     claudeRoot,
     claudePlugin: local ? path.join(projectRoot, '.bdfl', 'install', 'claude') : path.join(claudeRoot, 'plugins', 'marketplaces', 'bdfl'),
+    claudeCache: path.join(claudeRoot, 'plugins', 'cache', 'bdfl'),
     claudeSettings: path.join(claudeRoot, local ? 'settings.local.json' : 'settings.json'),
     codexRoot,
     codexMarketplaceRoot: local ? projectRoot : homedir,
     codexPlugin: path.join(agentsRoot, 'plugins', 'plugins', 'bdfl'),
+    codexCache: path.join(codexRoot, 'plugins', 'cache', 'personal', 'bdfl'),
     codexMarketplace: path.join(agentsRoot, 'plugins', 'marketplace.json'),
     receipt: path.join(configRoot, 'install.json')
   };
@@ -229,6 +231,10 @@ class Installer {
       if (options.dryRun) { removed.push(target); continue; }
       if (this.io.existsSync(target)) { this.io.rmSync(target, { recursive: true, force: true }); removed.push(target); }
     }
+    for (const cache of [this.paths.claudeCache, this.paths.codexCache]) {
+      if (options.dryRun) { if (this.io.existsSync(cache)) removed.push(cache); continue; }
+      if (this.io.existsSync(cache)) { this.io.rmSync(cache, { recursive: true, force: true }); removed.push(cache); }
+    }
     if (!options.dryRun) this.removeLegacyClaudeSkill(receipt, removed);
     if (!options.dryRun) {
       if (receipt.previous.claudeSettings) writeJson(this.paths.claudeSettings, receipt.previous.claudeSettings);
@@ -238,6 +244,8 @@ class Installer {
         const state = path.join(this.paths.projectRoot, '.bdfl');
         if (this.io.existsSync(state)) { this.io.rmSync(state, { recursive: true, force: true }); removed.push(state); }
       }
+      const receiptDirectory = path.dirname(this.paths.receipt);
+      if (this.io.existsSync(receiptDirectory) && this.io.readdirSync(receiptDirectory).length === 0) this.io.rmdirSync(receiptDirectory);
     }
     return { removed, alreadyAbsent: false };
   }

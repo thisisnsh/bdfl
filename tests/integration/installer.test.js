@@ -47,6 +47,10 @@ test('installation is repeatable and uninstall restores host files', (t) => {
   const installer = new Installer({ sourceRoot: source, paths, run });
   installer.install({ force: false }, { claude: true, codex: true, ollama: false });
   installer.install({ force: false }, { claude: true, codex: true, ollama: false });
+  fs.mkdirSync(paths.claudeCache, { recursive: true });
+  fs.mkdirSync(paths.codexCache, { recursive: true });
+  fs.writeFileSync(path.join(paths.claudeCache, 'stale'), 'cache');
+  fs.writeFileSync(path.join(paths.codexCache, 'stale'), 'cache');
   const marketplace = JSON.parse(fs.readFileSync(paths.codexMarketplace));
   assert.equal(marketplace.plugins.filter((item) => item.name === 'bdfl').length, 1);
   assert.equal(path.resolve(paths.codexMarketplaceRoot, marketplace.plugins[0].source.path), paths.codexPlugin);
@@ -60,6 +64,9 @@ test('installation is repeatable and uninstall restores host files', (t) => {
   assert.deepEqual(JSON.parse(fs.readFileSync(paths.claudeSettings)), { theme: 'dark' });
   assert.equal(JSON.parse(fs.readFileSync(paths.codexMarketplace)).plugins.length, 0);
   assert.equal(fs.existsSync(paths.claudePlugin), false);
+  assert.equal(fs.existsSync(paths.claudeCache), false);
+  assert.equal(fs.existsSync(paths.codexCache), false);
+  assert.equal(fs.existsSync(path.dirname(paths.receipt)), false);
 });
 
 test('existing unmanaged destinations require force', (t) => {
