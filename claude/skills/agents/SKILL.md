@@ -6,4 +6,4 @@ disable-model-invocation: true
 
 # BDFL Agents
 
-Run `bdfl agents` with the Bash tool as an ordinary tool action. If it returns a snapshot, present the agents and available actions and wait for the user's exact target and choice. Never stop, rewind, answer, broaden permission, or start a follow-up automatically.
+Immediately call the bundled BDFL MCP server's `agents` tool. If it reports no agents, respond exactly `No agents.` and stop. Otherwise treat the MCP-selected agent details as authoritative. Never call Bash, AskUserQuestion, build a choice list, stop, rewind, answer, broaden permission, or start a follow-up automatically.

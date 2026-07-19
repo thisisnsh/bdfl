@@ -51,6 +51,15 @@ test('opens focused views and exposes model selection', () => {
   assert.doesNotMatch(ui.render(), /Runs.*Plans.*Tasks/);
 });
 
+test('empty focused views show a specific empty state without dead controls', () => {
+  const plans = new TuiController({}, { color: false, initialTab: 'Plans', focused: true });
+  assert.match(plans.render(), /No plans\./);
+  assert.doesNotMatch(plans.render(), /version|approve|diff\/full/);
+  const agents = new TuiController({}, { color: false, initialTab: 'Agents', focused: true });
+  assert.match(agents.render(), /No agents\./);
+  assert.doesNotMatch(agents.render(), /stop|rewind|follow-up/);
+});
+
 test('plan detail changes versions and switches diff/full modes', () => {
   const ui = new TuiController({ plans: [{ id: 'p1', versions: [
     { number: 1, content: 'old' }, { number: 2, content: 'new' }

@@ -13,18 +13,22 @@ test('extensionless plugin executable launches the BDFL runtime', () => {
   assert.match(result.stdout, /Usage: bdfl/);
 });
 
-test('Codex skills resolve the bundled executable instead of relying on PATH', () => {
-  for (const name of ['bdfl', 'models']) {
+test('Codex activation resolves the executable and management skills use MCP', () => {
+  const activation = fs.readFileSync(path.resolve(__dirname, '..', '..', 'skills', 'bdfl', 'SKILL.md'), 'utf8');
+  assert.match(activation, /\.\.\/\.\.\/bin\/bdfl/);
+  for (const name of ['models', 'plans', 'agents']) {
     const contents = fs.readFileSync(path.resolve(__dirname, '..', '..', 'skills', name, 'SKILL.md'), 'utf8');
-    assert.match(contents, /\.\.\/\.\.\/bin\/bdfl/);
-    assert.doesNotMatch(contents, /Run `bdfl/);
+    assert.match(contents, /bundled BDFL MCP server/);
+    assert.doesNotMatch(contents, /Run `bdfl|bin\/bdfl/);
   }
 });
 
-test('Claude skills resolve the executable through CLAUDE_PLUGIN_ROOT', () => {
-  for (const name of ['bdfl', 'models']) {
+test('Claude activation resolves the executable and management skills use MCP', () => {
+  const activation = fs.readFileSync(path.resolve(__dirname, '..', '..', 'claude', 'skills', 'bdfl', 'SKILL.md'), 'utf8');
+  assert.match(activation, /CLAUDE_PLUGIN_ROOT/);
+  for (const name of ['models', 'plans', 'agents']) {
     const contents = fs.readFileSync(path.resolve(__dirname, '..', '..', 'claude', 'skills', name, 'SKILL.md'), 'utf8');
-    assert.match(contents, /CLAUDE_PLUGIN_ROOT/);
-    assert.doesNotMatch(contents, /Run `bdfl/);
+    assert.match(contents, /bundled BDFL MCP server/);
+    assert.doesNotMatch(contents, /CLAUDE_PLUGIN_ROOT|bin\/bdfl/);
   }
 });

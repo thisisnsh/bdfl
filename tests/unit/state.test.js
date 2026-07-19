@@ -27,3 +27,8 @@ test('does not require recovery for terminal state', () => {
   assert.deepEqual(recoveryOptions(state), { required: false });
 });
 
+test('does not require recovery for an idle activation with no durable work', () => {
+  const state = initialState();
+  state.runs.push({ id: 'run-1', status: 'pending' });
+  assert.deepEqual(recoveryOptions(state), { required: false });
+});

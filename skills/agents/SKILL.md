@@ -5,8 +5,8 @@ description: Open BDFL's agent list to inspect status, questions, permissions, l
 
 # BDFL Agents
 
-Run `bdfl agents` as an ordinary tool action. Up/down selects an agent, Enter opens details, `x` requests a stop, `r` starts a fresh rewind attempt, `f` adds corrective follow-up instructions, `o` opens the full log or diff, and Esc returns.
+Immediately call the bundled BDFL MCP server's `agents` tool. The tool owns the native agent selector and returns the selected agent details.
 
-When the host returns a non-interactive snapshot, present the agents and available actions, then wait for the user's exact target and action.
+If it reports no agents, respond exactly `No agents.` and stop. Otherwise treat its selected agent as authoritative.
 
-Never stop, rewind, answer, broaden permission, or start a follow-up automatically.
+Never build a choice question yourself, print terminal key instructions, stop, rewind, answer, broaden permission, or start a follow-up automatically.

@@ -86,9 +86,13 @@ class TuiController {
       const cursor = index === this.row ? colorize(this.color, 'yellow', '›') : ' ';
       const active = row.selected ? colorize(this.color, 'green', '●') : ' ';
       return `${cursor} ${active} ${row.title || row.name || row.id || '(unnamed)'}`;
-    }) : ['  No models configured']));
-    else lines.push(...(this.rows().length ? this.rows().map((row, index) => `${index === this.row ? '›' : ' '} ${row.title || row.name || row.id || '(unnamed)'}`) : ['  No items']));
-    const bottom = TABS[this.tab] === 'Models'
+    }) : ['No models configured.']));
+    else lines.push(...(this.rows().length
+      ? this.rows().map((row, index) => `${index === this.row ? '›' : ' '} ${row.title || row.name || row.id || '(unnamed)'}`)
+      : [`No ${TABS[this.tab].toLowerCase()}.`]));
+    const bottom = !this.rows().length
+      ? 'Esc/q close'
+      : TABS[this.tab] === 'Models'
       ? '↑↓ move · Enter select · Esc/q close'
       : TABS[this.tab] === 'Plans'
         ? '↑/↓ version · ←/→ diff/full · a approve · o open · ? help · Esc back'

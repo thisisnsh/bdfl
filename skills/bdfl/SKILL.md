@@ -14,7 +14,7 @@ description: Turn BDFL orchestration on or off for substantial coding work with 
 5. Capture every plan revision. Preserve the host's normal plan approval, then let the user select a BDFL plan version.
 6. Compile atomic tasks containing objective, context, allowed paths, dependencies, exact model, permission mode, validation commands, and completion criteria.
 7. Dispatch only with at least two independent tasks or an explicit user request for agents. Serialize overlapping paths.
-8. Route agent questions and permission requests to the Inbox. Suspend the agent until the user answers; never infer an answer or broaden permission.
+8. Route agent questions and permission requests through the bundled MCP `inbox` tool so the host renders native controls. Suspend the agent until the user answers and delivery is confirmed; never infer an answer or broaden permission.
 9. Review and approve completed tasks individually. Stage approved work on a temporary integration branch, validate the batch, and only then offer integration.
 
 ## Safety invariants

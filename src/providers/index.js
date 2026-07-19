@@ -77,7 +77,11 @@ function normalizeEvent(provider, raw) {
   if (type === 'thread.started') return { type: 'session', sessionId: event.thread_id, raw: event };
   if (type === 'system' && event.session_id) return { type: 'session', sessionId: event.session_id, raw: event };
   if (/permission|approval/.test(type)) return { type: 'permission', request: event, raw: event };
-  if (/question|elicitation/.test(type)) return { type: 'question', question: event.question || event.message, raw: event };
+  if (/question|elicitation/.test(type)) return {
+    type: 'question',
+    question: event.options || event.choices ? event : event.question || event.message,
+    raw: event
+  };
   if (/failed|error/.test(type)) return { type: 'error', message: event.message || event.error || type, raw: event };
   if (/completed|result/.test(type)) return { type: 'completion', result: event.result || event.item || event, raw: event };
   return { type: 'progress', provider, eventType: type, raw: event };

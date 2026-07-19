@@ -6,4 +6,4 @@ disable-model-invocation: true
 
 # BDFL Plans
 
-Run `bdfl plans` with the Bash tool as an ordinary tool action. If it returns a snapshot, present the available plan versions and actions and wait for the user's exact choice. Preserve native plan approval and never select or approve a BDFL plan version automatically.
+Immediately call the bundled BDFL MCP server's `plans` tool. If it reports no plans, respond exactly `No plans.` and stop. Otherwise treat the MCP-selected plan version as authoritative. Never call Bash, AskUserQuestion, build a choice list, or select a plan version automatically. Preserve native plan approval.

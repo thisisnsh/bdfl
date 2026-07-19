@@ -4,6 +4,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { loadSettings, saveSettings } = require('../core/settings');
 const { validateModelSpec } = require('../core/model-spec');
+const { selectPlanVersion } = require('../core/plans');
 const { StateStore, recoveryOptions } = require('../state/store');
 const { TuiController } = require('../tui/controller');
 
@@ -105,6 +106,17 @@ function interactiveList(store, settings, io = process, initialTab = 'Runs', per
       selectModel(result.item.id, settings, persist);
       cleanup();
       io.stdout.write(`Selected model: ${result.item.id}\n`);
+      return;
+    }
+    if (result.action === 'approve' && initialTab === 'Plans' && result.item?.id) {
+      store.update((state) => {
+        const index = state.plans.findIndex((plan) => plan.id === result.item.id);
+        if (index === -1) throw new Error(`Unknown plan: ${result.item.id}`);
+        state.plans[index] = selectPlanVersion(state.plans[index], result.version);
+        return state;
+      });
+      cleanup();
+      io.stdout.write(`Selected plan: ${result.item.id} v${result.version}\n`);
       return;
     }
     draw();

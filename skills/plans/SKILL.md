@@ -5,8 +5,8 @@ description: Open BDFL's plan list to inspect versions, switch between colored d
 
 # BDFL Plans
 
-Run `bdfl plans` as an ordinary tool action. Up/down selects a plan or version, Enter opens details, left/right switches diff and full modes, `a` approves the highlighted version, `o` opens the full artifact, and Esc returns.
+Immediately call the bundled BDFL MCP server's `plans` tool. The tool owns the native plan-version selector and persistence.
 
-When the host returns a non-interactive snapshot, present the plans and available actions, then wait for the user's exact plan, version, and action.
+If it reports no plans, respond exactly `No plans.` and stop. Otherwise treat its selected plan and version as authoritative.
 
-Preserve native host plan approval. Never select or approve a plan version automatically.
+Never build a choice question yourself, print terminal key instructions, select a version automatically, or bypass native host plan approval.

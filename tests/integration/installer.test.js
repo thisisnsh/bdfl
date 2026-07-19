@@ -5,16 +5,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseArgs, installerPaths, verifyChecksum, mergeClaudeSettings, mergeCodexMarketplace, Installer, formatPlan } = require('../../bin/install');
+const { parseArgs, installerPaths, verifyChecksum, removeBdflStatusLine, mergeCodexMarketplace, Installer, formatPlan } = require('../../bin/install');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-installer-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const source = path.join(root, 'source');
   fs.mkdirSync(path.join(source, 'plugins', 'bdfl'), { recursive: true });
-  fs.mkdirSync(path.join(source, 'src', 'hooks'), { recursive: true });
   fs.writeFileSync(path.join(source, 'plugins', 'bdfl', 'plugin.txt'), 'plugin');
-  fs.writeFileSync(path.join(source, 'src', 'hooks', 'statusline.js'), 'hook');
   const home = path.join(root, 'home');
   const calls = [];
   const run = (command, args) => { calls.push([command, args]); return { status: 0, stdout: '', stderr: '' }; };
@@ -55,7 +53,7 @@ test('installation is repeatable and uninstall restores host files', (t) => {
   assert.equal(marketplace.plugins.filter((item) => item.name === 'bdfl').length, 1);
   assert.equal(path.resolve(paths.codexMarketplaceRoot, marketplace.plugins[0].source.path), paths.codexPlugin);
   assert.equal(JSON.parse(fs.readFileSync(paths.claudeSettings)).theme, 'dark');
-  assert.equal(JSON.parse(fs.readFileSync(paths.claudeSettings)).statusLine.refreshInterval, 1);
+  assert.equal(JSON.parse(fs.readFileSync(paths.claudeSettings)).statusLine, undefined);
   assert.ok(calls.some(([, args]) => args.join(' ') === `plugin marketplace add --scope user ${paths.claudePlugin}`));
   assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin install --scope user bdfl@bdfl'));
   assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin update bdfl@bdfl'));
@@ -91,12 +89,13 @@ test('formats a clear installation plan without ANSI when color is disabled', (t
   assert.doesNotMatch(output, /\u001b\[/);
 });
 
-test('configures Claude status refresh without discarding unrelated settings', () => {
-  assert.deepEqual(mergeClaudeSettings({ theme: 'dark' }, 'node statusline.js'), {
+test('removes only a BDFL-owned legacy status line', () => {
+  assert.deepEqual(removeBdflStatusLine({
     theme: 'dark',
-    enabledPlugins: { 'bdfl@bdfl': true },
-    statusLine: { type: 'command', command: 'node statusline.js', padding: 0, refreshInterval: 1 }
-  });
+    statusLine: { type: 'command', command: 'node /plugins/bdfl/src/hooks/statusline.js' }
+  }), { theme: 'dark' });
+  const custom = { type: 'command', command: 'node custom-status.js' };
+  assert.deepEqual(removeBdflStatusLine({ theme: 'dark', statusLine: custom }), { theme: 'dark', statusLine: custom });
 });
 
 test('migrates only a receipt-owned legacy personal launcher', (t) => {

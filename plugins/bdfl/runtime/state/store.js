@@ -42,8 +42,10 @@ class StateStore {
 
 function unfinishedState(state) {
   const active = new Set(['pending', 'running', 'waiting', 'review', 'approved', 'validating']);
+  const hasWork = state.plans.length || state.tasks.length || state.agents.length || state.inbox.length || state.events.length;
   return {
-    runs: state.runs.filter((item) => active.has(item.status)),
+    // A newly activated run with no durable work is idle, not recoverable work.
+    runs: hasWork ? state.runs.filter((item) => active.has(item.status)) : [],
     tasks: state.tasks.filter((item) => active.has(item.status)),
     agents: state.agents.filter((item) => active.has(item.status)),
     inbox: state.inbox.filter((item) => item.status === 'open')
@@ -57,4 +59,3 @@ function recoveryOptions(state) {
 }
 
 module.exports = { StateStore, initialState, unfinishedState, recoveryOptions };
-

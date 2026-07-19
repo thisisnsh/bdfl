@@ -7,4 +7,4 @@ argument-hint: "[provider:model:effort]"
 
 # BDFL Models
 
-Immediately run `"${CLAUDE_PLUGIN_ROOT}/bin/bdfl" models $ARGUMENTS` with the Bash tool. Never call bare `bdfl` and do not announce the tool call first. With no argument, use the returned list to ask one compact choice question, then run the bundled executable with the exact choice. Tool actions are non-interactive, so never show arrow-key instructions. Pass a supplied exact model unchanged. Never substitute a provider, model, or effort.
+Immediately call the bundled BDFL MCP server's `models` tool and do not announce the call first. The MCP tool displays the host-native selector, validates the exact model, and persists it. Never call Bash, AskUserQuestion, or build a choice list yourself. Never substitute a provider, model, or effort.

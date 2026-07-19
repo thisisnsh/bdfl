@@ -5,8 +5,8 @@ description: Open BDFL's model chooser and select the exact provider, model, and
 
 # BDFL Models
 
-Immediately run BDFL's bundled executable at `../../bin/bdfl` relative to this `SKILL.md`; never call bare `bdfl` and do not announce the tool call first. With no supplied model, pass `models`. With an exact model, pass `models provider:model:effort` unchanged.
+Immediately call the bundled BDFL MCP server's `models` tool and do not announce the tool call first. The tool owns listing, native selection, validation, and persistence.
 
-When no model was supplied, use the returned list to ask one compact host-native choice question. Wait for the answer, then run the bundled executable again with that exact entry. Do not print terminal arrow-key instructions: tool actions are non-interactive.
+If the user supplied an exact model, pass it only when the MCP tool schema accepts an explicit selection; otherwise call the selector and let the user choose it in the host dialog. Treat the MCP result as authoritative.
 
-Reject malformed or unlisted specifications. Never silently substitute a provider, model, or effort.
+Never build a choice question yourself, paginate options, print terminal key instructions, or silently substitute a provider, model, or effort.
