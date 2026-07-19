@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseArgs, installerPaths, verifyChecksum, mergeClaudeSettings, claudeSkill, Installer, formatPlan } = require('../../bin/install');
+const { parseArgs, installerPaths, verifyChecksum, mergeClaudeSettings, Installer, formatPlan } = require('../../bin/install');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-installer-'));
@@ -22,8 +22,8 @@ function fixture(t) {
 }
 
 test('parses every public installer option', () => {
-  assert.deepEqual(parseArgs(['--dry-run', '--list', '--only', 'codex', '--force', '--uninstall', '--no-color', '--non-interactive']), {
-    dryRun: true, list: true, only: 'codex', force: true, uninstall: true, color: false, nonInteractive: true
+  assert.deepEqual(parseArgs(['--dry-run', '--list', '--only', 'codex', '--force', '--uninstall', '--local', '--purge', '--no-color', '--non-interactive']), {
+    dryRun: true, list: true, only: 'codex', force: true, uninstall: true, local: true, purge: true, color: false, nonInteractive: true
   });
   assert.throws(() => parseArgs(['--only', 'ollama']), /claude or codex/);
 });
@@ -50,17 +50,14 @@ test('installation is repeatable and uninstall restores host files', (t) => {
   assert.equal(JSON.parse(fs.readFileSync(paths.codexMarketplace)).plugins.filter((item) => item.name === 'bdfl').length, 1);
   assert.equal(JSON.parse(fs.readFileSync(paths.claudeSettings)).theme, 'dark');
   assert.equal(JSON.parse(fs.readFileSync(paths.claudeSettings)).statusLine.refreshInterval, 1);
-  const launcher = fs.readFileSync(path.join(paths.claudeSkill, 'SKILL.md'), 'utf8');
-  assert.match(launcher, /disable-model-invocation: true/);
-  assert.match(launcher, /!`node .*bin\/bdfl\.js.*\$ARGUMENTS`/);
-  assert.ok(calls.some(([, args]) => args.join(' ') === `plugin marketplace add ${paths.claudePlugin}`));
-  assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin install bdfl@bdfl'));
+  assert.ok(calls.some(([, args]) => args.join(' ') === `plugin marketplace add --scope user ${paths.claudePlugin}`));
+  assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin install --scope user bdfl@bdfl'));
   assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin update bdfl@bdfl'));
+  assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin add bdfl@personal'));
   installer.uninstall({ dryRun: false });
   assert.deepEqual(JSON.parse(fs.readFileSync(paths.claudeSettings)), { theme: 'dark' });
   assert.equal(JSON.parse(fs.readFileSync(paths.codexMarketplace)).plugins.length, 0);
   assert.equal(fs.existsSync(paths.claudePlugin), false);
-  assert.equal(fs.existsSync(paths.claudeSkill), false);
 });
 
 test('existing unmanaged destinations require force', (t) => {
@@ -91,11 +88,23 @@ test('configures Claude status refresh without discarding unrelated settings', (
   });
 });
 
-test('builds an explicit-only bare Claude command launcher', () => {
-  const value = claudeSkill('/plugins/bdfl/bin/bdfl.js');
-  assert.match(value, /^---\nname: bdfl/m);
-  assert.match(value, /disable-model-invocation: true/);
-  assert.match(value, /explicit questions and permissions/);
+test('migrates only a receipt-owned legacy personal launcher', (t) => {
+  const { source, paths, run } = fixture(t);
+  const legacy = path.join(path.dirname(paths.claudeRoot), 'legacy-bdfl-skill');
+  fs.mkdirSync(legacy, { recursive: true });
+  fs.writeFileSync(path.join(legacy, 'SKILL.md'), 'legacy');
+  fs.mkdirSync(path.dirname(paths.receipt), { recursive: true });
+  fs.writeFileSync(paths.receipt, `${JSON.stringify({ version: 1, hosts: ['claude'], previous: {}, managed: { claudeSkill: legacy } })}\n`);
+  new Installer({ sourceRoot: source, paths, run }).install({ force: false }, { claude: true, codex: false, ollama: false });
+  assert.equal(fs.existsSync(legacy), false);
+});
+
+test('calculates project-local host and receipt paths', (t) => {
+  const { root } = fixture(t);
+  const paths = installerPaths({ platform: 'linux', env: {}, homedir: path.join(root, 'home'), local: true, projectRoot: path.join(root, 'repo') });
+  assert.match(paths.claudeSettings, /\.claude\/settings\.local\.json$/);
+  assert.match(paths.codexMarketplace, /\.agents\/plugins\/marketplace\.json$/);
+  assert.match(paths.receipt, /\.bdfl\/install\/install\.json$/);
 });
 
 test('calculates Windows paths and rejects checksum failures', (t) => {
