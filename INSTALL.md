@@ -18,6 +18,8 @@ irm https://github.com/thisisnsh/bdfl/releases/latest/download/install.ps1 | iex
 
 Both bootstraps download the latest release archive and `checksums.txt`, verify SHA-256 before extraction, and run `bin/install.js` from the verified archive. Set `BDFL_VERSION` (without the leading `v`) to pin a specific release.
 
+The installer displays detected hosts and every planned path before writing. For Claude Code it registers the copied source as a native marketplace, installs or updates `bdfl@bdfl`, and configures a yellow status line with Claude Code's supported one-second refresh interval. Restart each installed host before invoking `/bdfl`.
+
 ## Options
 
 ```text
@@ -76,5 +78,8 @@ The installer removes only the exact managed plugin paths and restores the host 
 - “Neither Claude Code nor Codex was detected”: install a host and ensure its executable is on `PATH`.
 - “Existing unmanaged path requires --force”: inspect the printed target; rerun with `--force` only if BDFL may replace it.
 - “Checksum verification failed”: stop. Redownload from the release page; do not bypass verification.
+- `/bdfl` is missing in Claude Code: run `claude plugin list` and confirm `bdfl@bdfl` is enabled, then restart Claude Code. Rerun the installer if the plugin is absent.
+- Static Claude status dots: confirm `statusLine.refreshInterval` is `1` in `~/.claude/settings.json`, then restart Claude Code. The host does not support sub-second status refresh.
+- No permanent BDFL footer in Codex: expected. Codex shows the yellow animation on activation and inside `/bdfl list` because its plugin footer cannot display arbitrary text.
 - Model preflight failures: check host authentication, exact allowlisted model, effort support, and `ollamaBaseUrl`.
 - Unfinished state prompt: choose resume, inspect, archive, or cancel. Removing files manually can destroy recovery information.

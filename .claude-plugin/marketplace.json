@@ -1,5 +1,6 @@
 {
   "name": "bdfl",
+  "description": "Native BDFL integration for managed agents in Claude Code",
   "owner": { "name": "thisisnsh" },
   "plugins": [
     {
@@ -9,4 +10,3 @@
     }
   ]
 }
-

@@ -35,8 +35,8 @@ function bannerFrame(index, color = true, verb = 'commanding') {
   return color ? `${YELLOW}${text}${RESET}` : text;
 }
 
-function frameAt(time = Date.now(), color = true, verb = 'commanding') {
-  return bannerFrame(Math.floor(time / 500), color, verb);
+function frameAt(time = Date.now(), color = true, verb = 'commanding', interval = 500) {
+  return bannerFrame(Math.floor(time / interval), color, verb);
 }
 
 module.exports = { VERBS, PERIODS, YELLOW, RESET, verbForState, bannerFrame, frameAt };

@@ -78,7 +78,7 @@ function writeJson(file, value) {
 function mergeClaudeSettings(current, statusCommand) {
   const next = structuredClone(current);
   next.enabledPlugins = { ...(next.enabledPlugins || {}), 'bdfl@bdfl': true };
-  next.statusLine = { type: 'command', command: statusCommand, padding: 0 };
+  next.statusLine = { type: 'command', command: statusCommand, padding: 0, refreshInterval: 1 };
   return next;
 }
 
@@ -99,10 +99,24 @@ function mergeCodexMarketplace(current) {
 }
 
 class Installer {
-  constructor({ sourceRoot = path.resolve(__dirname, '..'), paths = installerPaths(), io = fs } = {}) {
+  constructor({ sourceRoot = path.resolve(__dirname, '..'), paths = installerPaths(), io = fs, run = spawnSync } = {}) {
     this.sourceRoot = sourceRoot;
     this.paths = paths;
     this.io = io;
+    this.run = run;
+  }
+
+  runClaude(args, tolerateFailure = false) {
+    const result = this.run('claude', args, {
+      encoding: 'utf8',
+      stdio: 'pipe',
+      env: { ...process.env, CLAUDE_CONFIG_DIR: this.paths.claudeRoot }
+    });
+    if (!tolerateFailure && (result.error || result.status !== 0)) {
+      const detail = `${result.stderr || result.stdout || result.error?.message || 'unknown error'}`.trim();
+      throw new Error(`Claude Code plugin setup failed: ${detail}`);
+    }
+    return result;
   }
 
   plan(options, detected) {
@@ -113,6 +127,7 @@ class Installer {
         type: 'copy', host: 'claude', from: this.sourceRoot, to: this.paths.claudePlugin,
         allow: ['.claude-plugin', 'agents', 'commands', 'skills', 'src', 'package.json', 'LICENSE']
       });
+      operations.push({ type: 'claude-native', host: 'claude', path: this.paths.claudePlugin });
       operations.push({ type: 'settings', host: 'claude', path: this.paths.claudeSettings, key: 'statusLine' });
     }
     if (hosts.includes('codex')) {
@@ -123,7 +138,7 @@ class Installer {
     return { hosts, ollama: detected.ollama, operations };
   }
 
-  install(options, detected) {
+  install(options, detected, report = () => {}) {
     const plan = this.plan(options, detected);
     if (!plan.hosts.length) throw new Error(options.only ? `${options.only} was requested but is not detected` : 'Neither Claude Code nor Codex was detected');
     if (options.dryRun || options.list) return plan;
@@ -136,7 +151,9 @@ class Installer {
       installedAt: previousReceipt?.installedAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
+    if (plan.hosts.includes('claude')) receipt.previous.claudeSettings ||= readJson(this.paths.claudeSettings, {});
     for (const operation of plan.operations) {
+      report(operation, 'start');
       if (operation.type === 'copy') {
         if (this.io.existsSync(operation.to) && !options.force && !previousReceipt) throw new Error(`Existing unmanaged path requires --force: ${operation.to}`);
         this.io.mkdirSync(path.dirname(operation.to), { recursive: true });
@@ -149,9 +166,12 @@ class Installer {
             return !relative || (!['.git', '.bdfl', '.agents', 'node_modules'].includes(first) && (!operation.allow || operation.allow.includes(first)));
           }
         });
+      } else if (operation.type === 'claude-native') {
+        this.runClaude(['plugin', 'marketplace', 'add', operation.path]);
+        this.runClaude(['plugin', 'install', 'bdfl@bdfl']);
+        this.runClaude(['plugin', 'update', 'bdfl@bdfl']);
       } else if (operation.type === 'settings') {
         const current = readJson(operation.path, {});
-        receipt.previous.claudeSettings ||= current;
         const command = `node ${JSON.stringify(path.join(this.paths.claudePlugin, 'src', 'hooks', 'statusline.js'))}`;
         writeJson(operation.path, mergeClaudeSettings(current, command));
       } else if (operation.type === 'marketplace') {
@@ -159,6 +179,7 @@ class Installer {
         receipt.previous.codexMarketplace ||= current;
         writeJson(operation.path, mergeCodexMarketplace(current));
       }
+      report(operation, 'done');
     }
     writeJson(this.paths.receipt, receipt);
     return plan;
@@ -168,6 +189,10 @@ class Installer {
     const receipt = readJson(this.paths.receipt, null);
     if (!receipt) return { removed: [], alreadyAbsent: true };
     const removed = [];
+    if (!options.dryRun && receipt.hosts.includes('claude')) {
+      this.runClaude(['plugin', 'uninstall', 'bdfl@bdfl'], true);
+      this.runClaude(['plugin', 'marketplace', 'remove', 'bdfl'], true);
+    }
     for (const host of receipt.hosts) {
       const target = host === 'claude' ? this.paths.claudePlugin : this.paths.codexPlugin;
       if (options.dryRun) { removed.push(target); continue; }
@@ -182,20 +207,73 @@ class Installer {
   }
 }
 
-function formatPlan(plan) {
-  return [
-    `Hosts: ${plan.hosts.join(', ') || 'none'}`,
-    `Ollama: ${plan.ollama ? 'detected' : 'not detected'}`,
-    ...plan.operations.map((operation) => `${operation.type}: ${operation.to || operation.path}`)
-  ].join('\n');
+const LOGO = Object.freeze([
+  '██████╗ ██████╗ ███████╗██╗     ',
+  '██╔══██╗██╔══██╗██╔════╝██║     ',
+  '██████╔╝██║  ██║█████╗  ██║     ',
+  '██╔══██╗██║  ██║██╔══╝  ██║     ',
+  '██████╔╝██████╔╝██║     ███████╗',
+  '╚═════╝ ╚═════╝ ╚═╝     ╚══════╝'
+]);
+
+function theme(enabled) {
+  const wrap = (code) => (value) => enabled ? `\u001b[${code}m${value}\u001b[0m` : value;
+  return { yellow: wrap('38;5;220'), green: wrap('32'), red: wrap('31'), dim: wrap('2'), bold: wrap('1') };
+}
+
+function operationLabel(operation) {
+  if (operation.type === 'copy' && operation.host === 'claude') return `Claude marketplace files  ${operation.to}`;
+  if (operation.type === 'claude-native') return 'Claude marketplace registration and plugin install';
+  if (operation.type === 'settings') return `Claude status line       ${operation.path}`;
+  if (operation.type === 'copy' && operation.host === 'codex') return `Codex plugin files       ${operation.to}`;
+  if (operation.type === 'marketplace') return `Codex marketplace entry  ${operation.path}`;
+  return `Installation receipt    ${operation.path}`;
+}
+
+function formatPlan(plan, { color = false, dryRun = false } = {}) {
+  const c = theme(color);
+  const lines = [
+    ...LOGO.map((line) => c.yellow(line)),
+    c.bold('Benevolent Dictator For Life'),
+    c.dim('Managed agents. Isolated work. Explicit integration.'),
+    '',
+    c.yellow('DETECTED HOSTS')
+  ];
+  for (const host of ['claude', 'codex']) lines.push(`  ${plan.hosts.includes(host) ? c.green('✓') : c.dim('○')} ${host === 'claude' ? 'Claude Code' : 'Codex'}`);
+  lines.push(`  ${plan.ollama ? c.green('✓') : c.dim('○')} Ollama ${plan.ollama ? '' : c.dim('(optional, not detected)')}`.trimEnd());
+  lines.push('', c.yellow(dryRun ? 'DRY-RUN PLAN' : 'INSTALL PLAN'));
+  for (const operation of plan.operations) lines.push(`  ${c.dim('→')} ${operationLabel(operation)}`);
+  return lines.join('\n');
+}
+
+function formatCompletion(plan, { color = false, uninstall = false } = {}) {
+  const c = theme(color);
+  if (uninstall) return `${c.green('✓')} BDFL removed. Recorded host settings were restored.`;
+  const lines = ['', c.yellow('READY'), `  ${c.green('✓')} BDFL installed for ${plan.hosts.map((host) => host === 'claude' ? 'Claude Code' : 'Codex').join(' and ')}`];
+  if (plan.hosts.includes('claude')) lines.push(`  ${c.yellow('!')} Restart Claude Code, then run ${c.bold('/bdfl')}`);
+  if (plan.hosts.includes('codex')) lines.push(`  ${c.yellow('!')} Restart Codex, then run ${c.bold('/bdfl')}`);
+  lines.push(`  ${c.dim('Uninstall:')} node bin/install.js --uninstall`);
+  return lines.join('\n');
 }
 
 function main(argv = process.argv.slice(2), output = process.stdout, error = process.stderr) {
   try {
     const options = parseArgs(argv);
     const installer = new Installer();
-    const result = options.uninstall ? installer.uninstall(options) : installer.install(options, detectHosts());
-    output.write(`${options.uninstall ? `Removed: ${result.removed.join(', ') || 'nothing'}` : formatPlan(result)}\n`);
+    const useColor = options.color && !process.env.NO_COLOR && (Boolean(output.isTTY) || process.env.FORCE_COLOR === '1');
+    if (options.uninstall) {
+      const result = installer.uninstall(options);
+      output.write(`${formatCompletion(result, { color: useColor, uninstall: true })}\n`);
+      return 0;
+    }
+    const detected = detectHosts();
+    const plan = installer.plan(options, detected);
+    if (!plan.hosts.length) throw new Error(options.only ? `${options.only} was requested but is not detected` : 'Neither Claude Code nor Codex was detected');
+    output.write(`${formatPlan(plan, { color: useColor, dryRun: options.dryRun || options.list })}\n`);
+    const result = installer.install(options, detected, (operation, state) => {
+      if (state === 'done') output.write(`  ${theme(useColor).green('✓')} ${operationLabel(operation)}\n`);
+    });
+    if (!options.dryRun && !options.list) output.write(`${formatCompletion(result, { color: useColor })}\n`);
     return 0;
   } catch (cause) {
     error.write(`${cause.message}\n`);
@@ -205,4 +283,4 @@ function main(argv = process.argv.slice(2), output = process.stdout, error = pro
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { parseArgs, commandAvailable, detectHosts, installerPaths, sha256, verifyChecksum, mergeClaudeSettings, mergeCodexMarketplace, Installer, formatPlan, main };
+module.exports = { parseArgs, commandAvailable, detectHosts, installerPaths, sha256, verifyChecksum, mergeClaudeSettings, mergeCodexMarketplace, Installer, LOGO, theme, operationLabel, formatPlan, formatCompletion, main };

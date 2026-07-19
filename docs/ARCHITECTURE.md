@@ -21,4 +21,4 @@ State uses schema version 1 and atomic temporary-file rename. Records include ru
 
 ## Host bridges
 
-Claude Code uses the plugin command and custom status-line script. The script reads durable project state and selects a process verb: commanding, strategizing, delegating, orchestrating, executing, awaiting, reviewing, validating, or integrating. Codex uses the same dynamic banner at activation and inside the shared TUI; no footer patch or parent wrapper is installed.
+Claude Code uses the native marketplace command and plugin installer. Its custom status-line script reads the host's workspace JSON and durable project state, selects a process verb, and animates in yellow at Claude Code's minimum supported one-second refresh interval. Set `BDFL_STATUS_NO_COLOR=1` only when plain status output is required. Codex uses the same dynamic banner at activation and inside the shared TUI at 500 ms; no footer patch or parent wrapper is installed.

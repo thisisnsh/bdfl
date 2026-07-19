@@ -182,7 +182,7 @@ BDFL stores run state, worktrees, normalized events, and logs locally under `.bd
 ## Current limitations
 
 - Codex's supported footer does not accept arbitrary plugin text, so Codex displays the animated yellow banner during activation and throughout BDFL's terminal UI. BDFL does not patch or wrap Codex to fake a permanent footer.
-- Claude Code status animation depends on the host invoking its custom status-line command; frames are selected at 500 ms boundaries.
+- Claude Code refreshes the status line once per second, the fastest supported interval. BDFL's shared terminal UI animates at 500 ms.
 - The status verb follows durable process state: commanding, strategizing, delegating, orchestrating, executing, awaiting, reviewing, validating, or integrating.
 - Headless providers cannot surface every interactive host prompt identically. Unsupported requests fail visibly and remain recoverable.
 - Real-provider smoke tests are opt-in; deterministic fake harnesses run in CI.
