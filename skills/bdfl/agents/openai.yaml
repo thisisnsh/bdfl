@@ -1,4 +1,0 @@
-interface:
-  display_name: "BDFL"
-  short_description: "Managed parallel agents with safe integration"
-  default_prompt: "Use $bdfl to coordinate this work with isolated agents."

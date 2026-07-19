@@ -1,0 +1,6 @@
+interface:
+  display_name: "BDFL Help"
+  short_description: "Show BDFL commands, keys, models, permissions, and recovery"
+  default_prompt: "Use $bdfl:help to explain BDFL commands and safeguards."
+policy:
+  allow_implicit_invocation: false

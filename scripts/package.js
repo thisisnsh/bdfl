@@ -9,9 +9,8 @@ const { writeSkill } = require('./skill-archive');
 const root = path.resolve(__dirname, '..');
 const check = process.argv.includes('--check');
 const mappings = [
-  ['skills/bdfl', 'plugins/bdfl/skills/bdfl'],
+  ['skills', 'plugins/bdfl/skills'],
   ['src', 'plugins/bdfl/runtime'],
-  ['commands/bdfl.toml', 'plugins/bdfl/commands/bdfl.toml'],
   ['bin/bdfl.js', 'plugins/bdfl/bin/bdfl.js'],
   ['agents/bdfl-agent.md', 'plugins/bdfl/agents/bdfl-agent.md'],
   ['docs/assets/bdfl-mark.svg', 'plugins/bdfl/assets/bdfl-mark.svg']
@@ -28,6 +27,14 @@ function filesUnder(relative) {
 
 function digest(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function pruneEmptyDirectories(directory) {
+  if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) return;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isDirectory()) pruneEmptyDirectories(path.join(directory, entry.name));
+  }
+  if (directory !== path.join(root, 'plugins', 'bdfl') && fs.readdirSync(directory).length === 0) fs.rmdirSync(directory);
 }
 
 function sync(source, target) {
@@ -57,6 +64,7 @@ function sync(source, target) {
       if (!check) fs.rmSync(path.join(root, file));
     }
   }
+  if (!check) pruneEmptyDirectories(targetPath);
   return changed;
 }
 

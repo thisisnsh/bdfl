@@ -1,0 +1,6 @@
+interface:
+  display_name: "BDFL Off"
+  short_description: "Deactivate BDFL after resolving active agent work"
+  default_prompt: "Use $bdfl:off to deactivate BDFL safely."
+policy:
+  allow_implicit_invocation: false

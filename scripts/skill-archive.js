@@ -25,12 +25,12 @@ function files(directory, base = directory) {
 }
 
 function zipSkill() {
-  const source = path.join(root, 'skills', 'bdfl');
+  const source = path.join(root, 'skills', 'activate');
   const local = [];
   const central = [];
   let offset = 0;
   for (const relative of files(source)) {
-    const name = Buffer.from(`bdfl/${relative}`);
+    const name = Buffer.from(`activate/${relative}`);
     const data = fs.readFileSync(path.join(source, relative));
     const crc = crc32(data);
     const header = Buffer.alloc(30);
@@ -93,4 +93,3 @@ if (require.main === module) {
 }
 
 module.exports = { crc32, zipSkill, writeSkill };
-

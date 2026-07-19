@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { loadSettings } = require('../core/settings');
 const { validateModelSpec } = require('../core/model-spec');
 const { StateStore, recoveryOptions } = require('../state/store');
@@ -9,16 +10,28 @@ const { bannerFrame, verbForState } = require('../tui/banner');
 
 const HELP = `Usage: bdfl [list|help|off|provider:model:effort]
 
-/bdfl [model]  Activate BDFL with an optional listed model
-/bdfl list     Open Runs, Plans, Tasks, Agents, Inbox, and Models
-/bdfl help     Show commands, keys, permissions, and recovery
-/bdfl off      Deactivate after running agents are resolved
+activate [model]  Activate BDFL with an optional listed model
+list              Open Runs, Plans, Tasks, Agents, Inbox, and Models
+help              Show commands, keys, permissions, and recovery
+off               Deactivate after running agents are resolved
 
 Keys: arrows navigate; Enter opens; Esc returns; x stop; r rewind;
 f follow-up; a approve; i integrate; o open; ? help.`;
 
-function activate(root, requestedModel, settings = loadSettings(), store = new StateStore(root)) {
-  const model = requestedModel || settings.defaultModel;
+function executableAvailable(command, run = spawnSync) {
+  const result = run(command, ['--version'], { encoding: 'utf8', stdio: 'pipe' });
+  return !result.error && result.status === 0;
+}
+
+function defaultModel(settings, available = executableAvailable) {
+  if (settings.defaultModel !== 'claude:sonnet:medium') return settings.defaultModel;
+  if (available('claude')) return 'claude:sonnet:medium';
+  if (available('codex') && settings.models.includes('codex:gpt-5.6-sol:medium')) return 'codex:gpt-5.6-sol:medium';
+  return settings.defaultModel;
+}
+
+function activate(root, requestedModel, settings = loadSettings(), store = new StateStore(root), available = executableAvailable) {
+  const model = requestedModel || defaultModel(settings, available);
   validateModelSpec(model, settings.models);
   const recovery = recoveryOptions(store.load());
   if (recovery.required) return { active: false, model, recovery };
@@ -119,4 +132,4 @@ function main(argv = process.argv.slice(2), io = process, root = process.cwd()) 
   }
 }
 
-module.exports = { HELP, activate, deactivate, snapshot, interactiveList, main };
+module.exports = { HELP, executableAvailable, defaultModel, activate, deactivate, snapshot, interactiveList, main };

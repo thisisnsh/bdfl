@@ -6,6 +6,11 @@
   "homepage": "https://github.com/thisisnsh/bdfl",
   "repository": "https://github.com/thisisnsh/bdfl",
   "license": "MIT",
-  "skills": ["./claude/skills/bdfl"],
+  "skills": [
+    "./claude/skills/activate",
+    "./claude/skills/list",
+    "./claude/skills/help",
+    "./claude/skills/off"
+  ],
   "keywords": ["agents", "orchestration", "worktrees", "context"]
 }
