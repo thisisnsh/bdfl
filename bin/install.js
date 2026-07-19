@@ -52,6 +52,7 @@ function installerPaths({ platform = process.platform, env = process.env, homedi
     claudePlugin: local ? path.join(projectRoot, '.bdfl', 'install', 'claude') : path.join(claudeRoot, 'plugins', 'marketplaces', 'bdfl'),
     claudeSettings: path.join(claudeRoot, local ? 'settings.local.json' : 'settings.json'),
     codexRoot,
+    codexMarketplaceRoot: local ? projectRoot : homedir,
     codexPlugin: path.join(agentsRoot, 'plugins', 'plugins', 'bdfl'),
     codexMarketplace: path.join(agentsRoot, 'plugins', 'marketplace.json'),
     receipt: path.join(configRoot, 'install.json')
@@ -86,14 +87,14 @@ function mergeClaudeSettings(current, statusCommand) {
   return next;
 }
 
-function mergeCodexMarketplace(current) {
+function mergeCodexMarketplace(current, pluginPath = path.join(os.homedir(), '.agents', 'plugins', 'plugins', 'bdfl'), marketplaceRoot = os.homedir()) {
   const next = structuredClone(current);
   next.name ||= 'personal';
   next.interface ||= { displayName: 'Personal' };
   next.plugins ||= [];
   const entry = {
     name: 'bdfl',
-    source: { source: 'local', path: './plugins/bdfl' },
+    source: { source: 'local', path: `./${path.relative(marketplaceRoot, pluginPath).split(path.sep).join('/')}` },
     policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
     category: 'Productivity'
   };
@@ -204,7 +205,7 @@ class Installer {
       } else if (operation.type === 'marketplace') {
         const current = readJson(operation.path, { name: 'personal', interface: { displayName: 'Personal' }, plugins: [] });
         receipt.previous.codexMarketplace ||= current;
-        writeJson(operation.path, mergeCodexMarketplace(current));
+        writeJson(operation.path, mergeCodexMarketplace(current, this.paths.codexPlugin, this.paths.codexMarketplaceRoot));
       } else if (operation.type === 'codex-native') {
         this.runCodex(['plugin', 'add', 'bdfl@personal']);
       }

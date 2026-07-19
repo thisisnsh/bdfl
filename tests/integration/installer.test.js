@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseArgs, installerPaths, verifyChecksum, mergeClaudeSettings, Installer, formatPlan } = require('../../bin/install');
+const { parseArgs, installerPaths, verifyChecksum, mergeClaudeSettings, mergeCodexMarketplace, Installer, formatPlan } = require('../../bin/install');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-installer-'));
@@ -47,7 +47,9 @@ test('installation is repeatable and uninstall restores host files', (t) => {
   const installer = new Installer({ sourceRoot: source, paths, run });
   installer.install({ force: false }, { claude: true, codex: true, ollama: false });
   installer.install({ force: false }, { claude: true, codex: true, ollama: false });
-  assert.equal(JSON.parse(fs.readFileSync(paths.codexMarketplace)).plugins.filter((item) => item.name === 'bdfl').length, 1);
+  const marketplace = JSON.parse(fs.readFileSync(paths.codexMarketplace));
+  assert.equal(marketplace.plugins.filter((item) => item.name === 'bdfl').length, 1);
+  assert.equal(path.resolve(paths.codexMarketplaceRoot, marketplace.plugins[0].source.path), paths.codexPlugin);
   assert.equal(JSON.parse(fs.readFileSync(paths.claudeSettings)).theme, 'dark');
   assert.equal(JSON.parse(fs.readFileSync(paths.claudeSettings)).statusLine.refreshInterval, 1);
   assert.ok(calls.some(([, args]) => args.join(' ') === `plugin marketplace add --scope user ${paths.claudePlugin}`));
@@ -104,6 +106,8 @@ test('calculates project-local host and receipt paths', (t) => {
   const paths = installerPaths({ platform: 'linux', env: {}, homedir: path.join(root, 'home'), local: true, projectRoot: path.join(root, 'repo') });
   assert.match(paths.claudeSettings, /\.claude\/settings\.local\.json$/);
   assert.match(paths.codexMarketplace, /\.agents\/plugins\/marketplace\.json$/);
+  const marketplace = mergeCodexMarketplace({ plugins: [] }, paths.codexPlugin, paths.codexMarketplaceRoot);
+  assert.equal(path.resolve(paths.codexMarketplaceRoot, marketplace.plugins[0].source.path), paths.codexPlugin);
   assert.match(paths.receipt, /\.bdfl\/install\/install\.json$/);
 });
 
