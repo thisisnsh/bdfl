@@ -30,19 +30,12 @@ Installation is global by default, so BDFL is available in every project for det
 curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh | bash
 ```
 
-```powershell
-# Windows PowerShell
-irm https://github.com/thisisnsh/bdfl/releases/latest/download/install.ps1 | iex
-```
+Windows installation is coming soon.
 
 Install only for the current project with `--local`:
 
 ```bash
 curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh | bash -s -- --local
-```
-
-```powershell
-& ([scriptblock]::Create((irm https://github.com/thisisnsh/bdfl/releases/latest/download/install.ps1))) --local
 ```
 
 The installer detects Claude Code and Codex, verifies the release archive checksum, installs each detected native plugin, and prints every path and setting before mutation. Use `--only claude`, `--only codex`, or `--dry-run` to narrow or preview it. See [INSTALL.md](INSTALL.md) for all options.
@@ -97,23 +90,7 @@ Add the migration, rollback test, and operator documentation.
 
 ### Ollama
 
-Ollama runs through the current host's supported local-model harness. Tags containing colons are preserved exactly.
-
-Claude Code:
-
-```text
-/bdfl:models ollama:qwen3.5:9b:medium
-/bdfl:bdfl
-Audit this module and add focused regression tests.
-```
-
-Codex:
-
-```text
-$bdfl:models ollama:qwen3.5:9b:medium
-$bdfl:bdfl
-Audit this module and add focused regression tests.
-```
+Ollama support is coming soon.
 
 Without a model selection, BDFL defaults to `claude:sonnet:medium` when Claude is installed. If Claude is unavailable and Codex is installed, it uses `codex:gpt-5.6-sol:medium`. A choice made through `bdfl:models` persists for future runs.
 
@@ -141,34 +118,27 @@ The plugin has no separate help, activate, off, or generic list skill. `/bdfl:bd
 | Batch integration | Approved work is validated on a temporary integration branch before it is offered. |
 | Exact models | Provider, exact model, and effort pass through without silent fallback. |
 
-## Plans, agents, and keys
+## Native management dialogs
 
-Plan detail uses up/down to select a revision and left/right to switch between colored diff and full text. Press `a` to select a version. BDFL compiles an execution manifest with objective, context, allowed paths, dependencies, exact model, permission mode, validation commands, and completion criteria for every atomic task.
+Models, Plans, Agents, and Inbox use a bundled MCP server to request structured input from the host. Claude Code and Codex render those requests with their native controls; BDFL does not ask the model to write a numbered list or depend on a standalone terminal UI.
 
-Open this view directly with `/bdfl:plans` in Claude Code or `$bdfl:plans` in Codex. Open the agent lifecycle view with `/bdfl:agents` or `$bdfl:agents`.
+- `/bdfl:models` or `$bdfl:models` renders the complete configured model list.
+- `/bdfl:plans` or `$bdfl:plans` renders captured plan versions, or `No plans.`
+- `/bdfl:agents` or `$bdfl:agents` renders recorded agents, or `No agents.`
+- Agent questions with options render as a selector; free-form questions render as text input; permission requests render explicit Approve/Deny choices.
+
+BDFL compiles the selected plan into an execution manifest with an objective, context, allowed paths, dependencies, exact model, permission mode, validation commands, and completion criteria for every atomic task.
 
 ```text
 pending → running → waiting → running → review → approved → validating → integrated
                     ↘ failed / cancelled / rewound → fresh attempt
 ```
 
-| Key | Action |
-|---|---|
-| `x` | Stop the highlighted agent. |
-| `r` | Rewind from the last safe checkpoint. |
-| `f` | Add corrective instructions in a fresh attempt. |
-| `a` | Approve the highlighted plan version or completed task. |
-| `i` | Integrate a successfully validated batch. |
-| `o` | Open the full diff or log. |
-| `?` | Show contextual help. |
-
-Left/right changes tabs, up/down selects rows, Enter opens details, and Esc returns. Available keys remain visible in the bottom row.
-
 ## Models
 
-Model specifications use `provider:exact-model:exact-effort`. BDFL parses the first and final colon, so `ollama:qwen3.5:9b:medium` passes `qwen3.5:9b` unchanged.
+Model specifications use `provider:exact-model:exact-effort`.
 
-Run `/bdfl:models` or `$bdfl:models` and choose from the host-native prompt. You can also provide the exact specification directly to the Models skill. When running `bdfl models` yourself in a real terminal, use up/down and Enter.
+Run `/bdfl:models` or `$bdfl:models`. The bundled MCP tool passes the complete configured list to the host-native selector, so it is not limited by Claude Code's four-option question-tool schema.
 
 ```json
 {
@@ -178,11 +148,9 @@ Run `/bdfl:models` or `$bdfl:models` and choose from the host-native prompt. You
     "claude:sonnet:medium",
     "claude:opus:medium",
     "claude:haiku:medium",
-    "codex:gpt-5.6-sol:medium",
-    "ollama:qwen3.5:9b:medium"
+    "codex:gpt-5.6-sol:medium"
   ],
-  "maxAgents": 4,
-  "ollamaBaseUrl": "http://localhost:11434"
+  "maxAgents": 4
 }
 ```
 
@@ -209,11 +177,9 @@ host request → plan revisions → selected plan → execution manifest
 
 Canonical runtime code lives in `src/` and canonical command skills live in `skills/`. Deterministic packaging mirrors them into `plugins/bdfl/`; CI fails when packaged files drift.
 
-## Status, privacy, and limitations
+## Privacy and limitations
 
-Claude Code's yellow status line appears only while BDFL is active. It reports concrete state: selected model plus active agent, task, and unanswered-question counts. Codex cannot accept arbitrary permanent plugin footer text, so BDFL reports state during activation and in its terminal UI without patching or wrapping Codex.
-
-BDFL stores local run state, worktrees, normalized events, and logs under gitignored `.bdfl/`. Provider prompts and code go only through the configured Claude, Codex, or local Ollama harness. BDFL runs no telemetry service and does not copy authentication tokens into project state. Real-provider smoke tests are opt-in, and no benchmark or reliability claim is published without reproducible measurements.
+BDFL has no persistent status line or session-start hook. It stores local run state, worktrees, normalized events, and logs under gitignored `.bdfl/`. Provider prompts and code go only through the configured Claude or Codex harness. BDFL runs no telemetry service and does not copy authentication tokens into project state. Real-provider smoke tests are opt-in, and no benchmark or reliability claim is published without reproducible measurements.
 
 ## Uninstall
 
@@ -223,18 +189,12 @@ Remove the global installation and restore recorded host settings:
 curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.sh | sh
 ```
 
-```powershell
-irm https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.ps1 | iex
-```
+Windows uninstallation is coming soon.
 
 For a project-local installation:
 
 ```bash
 curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.sh | sh -s -- --local
-```
-
-```powershell
-& ([scriptblock]::Create((irm https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.ps1))) --local
 ```
 
 Add `--purge` only when you also want to permanently delete the current project's `.bdfl/` run state and recovery worktrees. Uninstall removes only receipt-owned plugin files and restores settings captured during installation.
