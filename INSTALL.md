@@ -89,7 +89,17 @@ curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.
 irm https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.ps1 | iex
 ```
 
-For a project-local installation, append `--local`. The original installer remains usable directly:
+Project-local installation:
+
+```bash
+curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.sh | sh -s -- --local
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.ps1))) --local
+```
+
+The original installer remains usable directly:
 
 ```bash
 node bin/install.js --uninstall

@@ -219,7 +219,17 @@ curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.
 irm https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.ps1 | iex
 ```
 
-For a project-local installation, append `--local`. Add `--purge` only when you also want to permanently delete the current project's `.bdfl/` run state and recovery worktrees. Uninstall removes only receipt-owned plugin files and restores settings captured during installation.
+For a project-local installation:
+
+```bash
+curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.sh | sh -s -- --local
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.ps1))) --local
+```
+
+Add `--purge` only when you also want to permanently delete the current project's `.bdfl/` run state and recovery worktrees. Uninstall removes only receipt-owned plugin files and restores settings captured during installation.
 
 ## Project
 
