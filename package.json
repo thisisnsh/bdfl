@@ -10,7 +10,7 @@
   },
   "type": "commonjs",
   "engines": { "node": ">=20" },
-  "bin": { "bdfl": "bin/bdfl.js" },
+  "bin": { "bdfl": "bin/bdfl" },
   "scripts": {
     "test": "node --test tests/**/*.test.js",
     "package": "node scripts/package.js",

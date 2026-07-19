@@ -7,7 +7,7 @@ description: Activate BDFL for substantial coding work with managed parallel age
 
 ## Core workflow
 
-1. Run `bdfl` with the user's optional exact model specification as an ordinary tool action. Do not use inline shell expansion in the skill.
+1. Run the `bdfl` executable as an ordinary tool action. With no model argument, run exactly `bdfl`. Otherwise pass only the user's exact `provider:model:effort` value. Never append the literal word `activate`. If the executable is missing, report a broken plugin installation; do not search npm or install a global package.
 2. Activate without changing the host's native planning mode.
 3. Inspect `.bdfl/` for unfinished state. Ask the user to resume, inspect, archive, or cancel; make no automatic recovery choice.
 4. Refuse dispatch from a dirty main worktree until the user cleans it or authorizes a recoverable snapshot.

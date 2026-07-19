@@ -12,6 +12,7 @@ const mappings = [
   ['skills', 'plugins/bdfl/skills'],
   ['src', 'plugins/bdfl/runtime'],
   ['bin/bdfl.js', 'plugins/bdfl/bin/bdfl.js'],
+  ['bin/bdfl', 'plugins/bdfl/bin/bdfl'],
   ['agents/bdfl-agent.md', 'plugins/bdfl/agents/bdfl-agent.md'],
   ['docs/assets/bdfl-mark.svg', 'plugins/bdfl/assets/bdfl-mark.svg']
 ];
