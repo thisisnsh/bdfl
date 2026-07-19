@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const width = 720;
 const height = 360;
-const palette = [[14, 15, 18], [255, 92, 168], [66, 186, 117], [230, 84, 94]];
+const palette = [[14, 15, 18], [250, 204, 21], [66, 186, 117], [230, 84, 94]];
 
 function le16(value) { const buffer = Buffer.alloc(2); buffer.writeUInt16LE(value); return buffer; }
 function le32(value) { const buffer = Buffer.alloc(4); buffer.writeUInt32LE(value >>> 0); return buffer; }
@@ -104,4 +104,3 @@ const output = path.resolve(__dirname, '..', 'docs', 'assets', 'terminal-demo.gi
 fs.mkdirSync(path.dirname(output), { recursive: true });
 fs.writeFileSync(output, gif(makeFrames()));
 console.log(`Generated ${path.relative(process.cwd(), output)}`);
-

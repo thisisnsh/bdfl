@@ -5,7 +5,7 @@ const { bannerFrame } = require('./banner');
 
 const TABS = Object.freeze(['Runs', 'Plans', 'Tasks', 'Agents', 'Inbox', 'Models']);
 const ACTIONS = Object.freeze({ x: 'stop', r: 'rewind', f: 'follow-up', a: 'approve', i: 'integrate', o: 'open', '?': 'help' });
-const ANSI = Object.freeze({ pink: '\u001b[38;5;205m', green: '\u001b[32m', red: '\u001b[31m', white: '\u001b[37m', dim: '\u001b[2m', reset: '\u001b[0m' });
+const ANSI = Object.freeze({ yellow: '\u001b[38;5;220m', green: '\u001b[32m', red: '\u001b[31m', white: '\u001b[37m', dim: '\u001b[2m', reset: '\u001b[0m' });
 
 function colorize(enabled, color, text) { return enabled ? `${ANSI[color]}${text}${ANSI.reset}` : text; }
 
@@ -77,4 +77,3 @@ class TuiController {
 }
 
 module.exports = { TABS, ACTIONS, ANSI, TuiController };
-

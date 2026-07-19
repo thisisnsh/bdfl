@@ -10,9 +10,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   defaultModel: 'claude:sonnet:medium',
   models: [
     'claude:sonnet:medium',
-    'claude:opus:high',
-    'claude:haiku:low',
-    'codex:gpt-5.6:medium',
+    'claude:opus:medium',
+    'claude:haiku:medium',
+    'codex:gpt-5.6-sol:medium',
     'ollama:qwen3.5:medium'
   ],
   maxAgents: 4,
@@ -48,4 +48,3 @@ function loadSettings(file = path.join(configDirectory(), 'settings.json')) {
 }
 
 module.exports = { DEFAULT_SETTINGS, configDirectory, loadSettings, validateSettings };
-

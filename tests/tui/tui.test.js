@@ -5,10 +5,10 @@ const assert = require('node:assert/strict');
 const { TABS, ACTIONS, TuiController } = require('../../src/tui/controller');
 const { bannerFrame, PERIODS } = require('../../src/tui/banner');
 
-test('uses the exact ordinary-period animation and pink ANSI color', () => {
+test('uses the exact ordinary-period animation and yellow ANSI color', () => {
   assert.deepEqual(PERIODS, [1, 2, 3, 4, 3, 2]);
-  assert.match(bannerFrame(0), /^\u001b\[38;5;205mBDFL is here, love is in the air\.\u001b\[0m$/);
-  assert.equal(bannerFrame(3, false), 'BDFL is here, love is in the air....');
+  assert.match(bannerFrame(0), /^\u001b\[38;5;220mBDFL is commanding\.\u001b\[0m$/);
+  assert.equal(bannerFrame(3, false), 'BDFL is commanding....');
 });
 
 test('navigates all tabs, details, Esc, and every contextual action', () => {
@@ -44,4 +44,3 @@ test('resizes, clips, renders bottom keys, and falls back without color', () => 
   assert.match(output, /x stop/);
   assert.doesNotMatch(output, /\u001b\[/);
 });
-

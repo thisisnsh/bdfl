@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
   <title id="title">BDFL mark</title>
   <rect width="128" height="128" rx="28" fill="#0e0f12"/>
-  <path d="M28 82V46c0-10 8-18 18-18h36c10 0 18 8 18 18v36c0 10-8 18-18 18H46c-10 0-18-8-18-18Z" fill="none" stroke="#ff5ca8" stroke-width="7"/>
+  <path d="M28 82V46c0-10 8-18 18-18h36c10 0 18 8 18 18v36c0 10-8 18-18 18H46c-10 0-18-8-18-18Z" fill="none" stroke="#facc15" stroke-width="7"/>
   <path d="M43 52h42M43 68h28M43 84h36" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="7"/>
   <circle cx="88" cy="68" r="5" fill="#42ba75"/>
 </svg>

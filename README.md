@@ -1,13 +1,9 @@
-<p align="center">
-  <img src="docs/assets/bdfl-banner.png" alt="BDFL coordinating four isolated coding agents" width="100%">
-</p>
-
 <h1 align="center">BDFL</h1>
-<p align="center"><strong>BDFL is here, love is in the air.</strong></p>
+<p align="center"><strong>BDFL is commanding...</strong></p>
 <p align="center">Protect your main context while managed agents work in parallel, ask before crossing boundaries, and integrate only after review and validation.</p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-ff5ca8"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-facc15"></a>
   <a href="https://github.com/thisisnsh/bdfl/releases"><img alt="latest release" src="https://img.shields.io/github/v/release/thisisnsh/bdfl"></a>
   <img alt="Claude Code and Codex" src="https://img.shields.io/badge/hosts-Claude_Code_%7C_Codex-25262b">
   <a href="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml"><img alt="tests" src="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml/badge.svg"></a>
@@ -26,8 +22,8 @@
 <p align="center"><img src="docs/assets/terminal-demo.gif" alt="Animated BDFL terminal management view" width="720"></p>
 
 ```text
-> /bdfl codex:gpt-5.6:medium
-  BDFL is here, love is in the air...
+> /bdfl codex:gpt-5.6-sol:medium
+  BDFL is commanding...
 
 Plans · v3 · diff                    Agents
 - one provider task                  ✓ api-contract     review
@@ -146,8 +142,9 @@ Global settings use your platform configuration directory. Specifications are `p
   "defaultModel": "claude:sonnet:medium",
   "models": [
     "claude:sonnet:medium",
-    "claude:opus:high",
-    "codex:gpt-5.6:medium",
+    "claude:opus:medium",
+    "claude:haiku:medium",
+    "codex:gpt-5.6-sol:medium",
     "ollama:qwen3.5:9b:medium"
   ],
   "maxAgents": 4,
@@ -184,7 +181,7 @@ BDFL stores run state, worktrees, normalized events, and logs locally under `.bd
 
 ## Current limitations
 
-- Codex's supported footer does not accept arbitrary plugin text, so Codex displays the animated pink banner during activation and throughout BDFL's terminal UI. BDFL does not patch or wrap Codex to fake a permanent footer.
+- Codex's supported footer does not accept arbitrary plugin text, so Codex displays the animated yellow banner during activation and throughout BDFL's terminal UI. BDFL does not patch or wrap Codex to fake a permanent footer.
 - Claude Code status animation depends on the host invoking its custom status-line command; frames are selected at 500 ms boundaries.
 - Headless providers cannot surface every interactive host prompt identically. Unsupported requests fail visibly and remain recoverable.
 - Real-provider smoke tests are opt-in; deterministic fake harnesses run in CI.
@@ -193,4 +190,3 @@ BDFL stores run state, worktrees, normalized events, and logs locally under `.bd
 ## Project
 
 [Contributing](CONTRIBUTING.md) · [Documentation](docs/ARCHITECTURE.md) · [Open an issue](https://github.com/thisisnsh/bdfl/issues) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [MIT license](LICENSE)
-

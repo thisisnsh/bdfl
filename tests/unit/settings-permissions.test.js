@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { configDirectory, validateSettings } = require('../../src/core/settings');
+const { DEFAULT_SETTINGS, configDirectory, validateSettings } = require('../../src/core/settings');
 const { mapPermissionMode, assertPermissionRequest } = require('../../src/core/permissions');
 
 const valid = {
@@ -21,9 +21,13 @@ test('validates settings and platform paths', () => {
   assert.throws(() => validateSettings({ ...valid, defaultModel: 'claude:sonnet:medium' }), /not listed/);
 });
 
+test('ships exact default models at medium effort', () => {
+  assert.ok(DEFAULT_SETTINGS.models.every((model) => model.endsWith(':medium')));
+  assert.ok(DEFAULT_SETTINGS.models.includes('codex:gpt-5.6-sol:medium'));
+});
+
 test('preserves permissions and maps plan mode to default', () => {
   assert.equal(mapPermissionMode('codex', 'plan'), 'default');
   assert.equal(mapPermissionMode('claude', 'read-only'), 'read-only');
   assert.throws(() => assertPermissionRequest('read-only', 'full-access'), /requires parent approval/);
 });
-
