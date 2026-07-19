@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 const args = process.argv.slice(2);
-if (args[0] === '--version') console.log('codex 0.1.0-fake');
+if (args[0] === '--version') console.log('codex fixture-build');
 else if (args[0] === 'login' && args[1] === 'status') console.log('Logged in');
 else if (args[0] === 'exec') {
   console.log(JSON.stringify({ type: 'thread.started', thread_id: 'fake-codex-session' }));
   console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'fake complete' } }));
   console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } }));
 } else process.exitCode = 2;
-

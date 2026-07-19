@@ -1,7 +1,10 @@
 $ErrorActionPreference = "Stop"
-$BDFLVersion = if ($env:BDFL_VERSION) { $env:BDFL_VERSION } else { "0.1.0" }
-$BaseUrl = "https://github.com/thisisnsh/bdfl/releases/download/v$BDFLVersion"
-$Archive = "bdfl-$BDFLVersion.zip"
+$BaseUrl = if ($env:BDFL_VERSION) {
+  "https://github.com/thisisnsh/bdfl/releases/download/v$($env:BDFL_VERSION)"
+} else {
+  "https://github.com/thisisnsh/bdfl/releases/latest/download"
+}
+$Archive = "bdfl.zip"
 $TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("bdfl-" + [guid]::NewGuid())
 
 try {
@@ -21,4 +24,3 @@ try {
 finally {
   if (Test-Path $TempRoot) { Remove-Item -Recurse -Force $TempRoot }
 }
-

@@ -19,7 +19,7 @@ for (const relative of manifests) {
 
 const codex = JSON.parse(fs.readFileSync(path.join(root, manifests[3]), 'utf8'));
 if (codex.name !== 'bdfl') throw new Error('Codex plugin name must match its folder');
-if (!/^\d+\.\d+\.\d+$/.test(codex.version)) throw new Error('Codex plugin version must be semver');
+if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(codex.version)) throw new Error('Codex plugin version must be semver');
 if (!codex.author?.name || !codex.interface?.displayName || !codex.interface?.shortDescription) {
   throw new Error('Codex plugin is missing required presentation metadata');
 }

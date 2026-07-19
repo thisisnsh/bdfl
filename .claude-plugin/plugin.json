@@ -1,6 +1,6 @@
 {
   "name": "bdfl",
-  "version": "0.1.0",
+  "version": "0.0.0-development",
   "description": "Managed parallel agents with isolated Git worktrees",
   "author": { "name": "thisisnsh" },
   "homepage": "https://github.com/thisisnsh/bdfl",
@@ -8,4 +8,3 @@
   "license": "MIT",
   "keywords": ["agents", "orchestration", "worktrees", "context"]
 }
-

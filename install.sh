@@ -1,9 +1,12 @@
 #!/usr/bin/env sh
 set -eu
 
-BDFL_VERSION="${BDFL_VERSION:-0.1.0}"
-BDFL_BASE_URL="https://github.com/thisisnsh/bdfl/releases/download/v${BDFL_VERSION}"
-BDFL_ARCHIVE="bdfl-${BDFL_VERSION}.tar.gz"
+if [ -n "${BDFL_VERSION:-}" ]; then
+  BDFL_BASE_URL="https://github.com/thisisnsh/bdfl/releases/download/v${BDFL_VERSION}"
+else
+  BDFL_BASE_URL="https://github.com/thisisnsh/bdfl/releases/latest/download"
+fi
+BDFL_ARCHIVE="bdfl.tar.gz"
 BDFL_TEMP="$(mktemp -d)"
 trap 'rm -rf "$BDFL_TEMP"' EXIT HUP INT TERM
 
@@ -22,4 +25,3 @@ fi
 mkdir "${BDFL_TEMP}/source"
 tar -xzf "${BDFL_TEMP}/${BDFL_ARCHIVE}" -C "${BDFL_TEMP}/source"
 node "${BDFL_TEMP}/source/bin/install.js" "$@"
-

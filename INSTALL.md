@@ -7,16 +7,16 @@ BDFL requires Node.js 20+ and at least one supported host: Claude Code or Codex.
 macOS, Linux, WSL, or Git Bash:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/thisisnsh/bdfl/main/install.sh | bash
+curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh | bash
 ```
 
 Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/thisisnsh/bdfl/main/install.ps1 | iex
+irm https://github.com/thisisnsh/bdfl/releases/latest/download/install.ps1 | iex
 ```
 
-Both bootstraps download a pinned release archive and `checksums.txt`, verify SHA-256 before extraction, and run `bin/install.js` from the verified archive.
+Both bootstraps download the latest release archive and `checksums.txt`, verify SHA-256 before extraction, and run `bin/install.js` from the verified archive. Set `BDFL_VERSION` (without the leading `v`) to pin a specific release.
 
 ## Options
 
@@ -34,7 +34,7 @@ Both bootstraps download a pinned release archive and `checksums.txt`, verify SH
 Pass shell options after `bash -s --`, for example:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/thisisnsh/bdfl/main/install.sh | bash -s -- --dry-run --only codex
+curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh | bash -s -- --dry-run --only codex
 ```
 
 For a source checkout, run `node bin/install.js --dry-run`, inspect every path, then rerun without `--dry-run`.
@@ -53,7 +53,7 @@ Environment overrides: `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `AGENTS_HOME`, and `BD
 
 ## Update and verify
 
-Rerun the same pinned installer. Managed files update in place while the original pre-BDFL host settings stay in the installation receipt for uninstall. Use `--force` only when adopting an existing unmanaged target.
+Rerun the latest installer to update. Managed files update in place while the original pre-BDFL host settings stay in the installation receipt for uninstall. Use `--force` only when adopting an existing unmanaged target.
 
 ```bash
 node bin/install.js --list
@@ -78,4 +78,3 @@ The installer removes only the exact managed plugin paths and restores the host 
 - “Checksum verification failed”: stop. Redownload from the release page; do not bypass verification.
 - Model preflight failures: check host authentication, exact allowlisted model, effort support, and `ollamaBaseUrl`.
 - Unfinished state prompt: choose resume, inspect, archive, or cancel. Removing files manually can destroy recovery information.
-

@@ -1,4 +1,6 @@
-<h1 align="center">BDFL</h1>
+<p align="center"><img src="docs/assets/terminal-demo.gif" alt="Animated BDFL terminal management view" width="720"></p>
+
+<h1 align="center">BDFL - Benevolent Dictator For Life</h1>
 <p align="center"><strong>BDFL is commanding...</strong></p>
 <p align="center">Protect your main context while managed agents work in parallel, ask before crossing boundaries, and integrate only after review and validation.</p>
 
@@ -18,8 +20,6 @@
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="INSTALL.md">Installation guide</a>
 </p>
-
-<p align="center"><img src="docs/assets/terminal-demo.gif" alt="Animated BDFL terminal management view" width="720"></p>
 
 ```text
 > /bdfl codex:gpt-5.6-sol:medium
@@ -43,15 +43,15 @@ Tasks
 
 ```bash
 # macOS, Linux, WSL, Git Bash
-curl -fsSL https://raw.githubusercontent.com/thisisnsh/bdfl/main/install.sh | bash
+curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh | bash
 ```
 
 ```powershell
 # Windows PowerShell
-irm https://raw.githubusercontent.com/thisisnsh/bdfl/main/install.ps1 | iex
+irm https://github.com/thisisnsh/bdfl/releases/latest/download/install.ps1 | iex
 ```
 
-The bootstrap pins release `v0.1.0`, verifies its committed SHA-256 checksum, detects Claude Code and Codex, and installs only detected native integrations. Preview every mutation with `--dry-run`; see [INSTALL.md](INSTALL.md) for update, verification, host-only, and uninstall paths.
+The bootstrap resolves the latest published release, verifies its committed SHA-256 checksum, detects Claude Code and Codex, and installs only detected native integrations. Set `BDFL_VERSION` to pin a specific release. Preview every mutation with `--dry-run`; see [INSTALL.md](INSTALL.md) for update, verification, host-only, and uninstall paths.
 
 ### Native host installation
 
@@ -65,7 +65,7 @@ Claude Code:
 Codex:
 
 ```bash
-codex plugin marketplace add thisisnsh/bdfl --ref v0.1.0
+codex plugin marketplace add thisisnsh/bdfl
 codex plugin add bdfl@bdfl
 ```
 
