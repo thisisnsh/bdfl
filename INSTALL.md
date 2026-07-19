@@ -18,7 +18,15 @@ irm https://github.com/thisisnsh/bdfl/releases/latest/download/install.ps1 | iex
 
 Both bootstraps download the latest release archive and `checksums.txt`, verify SHA-256 before extraction, and run `bin/install.js` from the verified archive. Set `BDFL_VERSION` (without the leading `v`) to pin a specific release.
 
-The installer displays detected hosts and every planned path before writing. For Claude Code it registers the copied source as a native marketplace, installs or updates `bdfl@bdfl`, adds an explicit-only personal `/bdfl` launcher, and configures a yellow status line with Claude Code's supported one-second refresh interval. Restart each installed host before invoking `/bdfl`.
+The installer displays detected hosts, installation scope, and every planned path before writing. Global installation is the default. It installs the native BDFL plugin for every detected host and configures Claude Code's yellow status line with the supported one-second refresh interval. Restart each installed host before invoking `/bdfl:activate` in Claude Code or `$bdfl:activate` in Codex.
+
+To install only for the current project:
+
+```bash
+curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh | bash -s -- --local
+```
+
+Claude Code uses its native local plugin scope and `.claude/settings.local.json`. Codex uses the repository marketplace under `.agents/plugins/`. Local installation files and the receipt are rooted in the current project.
 
 ## Options
 
@@ -29,6 +37,8 @@ The installer displays detected hosts and every planned path before writing. For
 --only codex          Install only Codex when detected
 --force               Replace an existing unmanaged BDFL path
 --uninstall           Remove BDFL and restore recorded settings
+--local               Use current-project scope instead of global scope
+--purge               With uninstall, also delete current-project .bdfl state
 --no-color            Disable installer colors
 --non-interactive     Never prompt
 ```
@@ -47,8 +57,10 @@ The installer prints all paths before use. Defaults are:
 
 | Host | Files |
 |---|---|
-| Claude Code | `~/.claude/plugins/marketplaces/bdfl`, `~/.claude/settings.json` status line and enabled plugin entry |
-| Codex | `~/.agents/plugins/plugins/bdfl`, `~/.agents/plugins/marketplace.json` personal entry |
+| Claude Code, global | `~/.claude/plugins/marketplaces/bdfl`, `~/.claude/settings.json` |
+| Codex, global | `~/.agents/plugins/plugins/bdfl`, `~/.agents/plugins/marketplace.json` |
+| Claude Code, local | `<project>/.bdfl/install/claude`, `<project>/.claude/settings.local.json` |
+| Codex, local | `<project>/.agents/plugins/plugins/bdfl`, `<project>/.agents/plugins/marketplace.json` |
 | BDFL | Platform config directory `install.json` receipt and `settings.json` |
 
 Environment overrides: `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `AGENTS_HOME`, and `BDFL_CONFIG_HOME`.
@@ -67,19 +79,31 @@ unzip -t dist/bdfl.skill
 
 ## Uninstall
 
+Global installation:
+
+```bash
+curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.sh | sh
+```
+
+```powershell
+irm https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.ps1 | iex
+```
+
+For a project-local installation, append `--local`. The original installer remains usable directly:
+
 ```bash
 node bin/install.js --uninstall
 ```
 
-The installer removes only the exact managed plugin paths and restores the host JSON captured before the first installation. Project `.bdfl/` directories contain recoverable run state and are intentionally not deleted.
+The uninstaller removes exact receipt-owned plugin files, native registrations, marketplace entries, and settings for the selected scope. Project `.bdfl/` directories contain recoverable state and remain by default. Add `--purge` only when that state and recovery data should be permanently deleted.
 
 ## Troubleshooting
 
 - “Neither Claude Code nor Codex was detected”: install a host and ensure its executable is on `PATH`.
 - “Existing unmanaged path requires --force”: inspect the printed target; rerun with `--force` only if BDFL may replace it.
 - “Checksum verification failed”: stop. Redownload from the release page; do not bypass verification.
-- `/bdfl` is missing in Claude Code: run `claude plugin list` and confirm `bdfl@bdfl` is enabled, then restart Claude Code. Rerun the installer if the plugin is absent.
+- BDFL commands are missing in Claude Code: run `claude plugin list`, confirm `bdfl@bdfl` is enabled, restart Claude Code, then invoke `/bdfl:activate`.
 - Static Claude status dots: confirm `statusLine.refreshInterval` is `1` in `~/.claude/settings.json`, then restart Claude Code. The host does not support sub-second status refresh.
-- No permanent BDFL footer in Codex: expected. Codex shows the yellow animation on activation and inside `/bdfl list` because its plugin footer cannot display arbitrary text.
+- No permanent BDFL footer in Codex: expected. Codex shows the yellow animation on activation and inside `$bdfl:list` because its plugin footer cannot display arbitrary text.
 - Model preflight failures: check host authentication, exact allowlisted model, effort support, and `ollamaBaseUrl`.
 - Unfinished state prompt: choose resume, inspect, archive, or cancel. Removing files manually can destroy recovery information.

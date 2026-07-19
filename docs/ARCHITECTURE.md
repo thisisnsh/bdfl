@@ -1,6 +1,6 @@
 # Architecture
 
-`skills/bdfl/` and `src/` are canonical. `scripts/package.js` mirrors them into `plugins/bdfl/` and builds a deterministic `dist/bdfl.skill`; `npm run package:check` rejects drift.
+The command skills under `skills/` and runtime under `src/` are canonical. `scripts/package.js` mirrors them into `plugins/bdfl/` and builds a deterministic activation skill archive at `dist/bdfl.skill`; `npm run package:check` rejects drift.
 
 ## Runtime flow
 

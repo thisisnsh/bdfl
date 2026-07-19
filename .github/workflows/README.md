@@ -5,8 +5,8 @@ The repository uses three workflows:
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `ci.yml` | Every push and pull request | Runs the test suite and manifest/package validation on Node.js 20 and 22, then checks the packaged skill archive. |
-| `sync-plugin.yml` | Pull requests that change canonical or packaged sources | Fails when `plugins/bdfl/` or `dist/bdfl.skill` has drifted from canonical `src/` and `skills/bdfl/` sources. |
-| `release.yml` | SemVer tags such as `v1.2.3`, or a manual run from a tag | Reads the version from the tag, stamps all package and plugin manifests, rebuilds packaged files, runs tests and validation, and publishes checksummed release assets. |
+| `sync-plugin.yml` | Pull requests that change canonical or packaged sources | Fails when `plugins/bdfl/` or `dist/bdfl.skill` has drifted from canonical `src/` and `skills/` sources. |
+| `release.yml` | SemVer tags such as `v1.2.3`, or a manual run from a tag | Reads the version from the tag, stamps manifests, rebuilds packages, validates, and publishes checksummed install and uninstall assets. |
 
 ## Releasing
 
@@ -21,6 +21,8 @@ The release job publishes stable asset names so documentation can always use Git
 
 - `install.sh`
 - `install.ps1`
+- `uninstall.sh`
+- `uninstall.ps1`
 - `bdfl.tar.gz`
 - `bdfl.zip`
 - `bdfl.skill`

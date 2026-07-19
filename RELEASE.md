@@ -66,6 +66,7 @@ npm test
 npm run validate
 unzip -t dist/bdfl.skill
 sh -n install.sh
+sh -n uninstall.sh
 ```
 
 `npm run package` must leave no diff. If it changes tracked files, review and commit those changes before continuing.
@@ -123,6 +124,8 @@ Expected assets:
 
 - `install.sh`
 - `install.ps1`
+- `uninstall.sh`
+- `uninstall.ps1`
 - `bdfl.tar.gz`
 - `bdfl.zip`
 - `bdfl.skill`

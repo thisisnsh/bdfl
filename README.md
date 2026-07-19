@@ -1,5 +1,8 @@
-<h1 align="center">Benevolent Dictator For Life</h1>
-<p align="center">Protect your main context while managed agents work in parallel, ask before crossing boundaries, and integrate only after review and validation.</p>
+<p align="center"><img src="docs/assets/terminal-demo.gif" alt="BDFL plan, agent, inbox, and integration workflow" width="760"></p>
+
+<h1 align="center">BDFL — Benevolent Dictator For Life</h1>
+<p align="center"><strong>BDFL is commanding...</strong></p>
+<p align="center">Protect your main context while managed agents work in isolated branches, return questions to you, and integrate only after review and validation.</p>
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-facc15"></a>
@@ -9,36 +12,19 @@
   <img alt="last commit" src="https://img.shields.io/github/last-commit/thisisnsh/bdfl">
 </p>
 
-<p align="center"><img src="docs/assets/terminal-demo.gif" alt="Animated BDFL terminal management view" width="720"></p>
-
 <p align="center">
   <a href="#install">Install</a> ·
-  <a href="#quick-start">Quick start</a> ·
+  <a href="#use-cases">Use cases</a> ·
+  <a href="#try-it-now">Try it now</a> ·
   <a href="#commands">Commands</a> ·
   <a href="#models">Models</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="INSTALL.md">Installation guide</a>
 </p>
 
-```text
-> /bdfl codex:gpt-5.6-sol:medium
-  BDFL is commanding...
-
-Plans · v3 · diff                    Agents
-- one provider task                  ✓ api-contract     review
-+ split provider and docs            ◌ docs             running
-+ validate together                  ? provider-tests   waiting
-
-Inbox
-? provider-tests: Which fake Ollama response should represent a missing tag?
-> "Return a visible model configuration error."
-
-Tasks
-✓ api-contract approved   ✓ docs approved   batch validation passed
-> i  Integrate temporary branch bdfl/integration-run-42
-```
-
 ## Install
+
+Installation is global by default, so BDFL is available in every project for detected hosts.
 
 ```bash
 # macOS, Linux, WSL, Git Bash
@@ -50,71 +36,110 @@ curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh
 irm https://github.com/thisisnsh/bdfl/releases/latest/download/install.ps1 | iex
 ```
 
-The bootstrap resolves the latest published release, verifies its committed SHA-256 checksum, detects Claude Code and Codex, and installs only detected native integrations. Set `BDFL_VERSION` to pin a specific release. Preview every mutation with `--dry-run`; see [INSTALL.md](INSTALL.md) for update, verification, host-only, and uninstall paths.
+Install only for the current project with `--local`:
 
-### Native host installation
+```bash
+curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh | bash -s -- --local
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://github.com/thisisnsh/bdfl/releases/latest/download/install.ps1))) --local
+```
+
+The installer detects Claude Code and Codex, verifies the release archive checksum, installs each detected native plugin, and prints every path and setting before mutation. Use `--only claude`, `--only codex`, or `--dry-run` to narrow or preview it. See [INSTALL.md](INSTALL.md) for all options.
+
+## Use cases
+
+| When your task looks like this | What BDFL does |
+|---|---|
+| A feature spans API, UI, tests, and docs | Splits independent ownership into parallel isolated worktrees. |
+| A long task keeps crowding the main conversation | Moves execution details and provider streams out of the parent context. |
+| Several agents may touch nearby files | Detects overlap and serializes conflicting ownership. |
+| An agent needs clarification or wider permission | Suspends it and returns the request to Inbox for your decision. |
+| A plan changes after review | Records every revision and lets you choose the version to execute. |
+| Completed branches need a safe landing path | Reviews per task, validates the batch on a temporary branch, then asks before integration. |
+| A previous run crashed or was interrupted | Offers resume, inspect, archive, or cancel without choosing automatically. |
+
+## Try it now
+
+Start from a clean Git worktree. BDFL never activates automatically.
+
+### Claude Code
+
+```text
+/bdfl:activate
+Build the API and CLI in separate tasks, then validate them together.
+/bdfl:list
+```
+
+Choose Claude explicitly:
+
+```text
+/bdfl:activate claude:sonnet:medium
+Refactor authentication while a separate agent updates deterministic tests.
+```
+
+### Codex
+
+```text
+$bdfl:activate
+Split the provider implementation, tests, and documentation into safe parallel tasks.
+$bdfl:list
+```
+
+Choose Codex explicitly:
+
+```text
+$bdfl:activate codex:gpt-5.6-sol:medium
+Add the migration, rollback test, and operator documentation.
+```
+
+### Ollama
+
+Ollama runs through the current host's supported local-model harness. Tags containing colons are preserved exactly.
 
 Claude Code:
 
 ```text
-/plugin marketplace add thisisnsh/bdfl
-/plugin install bdfl@bdfl
+/bdfl:activate ollama:qwen3.5:9b:medium
+Audit this module and add focused regression tests.
 ```
 
 Codex:
 
-```bash
-codex plugin marketplace add thisisnsh/bdfl
-codex plugin add bdfl@bdfl
-```
-
-The packaged standalone Codex skill is also available at [`dist/bdfl.skill`](dist/bdfl.skill).
-
-## Quick start
-
-From a clean Git worktree inside Claude Code or Codex:
-
 ```text
-/bdfl
-> Build the provider adapters and their deterministic test harnesses.
-> Keep documentation separate so it can run in parallel.
-/bdfl list
+$bdfl:activate ollama:qwen3.5:9b:medium
+Audit this module and add focused regression tests.
 ```
 
-BDFL does not enter plan mode. Use the host's normal plan mode when you want it; BDFL records revisions while active and opens its version selector after native approval.
+With no model argument, BDFL defaults to `claude:sonnet:medium` when Claude is installed. If Claude is unavailable and Codex is installed, it uses `codex:gpt-5.6-sol:medium`. An explicit configured or command-line model always wins.
 
 ## Commands
 
-| Command | Result |
-|---|---|
-| `/bdfl [provider:model:effort]` | Activate, optionally with an exact listed model. |
-| `/bdfl list` | Open Runs, Plans, Tasks, Agents, Inbox, and Models. |
-| `/bdfl help` | Show commands, keys, models, permissions, and recovery. |
-| `/bdfl off` | Deactivate after running agents are resolved. |
+| Action | Claude Code | Codex |
+|---|---|---|
+| Activate with an optional exact model | `/bdfl:activate [provider:model:effort]` | `$bdfl:activate [provider:model:effort]` |
+| Open Runs, Plans, Tasks, Agents, Inbox, and Models | `/bdfl:list` | `$bdfl:list` |
+| Show commands, keys, models, permissions, and recovery | `/bdfl:help` | `$bdfl:help` |
+| Deactivate after active agents are resolved | `/bdfl:off` | `$bdfl:off` |
 
-There is deliberately no `/bdfl plan`; native host planning remains native.
-
-Claude Code namespaces plugin skills, so the native plugin command remains available as `/bdfl:bdfl`. The installer also creates a user-level `/bdfl` launcher for the shorter command. Neither command activates automatically: BDFL starts only after explicit invocation, and the status line stays hidden before activation and after `/bdfl off`.
+Plugin skills are intentionally explicit and namespaced by the host. There is no BDFL plan command: enter and leave the host's native plan mode normally.
 
 ## What you get
 
 | Capability | Guarantee |
 |---|---|
-| Context protection | Agents use a shared process protocol instead of consuming native parent subagent context. |
+| Context protection | Agents use BDFL's shared process protocol rather than the host's parent-session subagent interface. |
 | Isolated work | Every attempt gets a `.bdfl/` worktree and branch. |
-| Versioned planning | Every revision is retained; you choose the execution version. |
-| Explicit boundaries | Questions, permission requests, recovery, approval, and integration wait for you. |
-| Safe scheduling | Dependency cycles fail early; overlapping paths are serialized. |
-| Batch integration | Approved work lands on a temporary branch and is validated before integration is offered. |
-| Exact models | Provider, model—including colon-bearing Ollama tags—and effort pass through without fallback. |
+| Versioned planning | Every revision is retained; you select the execution version. |
+| Explicit boundaries | Questions, permissions, recovery, approval, and integration wait for you. |
+| Safe scheduling | Dependency cycles fail early and overlapping paths are serialized. |
+| Batch integration | Approved work is validated on a temporary integration branch before it is offered. |
+| Exact models | Provider, exact model, and effort pass through without silent fallback. |
 
-## Plans and versions
+## Plans, agents, and keys
 
-In Plan detail, up/down selects a revision and left/right switches between diff and full views. Diff additions are green and removals red; full mode shows the selected revision in white. Press `a` to choose the highlighted version. BDFL then compiles a separate execution manifest with objective, context, allowed paths, dependencies, exact model, permission mode, validation commands, and completion criteria for every atomic task.
-
-Outside native plan mode, BDFL compiles the same manifest after material questions are resolved. It dispatches only when at least two tasks are independent or you explicitly ask for agents.
-
-## Agent lifecycle and keys
+Plan detail uses up/down to select a revision and left/right to switch between colored diff and full text. Press `a` to select a version. BDFL compiles an execution manifest with objective, context, allowed paths, dependencies, exact model, permission mode, validation commands, and completion criteria for every atomic task.
 
 ```text
 pending → running → waiting → running → review → approved → validating → integrated
@@ -125,17 +150,17 @@ pending → running → waiting → running → review → approved → validati
 |---|---|
 | `x` | Stop the highlighted agent. |
 | `r` | Rewind from the last safe checkpoint. |
-| `f` | Add corrective instructions in a fresh follow-up attempt. |
+| `f` | Add corrective instructions in a fresh attempt. |
 | `a` | Approve the highlighted plan version or completed task. |
 | `i` | Integrate a successfully validated batch. |
 | `o` | Open the full diff or log. |
 | `?` | Show contextual help. |
 
-Left/right changes tabs, up/down selects rows, Enter opens details, and Esc returns. Available keys stay visible in the bottom row.
+Left/right changes tabs, up/down selects rows, Enter opens details, and Esc returns. Available keys remain visible in the bottom row.
 
 ## Models
 
-Global settings use your platform configuration directory. Specifications are `provider:exact-model:exact-effort`; parsing uses the first and final colon:
+Model specifications use `provider:exact-model:exact-effort`. BDFL parses the first and final colon, so `ollama:qwen3.5:9b:medium` passes `qwen3.5:9b` unchanged.
 
 ```json
 {
@@ -153,15 +178,15 @@ Global settings use your platform configuration directory. Specifications are `p
 }
 ```
 
-Claude and Codex use their headless CLIs. Ollama uses the current parent host's supported local-model harness. Preflight checks the executable, authentication surface, exact model, endpoint, and effort; failures become visible task states. See [Model providers](docs/MODEL-PROVIDERS.md).
+Preflight checks the executable, authentication surface, exact allowlisted model, endpoint, and effort. A failure becomes a visible task state; BDFL never silently substitutes another model. See [Model providers](docs/MODEL-PROVIDERS.md).
 
 ## Permission and recovery guarantees
 
 - Parent permissions are preserved; parent plan mode maps to ordinary default execution permissions.
-- An agent cannot infer an answer or broaden permission.
+- Agents cannot infer answers or broaden permission.
 - A dirty main worktree blocks dispatch until you clean it, authorize a recoverable snapshot, or cancel.
-- Unfinished state always offers `resume`, `inspect`, `archive`, or `cancel`; BDFL never chooses for you.
-- Rewind retains the prior attempt, branch, logs, events, checkpoints, and session ID.
+- Unfinished state always offers `resume`, `inspect`, `archive`, or `cancel`.
+- Rewind retains prior branches, logs, events, checkpoints, and session IDs.
 - Agent work never merges directly into `main`.
 
 Read [Permissions](docs/PERMISSIONS.md) and [Recovery](docs/RECOVERY.md) for the full contract.
@@ -174,21 +199,28 @@ host request → plan revisions → selected plan → execution manifest
              → batch validation → explicit integration
 ```
 
-Canonical runtime code lives in `src/` and the canonical skill in `skills/bdfl/`. Deterministic packaging mirrors both into `plugins/bdfl/`; CI fails on drift.
+Canonical runtime code lives in `src/` and canonical command skills live in `skills/`. Deterministic packaging mirrors them into `plugins/bdfl/`; CI fails when packaged files drift.
 
-## Privacy and security
+## Status, privacy, and limitations
 
-BDFL stores run state, worktrees, normalized events, and logs locally under `.bdfl/`, which is gitignored. Provider prompts and code are sent only through the configured Claude, Codex, or local Ollama harness. BDFL does not run a telemetry service and does not copy authentication tokens into project state. Review [SECURITY.md](SECURITY.md) before using full-access permissions.
+Claude Code's yellow status line appears only while BDFL is active and refreshes once per second, the host's fastest supported interval. Its verb follows durable work state: commanding, strategizing, delegating, orchestrating, executing, awaiting, reviewing, validating, or integrating. Codex cannot accept arbitrary permanent plugin footer text, so it shows the same animated yellow banner during activation and in BDFL's terminal UI without patching or wrapping Codex.
 
-## Current limitations
+BDFL stores local run state, worktrees, normalized events, and logs under gitignored `.bdfl/`. Provider prompts and code go only through the configured Claude, Codex, or local Ollama harness. BDFL runs no telemetry service and does not copy authentication tokens into project state. Real-provider smoke tests are opt-in, and no benchmark or reliability claim is published without reproducible measurements.
 
-- Codex's supported footer does not accept arbitrary plugin text, so Codex displays the animated yellow banner during activation and throughout BDFL's terminal UI. BDFL does not patch or wrap Codex to fake a permanent footer.
-- Claude Code refreshes the status line once per second, the fastest supported interval. BDFL's shared terminal UI animates at 500 ms.
-- The status verb follows durable process state: commanding, strategizing, delegating, orchestrating, executing, awaiting, reviewing, validating, or integrating.
-- Headless providers cannot surface every interactive host prompt identically. Unsupported requests fail visibly and remain recoverable.
-- Real-provider smoke tests are opt-in; deterministic fake harnesses run in CI.
-- No benchmark, speedup, or reliability claim is published without a reproducible measurement.
+## Uninstall
+
+Remove the global installation and restore recorded host settings:
+
+```bash
+curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.sh | sh
+```
+
+```powershell
+irm https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.ps1 | iex
+```
+
+For a project-local installation, append `--local`. Add `--purge` only when you also want to permanently delete the current project's `.bdfl/` run state and recovery worktrees. Uninstall removes only receipt-owned plugin files and restores settings captured during installation.
 
 ## Project
 
-[Contributing](CONTRIBUTING.md) · [Documentation](docs/ARCHITECTURE.md) · [Open an issue](https://github.com/thisisnsh/bdfl/issues) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [MIT license](LICENSE)
+[Contributing](CONTRIBUTING.md) · [Documentation](docs/ARCHITECTURE.md) · [Release guide](RELEASE.md) · [Open an issue](https://github.com/thisisnsh/bdfl/issues) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [MIT license](LICENSE)
