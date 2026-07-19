@@ -55,6 +55,8 @@ test('model tool elicits all options without a four-option prompt limit', async 
   await new Promise((resolve) => setImmediate(resolve));
   const request = messages.find((message) => message.method === 'elicitation/create');
   assert.equal(request.params.requestedSchema.properties.selection.enum.length, 5);
+  assert.match(request.params.message, /contains all 5 configured choices; expand it/);
+  assert.equal(request.params.requestedSchema.properties.selection.description, 'Expand this selector to see all 5 choices.');
   await server.handleMessage({
     jsonrpc: '2.0', id: request.id,
     result: { action: 'accept', content: { selection: 'codex:gpt-5.6-sol:medium' } }

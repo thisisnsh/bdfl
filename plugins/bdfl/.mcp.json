@@ -2,7 +2,8 @@
   "mcpServers": {
     "bdfl": {
       "command": "node",
-      "args": ["${PLUGIN_ROOT}/bin/bdfl-mcp.js"]
+      "args": ["./bin/bdfl-mcp.js"],
+      "cwd": "."
     }
   }
 }

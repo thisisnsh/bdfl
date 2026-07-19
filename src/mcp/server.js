@@ -48,6 +48,7 @@ function choiceSchema(title, values, defaultValue) {
       selection: {
         type: 'string',
         title,
+        description: `Expand this selector to see all ${values.length} choices.`,
         enum: values,
         ...(defaultValue ? { default: defaultValue } : {})
       }
@@ -99,7 +100,7 @@ class BdflMcpServer {
   async chooseModel() {
     const settings = this.settingsLoader();
     const response = await this.elicit(
-      `Current model: ${settings.defaultModel}. Choose the exact model for future BDFL runs.`,
+      `Current model: ${settings.defaultModel}. The Model selector contains all ${settings.models.length} configured choices; expand it, then choose the exact model for future BDFL runs.`,
       choiceSchema('Model', settings.models, settings.defaultModel)
     );
     if (response.action === 'unsupported') {

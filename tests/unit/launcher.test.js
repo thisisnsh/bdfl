@@ -32,3 +32,32 @@ test('Claude activation resolves the executable and management skills use MCP', 
     assert.doesNotMatch(contents, /CLAUDE_PLUGIN_ROOT|bin\/bdfl/);
   }
 });
+
+test('Codex starts the bundled MCP server from the plugin directory', () => {
+  const config = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', '..', 'codex', '.mcp.json'), 'utf8'));
+  assert.deepEqual(config.mcpServers.bdfl, {
+    command: 'node',
+    args: ['./bin/bdfl-mcp.js'],
+    cwd: '.'
+  });
+  const pluginRoot = path.resolve(__dirname, '..', '..', 'plugins', 'bdfl');
+  const request = {
+    jsonrpc: '2.0',
+    id: 0,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2025-06-18',
+      capabilities: {},
+      clientInfo: { name: 'test', version: '1.0.0' }
+    }
+  };
+  const result = spawnSync(config.mcpServers.bdfl.command, config.mcpServers.bdfl.args, {
+    cwd: pluginRoot,
+    input: `${JSON.stringify(request)}\n`,
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout);
+  assert.equal(response.id, 0);
+  assert.equal(response.result.protocolVersion, '2025-06-18');
+});

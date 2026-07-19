@@ -1,6 +1,6 @@
 {
   "name": "bdfl",
-  "version": "0.0.0-development+codex.20260719210423",
+  "version": "0.0.0-development+codex.20260719213344",
   "description": "Managed parallel agents with isolated Git worktrees",
   "author": {
     "name": "thisisnsh",
