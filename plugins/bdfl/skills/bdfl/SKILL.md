@@ -33,4 +33,3 @@ description: Coordinate substantial coding work with managed parallel agents, ve
 - `/bdfl off`: resolve running agents, then deactivate.
 
 Read [references/commands.md](references/commands.md) before handling interactive commands, [references/orchestration.md](references/orchestration.md) before dispatch or integration, and [references/state-schema.md](references/state-schema.md) when reading or changing persisted state.
-

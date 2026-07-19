@@ -14,12 +14,18 @@ function projectRootFromInput(input, fallback = process.cwd()) {
   }
 }
 
+function isActiveState(state = {}) {
+  const terminal = new Set(['completed', 'cancelled', 'archived']);
+  return (state.runs || []).some((run) => !terminal.has(run.status));
+}
+
 function statusline({ now = Date.now(), color = process.env.BDFL_STATUS_NO_COLOR !== '1', state, projectRoot = process.cwd() } = {}) {
   let current = state;
   if (!current) {
     try { current = new StateStore(projectRoot).load(); }
     catch { current = initialState(); }
   }
+  if (!isActiveState(current)) return '';
   return frameAt(now, color, verbForState(current), 1000);
 }
 
@@ -28,4 +34,4 @@ if (require.main === module) {
   process.stdout.write(statusline({ projectRoot: projectRootFromInput(input) }));
 }
 
-module.exports = { projectRootFromInput, statusline };
+module.exports = { projectRootFromInput, isActiveState, statusline };

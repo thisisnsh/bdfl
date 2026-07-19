@@ -46,6 +46,7 @@ function installerPaths({ platform = process.platform, env = process.env, homedi
   return {
     claudeRoot,
     claudePlugin: path.join(claudeRoot, 'plugins', 'marketplaces', 'bdfl'),
+    claudeSkill: path.join(claudeRoot, 'skills', 'bdfl'),
     claudeSettings: path.join(claudeRoot, 'settings.json'),
     codexRoot,
     codexPlugin: path.join(agentsRoot, 'plugins', 'plugins', 'bdfl'),
@@ -98,6 +99,26 @@ function mergeCodexMarketplace(current) {
   return next;
 }
 
+function claudeSkill(runtime) {
+  return `---
+name: bdfl
+description: Activate and manage BDFL only when the user explicitly invokes /bdfl.
+disable-model-invocation: true
+argument-hint: "[list|help|off|provider:model:effort]"
+---
+
+# BDFL
+
+Run the installed BDFL runtime and use its output as the command state:
+
+!\`node ${JSON.stringify(runtime)} $ARGUMENTS\`
+
+After the runtime succeeds, coordinate the requested work with isolated task worktrees, explicit questions and permissions, per-task review, batch validation, and user-approved integration. Preserve native plan mode and never merge agent work directly into the main branch.
+
+Never activate BDFL unless this personal skill was explicitly invoked by the user.
+`;
+}
+
 class Installer {
   constructor({ sourceRoot = path.resolve(__dirname, '..'), paths = installerPaths(), io = fs, run = spawnSync } = {}) {
     this.sourceRoot = sourceRoot;
@@ -125,9 +146,10 @@ class Installer {
     if (hosts.includes('claude')) {
       operations.push({
         type: 'copy', host: 'claude', from: this.sourceRoot, to: this.paths.claudePlugin,
-        allow: ['.claude-plugin', 'agents', 'commands', 'skills', 'src', 'package.json', 'LICENSE']
+        allow: ['.claude-plugin', 'agents', 'bin', 'claude', 'src', 'package.json', 'LICENSE']
       });
       operations.push({ type: 'claude-native', host: 'claude', path: this.paths.claudePlugin });
+      operations.push({ type: 'claude-skill', host: 'claude', path: this.paths.claudeSkill });
       operations.push({ type: 'settings', host: 'claude', path: this.paths.claudeSettings, key: 'statusLine' });
     }
     if (hosts.includes('codex')) {
@@ -148,6 +170,7 @@ class Installer {
       hosts: plan.hosts,
       paths: this.paths,
       previous: structuredClone(previousReceipt?.previous || {}),
+      managed: structuredClone(previousReceipt?.managed || {}),
       installedAt: previousReceipt?.installedAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -156,6 +179,7 @@ class Installer {
       report(operation, 'start');
       if (operation.type === 'copy') {
         if (this.io.existsSync(operation.to) && !options.force && !previousReceipt) throw new Error(`Existing unmanaged path requires --force: ${operation.to}`);
+        if (this.io.existsSync(operation.to) && previousReceipt) this.io.rmSync(operation.to, { recursive: true, force: true });
         this.io.mkdirSync(path.dirname(operation.to), { recursive: true });
         this.io.cpSync(operation.from, operation.to, {
           recursive: true,
@@ -170,6 +194,12 @@ class Installer {
         this.runClaude(['plugin', 'marketplace', 'add', operation.path]);
         this.runClaude(['plugin', 'install', 'bdfl@bdfl']);
         this.runClaude(['plugin', 'update', 'bdfl@bdfl']);
+      } else if (operation.type === 'claude-skill') {
+        const owned = previousReceipt?.managed?.claudeSkill === operation.path;
+        if (this.io.existsSync(operation.path) && !owned && !options.force) throw new Error(`Existing unmanaged path requires --force: ${operation.path}`);
+        this.io.mkdirSync(operation.path, { recursive: true });
+        this.io.writeFileSync(path.join(operation.path, 'SKILL.md'), claudeSkill(path.join(this.paths.claudePlugin, 'bin', 'bdfl.js')));
+        receipt.managed.claudeSkill = operation.path;
       } else if (operation.type === 'settings') {
         const current = readJson(operation.path, {});
         const command = `node ${JSON.stringify(path.join(this.paths.claudePlugin, 'src', 'hooks', 'statusline.js'))}`;
@@ -198,6 +228,10 @@ class Installer {
       if (options.dryRun) { removed.push(target); continue; }
       if (this.io.existsSync(target)) { this.io.rmSync(target, { recursive: true, force: true }); removed.push(target); }
     }
+    if (!options.dryRun && receipt.managed?.claudeSkill && this.io.existsSync(receipt.managed.claudeSkill)) {
+      this.io.rmSync(receipt.managed.claudeSkill, { recursive: true, force: true });
+      removed.push(receipt.managed.claudeSkill);
+    }
     if (!options.dryRun) {
       if (receipt.previous.claudeSettings) writeJson(this.paths.claudeSettings, receipt.previous.claudeSettings);
       if (receipt.previous.codexMarketplace) writeJson(this.paths.codexMarketplace, receipt.previous.codexMarketplace);
@@ -224,6 +258,7 @@ function theme(enabled) {
 function operationLabel(operation) {
   if (operation.type === 'copy' && operation.host === 'claude') return `Claude marketplace files  ${operation.to}`;
   if (operation.type === 'claude-native') return 'Claude marketplace registration and plugin install';
+  if (operation.type === 'claude-skill') return `Claude /bdfl launcher    ${operation.path}`;
   if (operation.type === 'settings') return `Claude status line       ${operation.path}`;
   if (operation.type === 'copy' && operation.host === 'codex') return `Codex plugin files       ${operation.to}`;
   if (operation.type === 'marketplace') return `Codex marketplace entry  ${operation.path}`;
@@ -283,4 +318,4 @@ function main(argv = process.argv.slice(2), output = process.stdout, error = pro
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { parseArgs, commandAvailable, detectHosts, installerPaths, sha256, verifyChecksum, mergeClaudeSettings, mergeCodexMarketplace, Installer, LOGO, theme, operationLabel, formatPlan, formatCompletion, main };
+module.exports = { parseArgs, commandAvailable, detectHosts, installerPaths, sha256, verifyChecksum, mergeClaudeSettings, mergeCodexMarketplace, claudeSkill, Installer, LOGO, theme, operationLabel, formatPlan, formatCompletion, main };

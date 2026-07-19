@@ -18,7 +18,7 @@ irm https://github.com/thisisnsh/bdfl/releases/latest/download/install.ps1 | iex
 
 Both bootstraps download the latest release archive and `checksums.txt`, verify SHA-256 before extraction, and run `bin/install.js` from the verified archive. Set `BDFL_VERSION` (without the leading `v`) to pin a specific release.
 
-The installer displays detected hosts and every planned path before writing. For Claude Code it registers the copied source as a native marketplace, installs or updates `bdfl@bdfl`, and configures a yellow status line with Claude Code's supported one-second refresh interval. Restart each installed host before invoking `/bdfl`.
+The installer displays detected hosts and every planned path before writing. For Claude Code it registers the copied source as a native marketplace, installs or updates `bdfl@bdfl`, adds an explicit-only personal `/bdfl` launcher, and configures a yellow status line with Claude Code's supported one-second refresh interval. Restart each installed host before invoking `/bdfl`.
 
 ## Options
 

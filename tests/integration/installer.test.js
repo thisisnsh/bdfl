@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseArgs, installerPaths, verifyChecksum, mergeClaudeSettings, Installer, formatPlan } = require('../../bin/install');
+const { parseArgs, installerPaths, verifyChecksum, mergeClaudeSettings, claudeSkill, Installer, formatPlan } = require('../../bin/install');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-installer-'));
@@ -33,6 +33,9 @@ test('dry-run lists every mutation without writing', (t) => {
   const installer = new Installer({ sourceRoot: source, paths, run });
   const plan = installer.install({ dryRun: true }, { claude: true, codex: true, ollama: true });
   assert.deepEqual(plan.hosts, ['claude', 'codex']);
+  const claudeCopy = plan.operations.find((item) => item.type === 'copy' && item.host === 'claude');
+  assert.equal(claudeCopy.allow.includes('skills'), false);
+  assert.equal(claudeCopy.allow.includes('commands'), false);
   assert.ok(plan.operations.some((item) => item.path === paths.claudeSettings));
   assert.equal(fs.existsSync(paths.receipt), false);
 });
@@ -47,6 +50,9 @@ test('installation is repeatable and uninstall restores host files', (t) => {
   assert.equal(JSON.parse(fs.readFileSync(paths.codexMarketplace)).plugins.filter((item) => item.name === 'bdfl').length, 1);
   assert.equal(JSON.parse(fs.readFileSync(paths.claudeSettings)).theme, 'dark');
   assert.equal(JSON.parse(fs.readFileSync(paths.claudeSettings)).statusLine.refreshInterval, 1);
+  const launcher = fs.readFileSync(path.join(paths.claudeSkill, 'SKILL.md'), 'utf8');
+  assert.match(launcher, /disable-model-invocation: true/);
+  assert.match(launcher, /!`node .*bin\/bdfl\.js.*\$ARGUMENTS`/);
   assert.ok(calls.some(([, args]) => args.join(' ') === `plugin marketplace add ${paths.claudePlugin}`));
   assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin install bdfl@bdfl'));
   assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin update bdfl@bdfl'));
@@ -54,6 +60,7 @@ test('installation is repeatable and uninstall restores host files', (t) => {
   assert.deepEqual(JSON.parse(fs.readFileSync(paths.claudeSettings)), { theme: 'dark' });
   assert.equal(JSON.parse(fs.readFileSync(paths.codexMarketplace)).plugins.length, 0);
   assert.equal(fs.existsSync(paths.claudePlugin), false);
+  assert.equal(fs.existsSync(paths.claudeSkill), false);
 });
 
 test('existing unmanaged destinations require force', (t) => {
@@ -82,6 +89,13 @@ test('configures Claude status refresh without discarding unrelated settings', (
     enabledPlugins: { 'bdfl@bdfl': true },
     statusLine: { type: 'command', command: 'node statusline.js', padding: 0, refreshInterval: 1 }
   });
+});
+
+test('builds an explicit-only bare Claude command launcher', () => {
+  const value = claudeSkill('/plugins/bdfl/bin/bdfl.js');
+  assert.match(value, /^---\nname: bdfl/m);
+  assert.match(value, /disable-model-invocation: true/);
+  assert.match(value, /explicit questions and permissions/);
 });
 
 test('calculates Windows paths and rejects checksum failures', (t) => {
