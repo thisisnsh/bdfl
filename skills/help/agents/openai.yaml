@@ -1,5 +1,5 @@
 interface:
-  display_name: "BDFL Help"
+  display_name: "bdfl:help"
   short_description: "Show BDFL commands, keys, models, permissions, and recovery"
   default_prompt: "Use $bdfl:help to explain BDFL commands and safeguards."
 policy:

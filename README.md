@@ -1,7 +1,4 @@
-<p align="center"><img src="docs/assets/terminal-demo.gif" alt="BDFL plan, agent, inbox, and integration workflow" width="760"></p>
-
 <h1 align="center">BDFL — Benevolent Dictator For Life</h1>
-<p align="center"><strong>BDFL is commanding...</strong></p>
 <p align="center">Protect your main context while managed agents work in isolated branches, return questions to you, and integrate only after review and validation.</p>
 
 <p align="center">
@@ -11,6 +8,8 @@
   <a href="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml"><img alt="tests" src="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="last commit" src="https://img.shields.io/github/last-commit/thisisnsh/bdfl">
 </p>
+
+<p align="center"><img src="docs/assets/terminal-demo.gif" alt="BDFL plan, agent, inbox, and integration workflow" width="760"></p>
 
 <p align="center">
   <a href="#install">Install</a> ·
@@ -124,6 +123,8 @@ With no model argument, BDFL defaults to `claude:sonnet:medium` when Claude is i
 | Deactivate after active agents are resolved | `/bdfl:off` | `$bdfl:off` |
 
 Plugin skills are intentionally explicit and namespaced by the host. There is no BDFL plan command: enter and leave the host's native plan mode normally.
+
+Claude Code may abbreviate completion-menu entries as `/off (bdfl)` or `/list (bdfl)`; the name in parentheses is the plugin namespace, so the full invocations remain `/bdfl:off` and `/bdfl:list`. Codex displays the equivalent lowercase namespaced skills directly.
 
 ## What you get
 

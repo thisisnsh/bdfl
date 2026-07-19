@@ -12,7 +12,7 @@
   "keywords": ["agents", "orchestration", "worktrees", "context"],
   "skills": "./skills/",
   "interface": {
-    "displayName": "BDFL",
+    "displayName": "bdfl",
     "shortDescription": "Managed agents with safe Git integration",
     "longDescription": "BDFL protects the main context by coordinating parallel agents in isolated worktrees, routing questions through an inbox, and validating work before integration.",
     "developerName": "thisisnsh",

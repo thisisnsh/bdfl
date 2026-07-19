@@ -1,5 +1,5 @@
 interface:
-  display_name: "BDFL Activate"
+  display_name: "bdfl:activate"
   short_description: "Activate managed agents with safe integration"
   default_prompt: "Use $bdfl:activate with an optional provider:model:effort specification."
 policy:
