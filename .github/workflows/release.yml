@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm test
+      - run: npm run validate
+      - name: Build archives
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tar --exclude=.git --exclude=.bdfl --exclude="bdfl-${version}.tar.gz" --exclude="bdfl-${version}.zip" --exclude=checksums.txt -czf "bdfl-${version}.tar.gz" .
+          zip -qr "bdfl-${version}.zip" . -x '.git/*' '.bdfl/*' "bdfl-${version}.tar.gz" "bdfl-${version}.zip" checksums.txt
+          sha256sum "bdfl-${version}.tar.gz" "bdfl-${version}.zip" dist/bdfl.skill > checksums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            bdfl-*.tar.gz
+            bdfl-*.zip
+            dist/bdfl.skill
+            checksums.txt

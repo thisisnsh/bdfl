@@ -1,0 +1,27 @@
+name: Bug report
+description: Report reproducible BDFL behavior
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      options: [Claude Code, Codex, Both]
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Behavior
+      description: What happened, what you expected, and exact recovery state. Remove secrets.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Minimal commands, model specification, and relevant versions.
+    validations:
+      required: true
+
