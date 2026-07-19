@@ -1,7 +1,4 @@
-<p align="center"><img src="docs/assets/terminal-demo.gif" alt="Animated BDFL terminal management view" width="720"></p>
-
 <h1 align="center">Benevolent Dictator For Life</h1>
-<p align="center"><strong>BDFL is commanding...</strong></p>
 <p align="center">Protect your main context while managed agents work in parallel, ask before crossing boundaries, and integrate only after review and validation.</p>
 
 <p align="center">
@@ -11,6 +8,8 @@
   <a href="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml"><img alt="tests" src="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="last commit" src="https://img.shields.io/github/last-commit/thisisnsh/bdfl">
 </p>
+
+<p align="center"><img src="docs/assets/terminal-demo.gif" alt="Animated BDFL terminal management view" width="720"></p>
 
 <p align="center">
   <a href="#install">Install</a> ·
@@ -94,6 +93,8 @@ BDFL does not enter plan mode. Use the host's normal plan mode when you want it;
 | `/bdfl off` | Deactivate after running agents are resolved. |
 
 There is deliberately no `/bdfl plan`; native host planning remains native.
+
+Claude Code namespaces plugin skills, so the native plugin command remains available as `/bdfl:bdfl`. The installer also creates a user-level `/bdfl` launcher for the shorter command. Neither command activates automatically: BDFL starts only after explicit invocation, and the status line stays hidden before activation and after `/bdfl off`.
 
 ## What you get
 
