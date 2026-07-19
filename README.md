@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/assets/terminal-demo.gif" alt="Animated BDFL terminal management view" width="720"></p>
 
-<h1 align="center">BDFL - Benevolent Dictator For Life</h1>
+<h1 align="center">Benevolent Dictator For Life</h1>
 <p align="center"><strong>BDFL is commanding...</strong></p>
 <p align="center">Protect your main context while managed agents work in parallel, ask before crossing boundaries, and integrate only after review and validation.</p>
 
