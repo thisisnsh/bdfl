@@ -5,8 +5,8 @@ description: Open BDFL's model chooser and select the exact provider, model, and
 
 # BDFL Models
 
-Run `bdfl models` as an ordinary tool action. In an interactive terminal, use up/down to highlight an allowlisted model and `a` to select it. If the user already supplied an exact model, run `bdfl models provider:model:effort` with that value unchanged.
+Immediately run BDFL's bundled executable at `../../bin/bdfl` relative to this `SKILL.md`; never call bare `bdfl` and do not announce the tool call first. With no supplied model, pass `models`. With an exact model, pass `models provider:model:effort` unchanged.
 
-When the host returns a non-interactive list, show it to the user and ask which exact entry to select. Wait for the answer before running the selection command.
+When no model was supplied, use the returned list to ask one compact host-native choice question. Wait for the answer, then run the bundled executable again with that exact entry. Do not print terminal arrow-key instructions: tool actions are non-interactive.
 
 Reject malformed or unlisted specifications. Never silently substitute a provider, model, or effort.

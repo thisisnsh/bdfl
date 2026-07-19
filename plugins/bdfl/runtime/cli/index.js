@@ -6,7 +6,6 @@ const { loadSettings, saveSettings } = require('../core/settings');
 const { validateModelSpec } = require('../core/model-spec');
 const { StateStore, recoveryOptions } = require('../state/store');
 const { TuiController } = require('../tui/controller');
-const { bannerFrame, verbForState } = require('../tui/banner');
 
 const HELP = `Usage: bdfl [on|off|models|plans|agents]
 
@@ -66,9 +65,20 @@ function snapshot(state, settings, options, initialTab = 'Runs') {
     tasks: state.tasks,
     agents: state.agents,
     inbox: state.inbox,
-    models: settings.models.map((model) => ({ id: model }))
+    models: settings.models.map((model) => ({ id: model, selected: model === settings.defaultModel }))
   }, { ...options, initialTab });
   return controller.render(0);
+}
+
+function formatModelList(settings) {
+  return [
+    'BDFL · models',
+    `Current: ${settings.defaultModel}`,
+    '',
+    ...settings.models.map((model) => `${model === settings.defaultModel ? '●' : '○'} ${model}`),
+    '',
+    'Select: bdfl models <provider:model:effort>'
+  ].join('\n');
 }
 
 function interactiveList(store, settings, io = process, initialTab = 'Runs', persist = saveSettings) {
@@ -78,8 +88,8 @@ function interactiveList(store, settings, io = process, initialTab = 'Runs', per
     tasks: store.load().tasks,
     agents: store.load().agents,
     inbox: store.load().inbox,
-    models: settings.models.map((model) => ({ id: model }))
-  }, { color: true, width: io.stdout.columns || 80, height: io.stdout.rows || 24, initialTab });
+    models: settings.models.map((model) => ({ id: model, selected: model === settings.defaultModel }))
+  }, { color: true, width: io.stdout.columns || 80, height: io.stdout.rows || 24, initialTab, focused: true });
   let frame = 0;
   const draw = () => {
     io.stdout.write(`\u001b[2J\u001b[H${controller.render(frame)}\n`);
@@ -90,6 +100,7 @@ function interactiveList(store, settings, io = process, initialTab = 'Runs', per
     const input = `${buffer}`;
     if (input === '\u0003') return cleanup();
     const result = controller.key(input);
+    if (result.action === 'quit') return cleanup();
     if (result.action === 'select' && result.item?.id) {
       selectModel(result.item.id, settings, persist);
       cleanup();
@@ -99,7 +110,6 @@ function interactiveList(store, settings, io = process, initialTab = 'Runs', per
     draw();
   };
   const cleanup = () => {
-    clearInterval(timer);
     io.stdin.off('data', onData);
     io.stdout.off('resize', onResize);
     if (io.stdin.setRawMode) io.stdin.setRawMode(false);
@@ -109,7 +119,6 @@ function interactiveList(store, settings, io = process, initialTab = 'Runs', per
   io.stdin.resume();
   io.stdin.on('data', onData);
   io.stdout.on('resize', onResize);
-  const timer = setInterval(draw, 500);
   draw();
   return { controller, close: cleanup };
 }
@@ -132,7 +141,8 @@ function main(argv = process.argv.slice(2), io = process, root = process.cwd()) 
       }
     }
     if (io.stdin.isTTY && io.stdout.isTTY) interactiveList(store, settings, io, tab);
-    else io.stdout.write(`${snapshot(store.load(), settings, { color: false, width: io.stdout.columns || 80, height: io.stdout.rows || 24 }, tab)}\n`);
+    else if (command === 'models') io.stdout.write(`${formatModelList(settings)}\n`);
+    else io.stdout.write(`${snapshot(store.load(), settings, { color: false, width: io.stdout.columns || 80, height: io.stdout.rows || 24, focused: true }, tab)}\n`);
     return 0;
   }
   if (command === 'off') {
@@ -143,7 +153,8 @@ function main(argv = process.argv.slice(2), io = process, root = process.cwd()) 
   try {
     if (command && command !== 'on') throw new Error(`Unknown BDFL command: ${command}`);
     const result = activate(root, null, settings, store);
-    io.stdout.write(`${bannerFrame(0, Boolean(io.stdout.isTTY), verbForState(result.state))}\n`);
+    const active = 'BDFL · active';
+    io.stdout.write(`${io.stdout.isTTY ? `\u001b[38;5;220m${active}\u001b[0m` : active}\n`);
     if (!result.active) {
       io.stderr.write(`Unfinished BDFL state found. Choose: ${result.recovery.choices.join(', ')}.\n`);
       return 2;
@@ -156,4 +167,4 @@ function main(argv = process.argv.slice(2), io = process, root = process.cwd()) 
   }
 }
 
-module.exports = { HELP, executableAvailable, defaultModel, activate, deactivate, selectModel, snapshot, interactiveList, main };
+module.exports = { HELP, executableAvailable, defaultModel, activate, deactivate, selectModel, snapshot, formatModelList, interactiveList, main };

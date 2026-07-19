@@ -31,7 +31,7 @@ function verbForState(state = {}) {
 
 function bannerFrame(index, color = true, verb = 'commanding') {
   if (!VERBS.includes(verb)) throw new Error(`Unknown BDFL status verb: ${verb}`);
-  const text = `BDFL is ${verb}${'.'.repeat(PERIODS[((index % PERIODS.length) + PERIODS.length) % PERIODS.length])}`;
+  const text = `BDFL · ${verb}${'.'.repeat(PERIODS[((index % PERIODS.length) + PERIODS.length) % PERIODS.length])}`;
   return color ? `${YELLOW}${text}${RESET}` : text;
 }
 

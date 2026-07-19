@@ -168,7 +168,7 @@ Left/right changes tabs, up/down selects rows, Enter opens details, and Esc retu
 
 Model specifications use `provider:exact-model:exact-effort`. BDFL parses the first and final colon, so `ollama:qwen3.5:9b:medium` passes `qwen3.5:9b` unchanged.
 
-Run `/bdfl:models` or `$bdfl:models`, use up/down to highlight an allowlisted model, and press `a` to select it. You can also provide the exact specification directly to the Models skill.
+Run `/bdfl:models` or `$bdfl:models` and choose from the host-native prompt. You can also provide the exact specification directly to the Models skill. When running `bdfl models` yourself in a real terminal, use up/down and Enter.
 
 ```json
 {
@@ -211,7 +211,7 @@ Canonical runtime code lives in `src/` and canonical command skills live in `ski
 
 ## Status, privacy, and limitations
 
-Claude Code's yellow status line appears only while BDFL is active and refreshes once per second, the host's fastest supported interval. Its verb follows durable work state: commanding, strategizing, delegating, orchestrating, executing, awaiting, reviewing, validating, or integrating. Codex cannot accept arbitrary permanent plugin footer text, so it shows the same animated yellow banner during activation and in BDFL's terminal UI without patching or wrapping Codex.
+Claude Code's yellow status line appears only while BDFL is active. It reports concrete state: selected model plus active agent, task, and unanswered-question counts. Codex cannot accept arbitrary permanent plugin footer text, so BDFL reports state during activation and in its terminal UI without patching or wrapping Codex.
 
 BDFL stores local run state, worktrees, normalized events, and logs under gitignored `.bdfl/`. Provider prompts and code go only through the configured Claude, Codex, or local Ollama harness. BDFL runs no telemetry service and does not copy authentication tokens into project state. Real-provider smoke tests are opt-in, and no benchmark or reliability claim is published without reproducible measurements.
 

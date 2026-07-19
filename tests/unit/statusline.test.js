@@ -2,15 +2,21 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { projectRootFromInput, isActiveState, statusline } = require('../../src/hooks/statusline');
+const { projectRootFromInput, isActiveState, statusSummary, statusline } = require('../../src/hooks/statusline');
 
-test('renders the process verb with the current animation frame', () => {
+test('renders only concrete model and workload facts', () => {
   const output = statusline({
-    now: 1500,
     color: false,
-    state: { version: 1, runs: [{ status: 'running' }], tasks: [{ status: 'validating' }] }
+    state: {
+      version: 1,
+      runs: [{ status: 'running', model: 'codex:gpt-5.6-sol:medium' }],
+      tasks: [{ status: 'validating' }, { status: 'completed' }],
+      agents: [{ status: 'running' }],
+      inbox: [{ status: 'open' }]
+    }
   });
-  assert.equal(output, 'BDFL is validating..');
+  assert.equal(output, 'BDFL · codex:gpt-5.6-sol:medium · 1 agent · 1 task · 1 question');
+  assert.doesNotMatch(output, /strategizing|commanding|orchestrating/);
 });
 
 test('uses Claude workspace input to find project state', () => {
@@ -19,8 +25,8 @@ test('uses Claude workspace input to find project state', () => {
 });
 
 test('emits yellow ANSI color even when the status command is not a TTY', () => {
-  const output = statusline({ now: 0, state: { version: 1, runs: [{ status: 'running' }] } });
-  assert.match(output, /^\u001b\[38;5;220mBDFL is commanding\.\u001b\[0m$/);
+  const output = statusline({ state: { version: 1, runs: [{ status: 'running', model: 'claude:sonnet:medium' }] } });
+  assert.match(output, /^\u001b\[38;5;220mBDFL · claude:sonnet:medium\u001b\[0m$/);
 });
 
 test('stays hidden until activation and hides after off', () => {

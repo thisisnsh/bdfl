@@ -7,8 +7,8 @@ const { bannerFrame, verbForState, VERBS, PERIODS } = require('../../src/tui/ban
 
 test('uses the exact ordinary-period animation and yellow ANSI color', () => {
   assert.deepEqual(PERIODS, [1, 2, 3, 4, 3, 2]);
-  assert.match(bannerFrame(0), /^\u001b\[38;5;220mBDFL is commanding\.\u001b\[0m$/);
-  assert.equal(bannerFrame(3, false), 'BDFL is commanding....');
+  assert.match(bannerFrame(0), /^\u001b\[38;5;220mBDFL · commanding\.\u001b\[0m$/);
+  assert.equal(bannerFrame(3, false), 'BDFL · commanding....');
 });
 
 test('selects dynamic verbs from the current process state', () => {
@@ -27,21 +27,28 @@ test('selects dynamic verbs from the current process state', () => {
 test('navigates all tabs, details, Esc, and every contextual action', () => {
   const rows = Object.fromEntries(TABS.map((tab) => [tab.toLowerCase(), [{ id: tab }]]));
   const ui = new TuiController(rows, { color: false });
-  for (let index = 1; index < TABS.length; index += 1) ui.key('\u001b[C');
-  assert.equal(TABS[ui.tab], 'Models');
+  for (let index = 1; index < TABS.length - 1; index += 1) ui.key('\u001b[C');
+  assert.equal(TABS[ui.tab], 'Inbox');
   ui.key('\r');
   assert.equal(ui.detail, true);
   assert.equal(ui.key('\u001b').action, 'back');
+  ui.key('\u001b[C');
+  assert.equal(TABS[ui.tab], 'Models');
   for (const [key, action] of Object.entries(ACTIONS)) {
     assert.equal(ui.key(key).action, key === 'a' ? 'select' : action);
   }
 });
 
 test('opens focused views and exposes model selection', () => {
-  const ui = new TuiController({ models: [{ id: 'claude:sonnet:medium' }] }, { color: false, initialTab: 'Models' });
+  const ui = new TuiController({ models: [{ id: 'claude:sonnet:medium', selected: true }] }, { color: false, initialTab: 'Models', focused: true });
   assert.equal(TABS[ui.tab], 'Models');
   assert.equal(ui.key('a').action, 'select');
-  assert.match(ui.render(), /a select/);
+  assert.equal(ui.key('\r').action, 'select');
+  assert.equal(ui.key('q').action, 'quit');
+  assert.match(ui.render(), /● claude:sonnet:medium/);
+  assert.match(ui.render(), /Enter select/);
+  assert.match(ui.render(), /^BDFL · models/);
+  assert.doesNotMatch(ui.render(), /Runs.*Plans.*Tasks/);
 });
 
 test('plan detail changes versions and switches diff/full modes', () => {

@@ -7,4 +7,4 @@ argument-hint: "[provider:model:effort]"
 
 # BDFL Models
 
-Run `bdfl models $ARGUMENTS` with the Bash tool as an ordinary tool action. With no argument, list the models, show them to the user, and wait for an exact choice. Pass a supplied exact model unchanged. Never substitute a provider, model, or effort.
+Immediately run `"${CLAUDE_PLUGIN_ROOT}/bin/bdfl" models $ARGUMENTS` with the Bash tool. Never call bare `bdfl` and do not announce the tool call first. With no argument, use the returned list to ask one compact choice question, then run the bundled executable with the exact choice. Tool actions are non-interactive, so never show arrow-key instructions. Pass a supplied exact model unchanged. Never substitute a provider, model, or effort.

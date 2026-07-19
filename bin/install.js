@@ -57,6 +57,11 @@ function installerPaths({ platform = process.platform, env = process.env, homedi
     codexPlugin: path.join(agentsRoot, 'plugins', 'plugins', 'bdfl'),
     codexCache: path.join(codexRoot, 'plugins', 'cache', 'personal', 'bdfl'),
     codexMarketplace: path.join(agentsRoot, 'plugins', 'marketplace.json'),
+    launcher: local
+      ? path.join(projectRoot, '.bdfl', 'install', platform === 'win32' ? 'bdfl.cmd' : 'bdfl')
+      : platform === 'win32'
+        ? path.join(env.LOCALAPPDATA || path.join(homedir, 'AppData', 'Local'), 'BDFL', 'bin', 'bdfl.cmd')
+        : path.join(homedir, '.local', 'bin', 'bdfl'),
     receipt: path.join(configRoot, 'install.json')
   };
 }
@@ -75,6 +80,13 @@ function verifyChecksum(file, expected) {
 
 function readJson(file, fallback) {
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : structuredClone(fallback);
+}
+
+function pathExists(io, file) {
+  try { io.lstatSync(file); return true; } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
 }
 
 function writeJson(file, value) {
@@ -160,6 +172,7 @@ class Installer {
       operations.push({ type: 'marketplace', host: 'codex', path: this.paths.codexMarketplace });
       operations.push({ type: 'codex-native', host: 'codex', path: this.paths.codexMarketplace });
     }
+    operations.push({ type: 'launcher', path: this.paths.launcher, host: hosts.includes('codex') ? 'codex' : 'claude' });
     operations.push({ type: 'receipt', path: this.paths.receipt });
     return { hosts, ollama: detected.ollama, scope: this.paths.local ? 'LOCAL' : 'GLOBAL', operations };
   }
@@ -210,6 +223,20 @@ class Installer {
         writeJson(operation.path, mergeCodexMarketplace(current, this.paths.codexPlugin, this.paths.codexMarketplaceRoot));
       } else if (operation.type === 'codex-native') {
         this.runCodex(['plugin', 'add', 'bdfl@personal']);
+      } else if (operation.type === 'launcher') {
+        const targetRoot = operation.host === 'codex' ? this.paths.codexPlugin : this.paths.claudePlugin;
+        const target = path.join(targetRoot, 'bin', 'bdfl');
+        if (!pathExists(this.io, operation.path)) {
+          this.io.mkdirSync(path.dirname(operation.path), { recursive: true });
+          if (process.platform === 'win32' || operation.path.endsWith('.cmd')) {
+            this.io.writeFileSync(operation.path, `@echo off\r\nnode "${path.join(targetRoot, 'bin', 'bdfl.js')}" %*\r\n`);
+          } else {
+            this.io.symlinkSync(target, operation.path);
+          }
+          receipt.managed.launcher = operation.path;
+        } else if (previousReceipt?.managed?.launcher === operation.path) {
+          receipt.managed.launcher = operation.path;
+        }
       }
       report(operation, 'done');
     }
@@ -234,6 +261,11 @@ class Installer {
     for (const cache of [this.paths.claudeCache, this.paths.codexCache]) {
       if (options.dryRun) { if (this.io.existsSync(cache)) removed.push(cache); continue; }
       if (this.io.existsSync(cache)) { this.io.rmSync(cache, { recursive: true, force: true }); removed.push(cache); }
+    }
+    const launcher = receipt.managed?.launcher;
+    if (launcher) {
+      if (options.dryRun) { if (pathExists(this.io, launcher)) removed.push(launcher); }
+      else if (pathExists(this.io, launcher)) { this.io.rmSync(launcher, { force: true }); removed.push(launcher); }
     }
     if (!options.dryRun) this.removeLegacyClaudeSkill(receipt, removed);
     if (!options.dryRun) {
@@ -272,6 +304,7 @@ function operationLabel(operation) {
   if (operation.type === 'copy' && operation.host === 'codex') return `Codex plugin files       ${operation.to}`;
   if (operation.type === 'marketplace') return `Codex marketplace entry  ${operation.path}`;
   if (operation.type === 'codex-native') return 'Codex plugin installation';
+  if (operation.type === 'launcher') return `Terminal launcher        ${operation.path}`;
   return `Installation receipt    ${operation.path}`;
 }
 

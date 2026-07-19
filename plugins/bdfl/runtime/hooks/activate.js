@@ -2,9 +2,9 @@
 'use strict';
 
 const { StateStore } = require('../state/store');
-const { frameAt, verbForState } = require('../tui/banner');
+const { statusline } = require('./statusline');
 
 const store = new StateStore(process.cwd());
 const state = store.load();
 const active = state.runs.some((run) => !['completed', 'cancelled', 'archived'].includes(run.status));
-if (active) process.stdout.write(`${frameAt(Date.now(), process.stdout.isTTY, verbForState(state))}\n`);
+if (active) process.stdout.write(`${statusline({ state, color: Boolean(process.stdout.isTTY) })}\n`);

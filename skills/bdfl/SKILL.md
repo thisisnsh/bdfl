@@ -7,7 +7,7 @@ description: Turn BDFL orchestration on or off for substantial coding work with 
 
 ## Core workflow
 
-1. Run the `bdfl` executable as an ordinary tool action. With no argument or `on`, run exactly `bdfl on`. With `off`, run exactly `bdfl off`. Reject every other argument and direct model changes to the Models skill. If the executable is missing, report a broken plugin installation; do not search npm or install a global package.
+1. Immediately run BDFL's bundled executable at `../../bin/bdfl` relative to this `SKILL.md`; never call bare `bdfl` and do not announce the tool call first. With no argument or `on`, pass exactly `on`. With `off`, pass exactly `off`. Reject every other argument and direct model changes to the Models skill. If the bundled executable is missing, report a broken plugin installation; do not search npm or install a global package.
 2. Activate without changing the host's native planning mode.
 3. Inspect `.bdfl/` for unfinished state. Ask the user to resume, inspect, archive, or cancel; make no automatic recovery choice.
 4. Refuse dispatch from a dirty main worktree until the user cleans it or authorizes a recoverable snapshot.

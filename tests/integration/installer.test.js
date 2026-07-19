@@ -60,12 +60,14 @@ test('installation is repeatable and uninstall restores host files', (t) => {
   assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin install --scope user bdfl@bdfl'));
   assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin update bdfl@bdfl'));
   assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin add bdfl@personal'));
+  assert.equal(fs.lstatSync(paths.launcher).isSymbolicLink(), true);
   installer.uninstall({ dryRun: false });
   assert.deepEqual(JSON.parse(fs.readFileSync(paths.claudeSettings)), { theme: 'dark' });
   assert.equal(JSON.parse(fs.readFileSync(paths.codexMarketplace)).plugins.length, 0);
   assert.equal(fs.existsSync(paths.claudePlugin), false);
   assert.equal(fs.existsSync(paths.claudeCache), false);
   assert.equal(fs.existsSync(paths.codexCache), false);
+  assert.equal(fs.existsSync(paths.launcher), false);
   assert.equal(fs.existsSync(path.dirname(paths.receipt)), false);
 });
 
@@ -116,6 +118,18 @@ test('calculates project-local host and receipt paths', (t) => {
   const marketplace = mergeCodexMarketplace({ plugins: [] }, paths.codexPlugin, paths.codexMarketplaceRoot);
   assert.equal(path.resolve(paths.codexMarketplaceRoot, marketplace.plugins[0].source.path), paths.codexPlugin);
   assert.match(paths.receipt, /\.bdfl\/install\/install\.json$/);
+  assert.match(paths.launcher, /\.bdfl\/install\/bdfl$/);
+});
+
+test('keeps an existing unmanaged terminal command untouched', (t) => {
+  const { source, paths, run } = fixture(t);
+  fs.mkdirSync(path.dirname(paths.launcher), { recursive: true });
+  fs.writeFileSync(paths.launcher, 'existing command');
+  const installer = new Installer({ sourceRoot: source, paths, run });
+  installer.install({ force: true }, { claude: false, codex: true, ollama: false });
+  assert.equal(fs.readFileSync(paths.launcher, 'utf8'), 'existing command');
+  installer.uninstall({ dryRun: false });
+  assert.equal(fs.readFileSync(paths.launcher, 'utf8'), 'existing command');
 });
 
 test('calculates Windows paths and rejects checksum failures', (t) => {

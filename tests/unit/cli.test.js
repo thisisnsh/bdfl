@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { initialState } = require('../../src/state/store');
-const { activate, deactivate, defaultModel, selectModel, snapshot } = require('../../src/cli');
+const { activate, deactivate, defaultModel, selectModel, snapshot, formatModelList, main } = require('../../src/cli');
 
 class Store {
   constructor(state = initialState()) { this.state = state; }
@@ -53,4 +53,13 @@ test('focused snapshots open the requested management tab', () => {
   const state = initialState();
   state.agents.push({ id: 'agent-1' });
   assert.match(snapshot(state, settings, { color: false }, 'Agents'), /\[Agents\]/);
+});
+
+test('non-interactive model list has a current marker and no dead key hints', () => {
+  const configured = { defaultModel: 'claude:sonnet:medium', models: ['claude:sonnet:medium', 'codex:gpt-5.6-sol:medium'] };
+  const output = formatModelList(configured);
+  assert.match(output, /^BDFL · models/m);
+  assert.match(output, /● claude:sonnet:medium/);
+  assert.match(output, /○ codex:gpt-5.6-sol:medium/);
+  assert.doesNotMatch(output, /arrow|↑|↓|Enter/);
 });
