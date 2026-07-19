@@ -297,8 +297,8 @@ function formatCompletion(plan, { color = false, uninstall = false } = {}) {
   const c = theme(color);
   if (uninstall) return `${c.green('✓')} BDFL removed. Recorded host settings were restored.`;
   const lines = ['', c.yellow('READY'), `  ${c.green('✓')} BDFL installed for ${plan.hosts.map((host) => host === 'claude' ? 'Claude Code' : 'Codex').join(' and ')}`];
-  if (plan.hosts.includes('claude')) lines.push(`  ${c.yellow('!')} Restart Claude Code, then run ${c.bold('/bdfl:activate')}`);
-  if (plan.hosts.includes('codex')) lines.push(`  ${c.yellow('!')} Restart Codex, then run ${c.bold('$bdfl:activate')}`);
+  if (plan.hosts.includes('claude')) lines.push(`  ${c.yellow('!')} Restart Claude Code, then run ${c.bold('/bdfl:bdfl')}`);
+  if (plan.hosts.includes('codex')) lines.push(`  ${c.yellow('!')} Restart Codex, then run ${c.bold('$bdfl:bdfl')}`);
   lines.push(`  ${c.dim('Uninstall:')} node bin/install.js --uninstall`);
   return lines.join('\n');
 }

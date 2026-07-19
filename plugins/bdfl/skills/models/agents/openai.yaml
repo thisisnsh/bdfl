@@ -1,0 +1,6 @@
+interface:
+  display_name: "bdfl:models"
+  short_description: "Choose the model used for future BDFL runs"
+  default_prompt: "Use $bdfl:models to inspect and choose the BDFL run model."
+policy:
+  allow_implicit_invocation: false

@@ -10,12 +10,12 @@ const ANSI = Object.freeze({ yellow: '\u001b[38;5;220m', green: '\u001b[32m', re
 function colorize(enabled, color, text) { return enabled ? `${ANSI[color]}${text}${ANSI.reset}` : text; }
 
 class TuiController {
-  constructor(data = {}, { color = true, width = 80, height = 24 } = {}) {
+  constructor(data = {}, { color = true, width = 80, height = 24, initialTab = 'Runs' } = {}) {
     this.data = Object.fromEntries(TABS.map((tab) => [tab, data[tab.toLowerCase()] || []]));
     this.color = color;
     this.width = width;
     this.height = height;
-    this.tab = 0;
+    this.tab = Math.max(0, TABS.indexOf(initialTab));
     this.row = 0;
     this.detail = false;
     this.planVersion = 0;
@@ -44,6 +44,7 @@ class TuiController {
       if (key === 'down') this.row = Math.min(Math.max(0, this.rows().length - 1), this.row + 1);
       if (key === 'enter' && this.rows()[this.row]) { this.detail = true; this.planVersion = 0; }
     }
+    if (key === 'a' && TABS[this.tab] === 'Models') return { action: 'select', item: this.rows()[this.row] };
     if (ACTIONS[key]) return { action: ACTIONS[key], item: this.rows()[this.row], version: this.planVersion + 1 };
     return { action: 'navigate' };
   }
@@ -69,7 +70,13 @@ class TuiController {
     else if (this.detail && TABS[this.tab] === 'Plans') lines.push(...this.renderPlan(this.rows()[this.row]));
     else if (this.detail) lines.push(JSON.stringify(this.rows()[this.row], null, 2));
     else lines.push(...(this.rows().length ? this.rows().map((row, index) => `${index === this.row ? '>' : ' '} ${row.title || row.name || row.id || '(unnamed)'}`) : ['  No items']));
-    const bottom = 'x stop · r rewind · f follow-up · a approve · i integrate · o open · ? help · Esc back';
+    const bottom = TABS[this.tab] === 'Models'
+      ? '↑/↓ choose · a select · Enter details · ? help · Esc back'
+      : TABS[this.tab] === 'Plans'
+        ? '↑/↓ version · ←/→ diff/full · a approve · o open · ? help · Esc back'
+        : TABS[this.tab] === 'Agents'
+          ? 'x stop · r rewind · f follow-up · o open · ? help · Esc back'
+          : '←/→ tabs · ↑/↓ row · Enter details · ? help · Esc back';
     const available = Math.max(1, this.height - 1);
     const clipped = lines.slice(0, available).map((line) => line.length > this.width ? `${line.slice(0, this.width - 1)}…` : line);
     clipped.push(colorize(this.color, 'dim', bottom.slice(0, this.width)));

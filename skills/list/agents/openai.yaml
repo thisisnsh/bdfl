@@ -1,6 +1,0 @@
-interface:
-  display_name: "bdfl:list"
-  short_description: "Inspect BDFL runs, plans, tasks, agents, inbox, and models"
-  default_prompt: "Use $bdfl:list to open the BDFL management interface."
-policy:
-  allow_implicit_invocation: false

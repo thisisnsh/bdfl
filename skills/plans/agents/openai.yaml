@@ -1,0 +1,6 @@
+interface:
+  display_name: "bdfl:plans"
+  short_description: "Review plan versions, diffs, and approvals"
+  default_prompt: "Use $bdfl:plans to review and act on BDFL plan versions."
+policy:
+  allow_implicit_invocation: false

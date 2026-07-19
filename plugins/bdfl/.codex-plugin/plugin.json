@@ -20,10 +20,10 @@
     "capabilities": ["Interactive", "Write"],
     "websiteURL": "https://github.com/thisisnsh/bdfl",
     "defaultPrompt": [
-      "Use $bdfl:activate with an optional provider:model:effort specification. Default to claude:sonnet:medium when Claude is installed, otherwise codex:gpt-5.6-sol:medium.",
-      "Use $bdfl:list to show my BDFL runs and inbox.",
-      "Use $bdfl:help to explain BDFL commands and safeguards.",
-      "Use $bdfl:off to deactivate BDFL safely."
+      "Use $bdfl:bdfl to turn BDFL orchestration on, or pass off to deactivate it.",
+      "Use $bdfl:models to inspect and choose the exact run model.",
+      "Use $bdfl:plans to review plan versions and diffs.",
+      "Use $bdfl:agents to inspect and manage BDFL agents."
     ],
     "brandColor": "#FACC15"
   }

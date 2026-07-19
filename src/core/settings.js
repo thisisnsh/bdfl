@@ -47,4 +47,13 @@ function loadSettings(file = path.join(configDirectory(), 'settings.json')) {
   return validateSettings({ ...DEFAULT_SETTINGS, ...user });
 }
 
-module.exports = { DEFAULT_SETTINGS, configDirectory, loadSettings, validateSettings };
+function saveSettings(value, file = path.join(configDirectory(), 'settings.json')) {
+  const validated = validateSettings(value);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(validated, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, file);
+  return validated;
+}
+
+module.exports = { DEFAULT_SETTINGS, configDirectory, loadSettings, saveSettings, validateSettings };

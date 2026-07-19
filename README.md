@@ -66,30 +66,32 @@ Start from a clean Git worktree. BDFL never activates automatically.
 ### Claude Code
 
 ```text
-/bdfl:activate
+/bdfl:bdfl
 Build the API and CLI in separate tasks, then validate them together.
-/bdfl:list
+/bdfl:agents
 ```
 
-Choose Claude explicitly:
+Choose Claude explicitly, then turn BDFL on:
 
 ```text
-/bdfl:activate claude:sonnet:medium
+/bdfl:models claude:sonnet:medium
+/bdfl:bdfl
 Refactor authentication while a separate agent updates deterministic tests.
 ```
 
 ### Codex
 
 ```text
-$bdfl:activate
+$bdfl:bdfl
 Split the provider implementation, tests, and documentation into safe parallel tasks.
-$bdfl:list
+$bdfl:plans
 ```
 
 Choose Codex explicitly:
 
 ```text
-$bdfl:activate codex:gpt-5.6-sol:medium
+$bdfl:models codex:gpt-5.6-sol:medium
+$bdfl:bdfl
 Add the migration, rollback test, and operator documentation.
 ```
 
@@ -100,31 +102,32 @@ Ollama runs through the current host's supported local-model harness. Tags conta
 Claude Code:
 
 ```text
-/bdfl:activate ollama:qwen3.5:9b:medium
+/bdfl:models ollama:qwen3.5:9b:medium
+/bdfl:bdfl
 Audit this module and add focused regression tests.
 ```
 
 Codex:
 
 ```text
-$bdfl:activate ollama:qwen3.5:9b:medium
+$bdfl:models ollama:qwen3.5:9b:medium
+$bdfl:bdfl
 Audit this module and add focused regression tests.
 ```
 
-With no model argument, BDFL defaults to `claude:sonnet:medium` when Claude is installed. If Claude is unavailable and Codex is installed, it uses `codex:gpt-5.6-sol:medium`. An explicit configured or command-line model always wins.
+Without a model selection, BDFL defaults to `claude:sonnet:medium` when Claude is installed. If Claude is unavailable and Codex is installed, it uses `codex:gpt-5.6-sol:medium`. A choice made through `bdfl:models` persists for future runs.
 
 ## Commands
 
 | Action | Claude Code | Codex |
 |---|---|---|
-| Activate with an optional exact model | `/bdfl:activate [provider:model:effort]` | `$bdfl:activate [provider:model:effort]` |
-| Open Runs, Plans, Tasks, Agents, Inbox, and Models | `/bdfl:list` | `$bdfl:list` |
-| Show commands, keys, models, permissions, and recovery | `/bdfl:help` | `$bdfl:help` |
-| Deactivate after active agents are resolved | `/bdfl:off` | `$bdfl:off` |
+| Turn BDFL on; `on` is the default | `/bdfl:bdfl [on]` | `$bdfl:bdfl [on]` |
+| Turn BDFL off after active agents resolve | `/bdfl:bdfl off` | `$bdfl:bdfl off` |
+| List and choose an exact run model | `/bdfl:models [provider:model:effort]` | `$bdfl:models [provider:model:effort]` |
+| Review plan versions, diffs, and approvals | `/bdfl:plans` | `$bdfl:plans` |
+| Inspect and act on agents and attempts | `/bdfl:agents` | `$bdfl:agents` |
 
-Plugin skills are intentionally explicit and namespaced by the host. There is no BDFL plan command: enter and leave the host's native plan mode normally.
-
-Claude Code may abbreviate completion-menu entries as `/off (bdfl)` or `/list (bdfl)`; the name in parentheses is the plugin namespace, so the full invocations remain `/bdfl:off` and `/bdfl:list`. Codex displays the equivalent lowercase namespaced skills directly.
+The plugin has no separate help, activate, off, or generic list skill. `/bdfl:bdfl` and `$bdfl:bdfl` are the single on/off controls; Models, Plans, and Agents are focused management views. Native host planning remains native.
 
 ## What you get
 
@@ -141,6 +144,8 @@ Claude Code may abbreviate completion-menu entries as `/off (bdfl)` or `/list (b
 ## Plans, agents, and keys
 
 Plan detail uses up/down to select a revision and left/right to switch between colored diff and full text. Press `a` to select a version. BDFL compiles an execution manifest with objective, context, allowed paths, dependencies, exact model, permission mode, validation commands, and completion criteria for every atomic task.
+
+Open this view directly with `/bdfl:plans` in Claude Code or `$bdfl:plans` in Codex. Open the agent lifecycle view with `/bdfl:agents` or `$bdfl:agents`.
 
 ```text
 pending → running → waiting → running → review → approved → validating → integrated
@@ -162,6 +167,8 @@ Left/right changes tabs, up/down selects rows, Enter opens details, and Esc retu
 ## Models
 
 Model specifications use `provider:exact-model:exact-effort`. BDFL parses the first and final colon, so `ollama:qwen3.5:9b:medium` passes `qwen3.5:9b` unchanged.
+
+Run `/bdfl:models` or `$bdfl:models`, use up/down to highlight an allowlisted model, and press `a` to select it. You can also provide the exact specification directly to the Models skill.
 
 ```json
 {

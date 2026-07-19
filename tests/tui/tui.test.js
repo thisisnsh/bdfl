@@ -32,7 +32,16 @@ test('navigates all tabs, details, Esc, and every contextual action', () => {
   ui.key('\r');
   assert.equal(ui.detail, true);
   assert.equal(ui.key('\u001b').action, 'back');
-  for (const [key, action] of Object.entries(ACTIONS)) assert.equal(ui.key(key).action, action);
+  for (const [key, action] of Object.entries(ACTIONS)) {
+    assert.equal(ui.key(key).action, key === 'a' ? 'select' : action);
+  }
+});
+
+test('opens focused views and exposes model selection', () => {
+  const ui = new TuiController({ models: [{ id: 'claude:sonnet:medium' }] }, { color: false, initialTab: 'Models' });
+  assert.equal(TABS[ui.tab], 'Models');
+  assert.equal(ui.key('a').action, 'select');
+  assert.match(ui.render(), /a select/);
 });
 
 test('plan detail changes versions and switches diff/full modes', () => {
@@ -54,6 +63,6 @@ test('resizes, clips, renders bottom keys, and falls back without color', () => 
   ui.resize(24, 8);
   const output = ui.render();
   assert.ok(output.split('\n').every((line) => line.length <= 24));
-  assert.match(output, /x stop/);
+  assert.match(output, /Ent/);
   assert.doesNotMatch(output, /\u001b\[/);
 });

@@ -2,18 +2,19 @@
 
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { loadSettings } = require('../core/settings');
+const { loadSettings, saveSettings } = require('../core/settings');
 const { validateModelSpec } = require('../core/model-spec');
 const { StateStore, recoveryOptions } = require('../state/store');
 const { TuiController } = require('../tui/controller');
 const { bannerFrame, verbForState } = require('../tui/banner');
 
-const HELP = `Usage: bdfl [list|help|off|provider:model:effort]
+const HELP = `Usage: bdfl [on|off|models|plans|agents]
 
-activate [model]  Activate BDFL with an optional listed model
-list              Open Runs, Plans, Tasks, Agents, Inbox, and Models
-help              Show commands, keys, permissions, and recovery
-off               Deactivate after running agents are resolved
+on                Turn BDFL on; this is the default
+off               Turn BDFL off after running agents are resolved
+models [model]    Choose the exact model for future runs
+plans             Open plan versions, diffs, and actions
+agents            Open agents, attempts, logs, and actions
 
 Keys: arrows navigate; Enter opens; Esc returns; x stop; r rewind;
 f follow-up; a approve; i integrate; o open; ? help.`;
@@ -53,7 +54,12 @@ function deactivate(store) {
   return { active: false, blocked: false };
 }
 
-function snapshot(state, settings, options) {
+function selectModel(model, settings, persist = saveSettings) {
+  validateModelSpec(model, settings.models);
+  return persist({ ...settings, models: [...settings.models], defaultModel: model });
+}
+
+function snapshot(state, settings, options, initialTab = 'Runs') {
   const controller = new TuiController({
     runs: state.runs,
     plans: state.plans,
@@ -61,11 +67,11 @@ function snapshot(state, settings, options) {
     agents: state.agents,
     inbox: state.inbox,
     models: settings.models.map((model) => ({ id: model }))
-  }, options);
+  }, { ...options, initialTab });
   return controller.render(0);
 }
 
-function interactiveList(store, settings, io = process) {
+function interactiveList(store, settings, io = process, initialTab = 'Runs', persist = saveSettings) {
   const controller = new TuiController({
     runs: store.load().runs,
     plans: store.load().plans,
@@ -73,7 +79,7 @@ function interactiveList(store, settings, io = process) {
     agents: store.load().agents,
     inbox: store.load().inbox,
     models: settings.models.map((model) => ({ id: model }))
-  }, { color: true, width: io.stdout.columns || 80, height: io.stdout.rows || 24 });
+  }, { color: true, width: io.stdout.columns || 80, height: io.stdout.rows || 24, initialTab });
   let frame = 0;
   const draw = () => {
     io.stdout.write(`\u001b[2J\u001b[H${controller.render(frame)}\n`);
@@ -83,7 +89,13 @@ function interactiveList(store, settings, io = process) {
   const onData = (buffer) => {
     const input = `${buffer}`;
     if (input === '\u0003') return cleanup();
-    controller.key(input);
+    const result = controller.key(input);
+    if (result.action === 'select' && result.item?.id) {
+      selectModel(result.item.id, settings, persist);
+      cleanup();
+      io.stdout.write(`Selected model: ${result.item.id}\n`);
+      return;
+    }
     draw();
   };
   const cleanup = () => {
@@ -107,9 +119,20 @@ function main(argv = process.argv.slice(2), io = process, root = process.cwd()) 
   const settings = loadSettings();
   const store = new StateStore(root);
   if (command === 'help' || command === '--help' || command === '-h') { io.stdout.write(`${HELP}\n`); return 0; }
-  if (command === 'list') {
-    if (io.stdin.isTTY && io.stdout.isTTY) interactiveList(store, settings, io);
-    else io.stdout.write(`${snapshot(store.load(), settings, { color: false, width: io.stdout.columns || 80, height: io.stdout.rows || 24 })}\n`);
+  if (['models', 'plans', 'agents'].includes(command)) {
+    const tab = command[0].toUpperCase() + command.slice(1);
+    if (command === 'models' && argv[1]) {
+      try {
+        const selected = selectModel(argv[1], settings);
+        io.stdout.write(`Selected model: ${selected.defaultModel}\n`);
+        return 0;
+      } catch (error) {
+        io.stderr.write(`${error.message}\n`);
+        return 1;
+      }
+    }
+    if (io.stdin.isTTY && io.stdout.isTTY) interactiveList(store, settings, io, tab);
+    else io.stdout.write(`${snapshot(store.load(), settings, { color: false, width: io.stdout.columns || 80, height: io.stdout.rows || 24 }, tab)}\n`);
     return 0;
   }
   if (command === 'off') {
@@ -118,7 +141,8 @@ function main(argv = process.argv.slice(2), io = process, root = process.cwd()) 
     io.stdout.write('BDFL is off.\n'); return 0;
   }
   try {
-    const result = activate(root, command, settings, store);
+    if (command && command !== 'on') throw new Error(`Unknown BDFL command: ${command}`);
+    const result = activate(root, null, settings, store);
     io.stdout.write(`${bannerFrame(0, Boolean(io.stdout.isTTY), verbForState(result.state))}\n`);
     if (!result.active) {
       io.stderr.write(`Unfinished BDFL state found. Choose: ${result.recovery.choices.join(', ')}.\n`);
@@ -132,4 +156,4 @@ function main(argv = process.argv.slice(2), io = process, root = process.cwd()) 
   }
 }
 
-module.exports = { HELP, executableAvailable, defaultModel, activate, deactivate, snapshot, interactiveList, main };
+module.exports = { HELP, executableAvailable, defaultModel, activate, deactivate, selectModel, snapshot, interactiveList, main };

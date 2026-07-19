@@ -2,7 +2,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { DEFAULT_SETTINGS, configDirectory, validateSettings } = require('../../src/core/settings');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { DEFAULT_SETTINGS, configDirectory, saveSettings, validateSettings } = require('../../src/core/settings');
 const { mapPermissionMode, assertPermissionRequest } = require('../../src/core/permissions');
 
 const valid = {
@@ -24,6 +27,15 @@ test('validates settings and platform paths', () => {
 test('ships exact default models at medium effort', () => {
   assert.ok(DEFAULT_SETTINGS.models.every((model) => model.endsWith(':medium')));
   assert.ok(DEFAULT_SETTINGS.models.includes('codex:gpt-5.6-sol:medium'));
+});
+
+test('persists validated model selection atomically', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-settings-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'settings.json');
+  saveSettings(valid, file);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), valid);
+  assert.deepEqual(fs.readdirSync(directory), ['settings.json']);
 });
 
 test('preserves permissions and maps plan mode to default', () => {
