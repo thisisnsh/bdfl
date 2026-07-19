@@ -1,0 +1,17 @@
+{
+  "description": "BDFL workspace lifecycle hooks.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/plugins/bdfl/runtime/hooks/activate.js\"",
+            "statusMessage": "Checking BDFL state"
+          }
+        ]
+      }
+    ]
+  }
+}
