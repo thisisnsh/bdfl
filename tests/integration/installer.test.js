@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseArgs, installerPaths, verifyChecksum, removeBdflStatusLine, mergeCodexMarketplace, Installer, formatPlan } = require('../../bin/install');
+const { parseArgs, installerPaths, verifyChecksum, removeBdflStatusLine, mergeCodexMarketplace, Installer, formatPlan, formatCompletion } = require('../../bin/install');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-installer-'));
@@ -67,6 +67,46 @@ test('installation is repeatable and uninstall restores host files', (t) => {
   assert.equal(fs.existsSync(paths.codexCache), false);
   assert.equal(fs.existsSync(paths.launcher), false);
   assert.equal(fs.existsSync(path.dirname(paths.receipt)), false);
+});
+
+test('receiptless uninstall removes only verified legacy BDFL installations', (t) => {
+  const { source, paths, calls, run } = fixture(t);
+  fs.mkdirSync(path.join(paths.claudePlugin, '.claude-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(paths.claudePlugin, '.claude-plugin', 'plugin.json'), '{"name":"bdfl"}\n');
+  fs.mkdirSync(path.join(paths.codexPlugin, '.codex-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(paths.codexPlugin, '.codex-plugin', 'plugin.json'), '{"name":"bdfl"}\n');
+  fs.mkdirSync(path.dirname(paths.claudeSettings), { recursive: true });
+  fs.writeFileSync(paths.claudeSettings, `${JSON.stringify({
+    theme: 'dark',
+    statusLine: { type: 'command', command: `node ${paths.claudePlugin}/src/hooks/statusline.js` }
+  })}\n`);
+  fs.mkdirSync(path.dirname(paths.codexMarketplace), { recursive: true });
+  fs.writeFileSync(paths.codexMarketplace, `${JSON.stringify(mergeCodexMarketplace(
+    { name: 'personal', interface: { displayName: 'Personal' }, plugins: [{ name: 'other' }] },
+    paths.codexPlugin,
+    paths.codexMarketplaceRoot
+  ))}\n`);
+
+  const result = new Installer({ sourceRoot: source, paths, run }).uninstall({ dryRun: false });
+
+  assert.equal(result.receiptless, true);
+  assert.equal(fs.existsSync(paths.claudePlugin), false);
+  assert.equal(fs.existsSync(paths.codexPlugin), false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(paths.claudeSettings)), { theme: 'dark' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(paths.codexMarketplace)).plugins, [{ name: 'other' }]);
+  assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin uninstall bdfl@bdfl'));
+  assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin remove bdfl@personal'));
+  assert.match(formatCompletion(result, { uninstall: true }), /Legacy BDFL installation removed/);
+});
+
+test('receiptless uninstall refuses unverified directories and reports no-op', (t) => {
+  const { source, paths, run } = fixture(t);
+  fs.mkdirSync(paths.claudePlugin, { recursive: true });
+  fs.writeFileSync(path.join(paths.claudePlugin, 'unrelated.txt'), 'keep');
+  const result = new Installer({ sourceRoot: source, paths, run }).uninstall({ dryRun: false });
+  assert.equal(result.alreadyAbsent, true);
+  assert.equal(fs.existsSync(paths.claudePlugin), true);
+  assert.match(formatCompletion(result, { uninstall: true }), /Nothing was removed/);
 });
 
 test('existing unmanaged destinations require force', (t) => {

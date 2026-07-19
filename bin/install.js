@@ -104,6 +104,22 @@ function removeBdflStatusLine(current, previous = {}) {
   return next;
 }
 
+function isBdflPlugin(directory, manifest, io = fs) {
+  const file = path.join(directory, manifest);
+  if (!io.existsSync(file)) return false;
+  try { return JSON.parse(io.readFileSync(file, 'utf8')).name === 'bdfl'; }
+  catch { return false; }
+}
+
+function removeBdflMarketplaceEntry(current, pluginPath, marketplaceRoot = os.homedir()) {
+  const next = structuredClone(current);
+  next.plugins = (next.plugins || []).filter((plugin) => {
+    if (plugin.name !== 'bdfl' || plugin.source?.source !== 'local' || !plugin.source.path) return true;
+    return path.resolve(marketplaceRoot, plugin.source.path) !== path.resolve(pluginPath);
+  });
+  return next;
+}
+
 function mergeCodexMarketplace(current, pluginPath = path.join(os.homedir(), '.agents', 'plugins', 'plugins', 'bdfl'), marketplaceRoot = os.homedir()) {
   const next = structuredClone(current);
   next.name ||= 'personal';
@@ -157,6 +173,26 @@ class Installer {
       removed.push(target);
     }
     return removed;
+  }
+
+  receiptlessHosts() {
+    const hosts = [];
+    if (isBdflPlugin(this.paths.claudePlugin, path.join('.claude-plugin', 'plugin.json'), this.io)) hosts.push('claude');
+    if (isBdflPlugin(this.paths.codexPlugin, path.join('.codex-plugin', 'plugin.json'), this.io)) hosts.push('codex');
+    return hosts;
+  }
+
+  receiptlessLauncher(hosts) {
+    if (!pathExists(this.io, this.paths.launcher)) return null;
+    let target;
+    try {
+      if (!this.io.lstatSync(this.paths.launcher).isSymbolicLink()) return null;
+      target = path.resolve(path.dirname(this.paths.launcher), this.io.readlinkSync(this.paths.launcher));
+    } catch { return null; }
+    return hosts.some((host) => {
+      const root = host === 'claude' ? this.paths.claudePlugin : this.paths.codexPlugin;
+      return target === path.join(root, 'bin', 'bdfl');
+    }) ? this.paths.launcher : null;
   }
 
   plan(options, detected) {
@@ -247,8 +283,16 @@ class Installer {
   }
 
   uninstall(options) {
-    const receipt = readJson(this.paths.receipt, null);
-    if (!receipt) return { removed: [], alreadyAbsent: true };
+    const recordedReceipt = readJson(this.paths.receipt, null);
+    const receiptless = !recordedReceipt;
+    const hosts = receiptless ? this.receiptlessHosts() : recordedReceipt.hosts;
+    if (!hosts.length) return { removed: [], alreadyAbsent: true };
+    const receipt = recordedReceipt || {
+      version: 1,
+      hosts,
+      previous: {},
+      managed: { launcher: this.receiptlessLauncher(hosts) }
+    };
     const removed = [];
     if (!options.dryRun && receipt.hosts.includes('claude')) {
       this.runClaude(['plugin', 'uninstall', 'bdfl@bdfl'], true);
@@ -260,7 +304,8 @@ class Installer {
       if (options.dryRun) { removed.push(target); continue; }
       if (this.io.existsSync(target)) { this.io.rmSync(target, { recursive: true, force: true }); removed.push(target); }
     }
-    for (const cache of [this.paths.claudeCache, this.paths.codexCache]) {
+    const caches = hosts.map((host) => host === 'claude' ? this.paths.claudeCache : this.paths.codexCache);
+    for (const cache of caches) {
       if (options.dryRun) { if (this.io.existsSync(cache)) removed.push(cache); continue; }
       if (this.io.existsSync(cache)) { this.io.rmSync(cache, { recursive: true, force: true }); removed.push(cache); }
     }
@@ -271,8 +316,14 @@ class Installer {
     }
     if (!options.dryRun) this.removeLegacyClaudeSkill(receipt, removed);
     if (!options.dryRun) {
-      if (receipt.previous.claudeSettings) writeJson(this.paths.claudeSettings, receipt.previous.claudeSettings);
-      if (receipt.previous.codexMarketplace) writeJson(this.paths.codexMarketplace, receipt.previous.codexMarketplace);
+      if (receiptless && hosts.includes('claude')) {
+        const current = readJson(this.paths.claudeSettings, {});
+        writeJson(this.paths.claudeSettings, removeBdflStatusLine(current));
+      } else if (receipt.previous.claudeSettings) writeJson(this.paths.claudeSettings, receipt.previous.claudeSettings);
+      if (receiptless && hosts.includes('codex')) {
+        const current = readJson(this.paths.codexMarketplace, { name: 'personal', interface: { displayName: 'Personal' }, plugins: [] });
+        writeJson(this.paths.codexMarketplace, removeBdflMarketplaceEntry(current, this.paths.codexPlugin, this.paths.codexMarketplaceRoot));
+      } else if (receipt.previous.codexMarketplace) writeJson(this.paths.codexMarketplace, receipt.previous.codexMarketplace);
       this.io.rmSync(this.paths.receipt, { force: true });
       if (options.purge) {
         const state = path.join(this.paths.projectRoot, '.bdfl');
@@ -281,7 +332,7 @@ class Installer {
       const receiptDirectory = path.dirname(this.paths.receipt);
       if (this.io.existsSync(receiptDirectory) && this.io.readdirSync(receiptDirectory).length === 0) this.io.rmdirSync(receiptDirectory);
     }
-    return { removed, alreadyAbsent: false };
+    return { removed, alreadyAbsent: false, receiptless };
   }
 }
 
@@ -330,6 +381,8 @@ function formatPlan(plan, { color = false, dryRun = false } = {}) {
 
 function formatCompletion(plan, { color = false, uninstall = false } = {}) {
   const c = theme(color);
+  if (uninstall && plan.alreadyAbsent) return `${c.yellow('!')} BDFL was not found. Nothing was removed.`;
+  if (uninstall && plan.receiptless) return `${c.green('✓')} Legacy BDFL installation removed.`;
   if (uninstall) return `${c.green('✓')} BDFL removed. Recorded host settings were restored.`;
   const lines = ['', c.yellow('READY'), `  ${c.green('✓')} BDFL installed for ${plan.hosts.map((host) => host === 'claude' ? 'Claude Code' : 'Codex').join(' and ')}`];
   if (plan.hosts.includes('claude')) lines.push(`  ${c.yellow('!')} Restart Claude Code, then run ${c.bold('/bdfl:bdfl')}`);
@@ -365,4 +418,4 @@ function main(argv = process.argv.slice(2), output = process.stdout, error = pro
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { parseArgs, commandAvailable, detectHosts, installerPaths, sha256, verifyChecksum, removeBdflStatusLine, mergeCodexMarketplace, Installer, LOGO, theme, operationLabel, formatPlan, formatCompletion, main };
+module.exports = { parseArgs, commandAvailable, detectHosts, installerPaths, sha256, verifyChecksum, removeBdflStatusLine, isBdflPlugin, removeBdflMarketplaceEntry, mergeCodexMarketplace, Installer, LOGO, theme, operationLabel, formatPlan, formatCompletion, main };
