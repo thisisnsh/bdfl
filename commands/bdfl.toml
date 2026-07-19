@@ -1,0 +1,2 @@
+description = "Activate and manage BDFL agents"
+prompt = "Use $bdfl to process /bdfl arguments: {{args}}. Preserve native plan mode and all BDFL safety invariants."

@@ -1,0 +1,12 @@
+{
+  "name": "bdfl",
+  "owner": { "name": "thisisnsh" },
+  "plugins": [
+    {
+      "name": "bdfl",
+      "source": "./",
+      "description": "Managed parallel agents inside Claude Code"
+    }
+  ]
+}
+

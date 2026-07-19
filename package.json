@@ -1,0 +1,21 @@
+{
+  "name": "bdfl-agent-orchestrator",
+  "version": "0.1.0",
+  "description": "Managed parallel agents inside Claude Code and Codex",
+  "license": "MIT",
+  "author": "thisisnsh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thisisnsh/bdfl.git"
+  },
+  "type": "commonjs",
+  "engines": { "node": ">=20" },
+  "bin": { "bdfl": "bin/bdfl.js" },
+  "scripts": {
+    "test": "node --test tests/**/*.test.js",
+    "package": "node scripts/package.js",
+    "package:check": "node scripts/package.js --check",
+    "validate": "npm run package:check && node scripts/validate-manifests.js"
+  },
+  "files": ["bin/", "commands/", "dist/", "plugins/", "skills/", "src/", "LICENSE", "README.md"]
+}
