@@ -1,38 +1,71 @@
 'use strict';
 
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const readline = require('node:readline');
+const { execFileSync } = require('node:child_process');
 const { loadSettings, saveSettings } = require('../core/settings');
 const { validateModelSpec } = require('../core/model-spec');
-const { selectPlanVersion } = require('../core/plans');
-const { StateStore } = require('../state/store');
+const { captureRunPlan, diffLines, selectPlanVersion } = require('../core/plans');
+const { taskLabel, taskSummary } = require('../core/tasks');
+const { ProjectCoordinator, RUNNING } = require('../core/coordinator');
+const { StateStore, recoveryOptions } = require('../state/store');
+
+const COMMANDS = Object.freeze(['on', 'off', 'models', 'plans', 'tasks', 'agents', 'inbox', 'help', 'capture-plan']);
+const TOOL_TASK = {
+  type: 'object',
+  properties: {
+    key: { type: 'string', minLength: 1 },
+    title: { type: 'string', minLength: 1 },
+    prompt: { type: 'string', minLength: 1 },
+    objective: { type: 'string', minLength: 1 },
+    context: { type: 'string' },
+    allowedPaths: { type: 'array', minItems: 1, items: { type: 'string' } },
+    dependencies: { type: 'array', items: { type: 'string' } },
+    model: { type: 'string' },
+    permissionMode: { type: 'string' },
+    validationCommands: { type: 'array', items: { type: 'string' } },
+    completionCriteria: { type: 'string' }
+  },
+  required: ['key', 'title', 'prompt', 'objective', 'context', 'allowedPaths', 'dependencies', 'model', 'permissionMode', 'validationCommands', 'completionCriteria'],
+  additionalProperties: false
+};
 
 const TOOLS = Object.freeze([
   {
-    name: 'models',
-    title: 'Choose BDFL model',
-    description: 'Show a native model selector and persist the exact BDFL run model.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    name: 'bdfl',
+    title: 'Manage BDFL',
+    description: 'Run one guided BDFL command for a Git project.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectRoot: { type: 'string', description: 'Absolute path to the active Git project.' },
+        command: { type: 'string', enum: COMMANDS },
+        content: { type: 'string', description: 'Exact proposed-plan Markdown for capture-plan.' },
+        runId: { type: 'string' },
+        page: { type: 'integer', minimum: 1 },
+        pageSize: { type: 'integer', minimum: 10, maximum: 200 }
+      },
+      required: ['projectRoot', 'command'],
+      additionalProperties: false
+    },
     annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
   },
   {
-    name: 'plans',
-    title: 'Choose BDFL plan',
-    description: 'Show a native selector for captured BDFL plan versions, or report that no plans exist.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
-  },
-  {
-    name: 'agents',
-    title: 'Inspect BDFL agent',
-    description: 'Show a native selector for BDFL agents and return the selected agent details, or report that no agents exist.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false }
-  },
-  {
-    name: 'inbox',
-    title: 'Answer BDFL agent',
-    description: 'Show native controls for waiting agent questions and permission requests, then record the explicit response.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    name: 'dispatch',
+    title: 'Dispatch BDFL tasks',
+    description: 'Validate and start a managed BDFL task manifest.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectRoot: { type: 'string', description: 'Absolute path to the active Git project.' },
+        host: { type: 'string', enum: ['claude', 'codex'] },
+        tasks: { type: 'array', minItems: 1, items: TOOL_TASK }
+      },
+      required: ['projectRoot', 'host', 'tasks'],
+      additionalProperties: false
+    },
     annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
   }
 ]);
@@ -46,10 +79,8 @@ function choiceSchema(title, values, defaultValue) {
     type: 'object',
     properties: {
       selection: {
-        type: 'string',
-        title,
-        description: `Expand this selector to see all ${values.length} choices.`,
-        enum: values,
+        type: 'string', title, enum: values,
+        description: `Choose one of ${values.length} options.`,
         ...(defaultValue ? { default: defaultValue } : {})
       }
     },
@@ -57,168 +88,301 @@ function choiceSchema(title, values, defaultValue) {
   };
 }
 
+function canonicalProjectRoot(projectRoot, run = execFileSync, io = fs) {
+  if (!projectRoot || !path.isAbsolute(projectRoot)) throw new Error('projectRoot must be an absolute Git project path');
+  let root;
+  try {
+    root = `${run('git', ['-C', projectRoot, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })}`.trim();
+  } catch {
+    throw new Error(`Not a Git project: ${projectRoot}`);
+  }
+  return io.realpathSync(root);
+}
+
+function pageText(value, page = 1, pageSize = 80) {
+  const lines = `${value || ''}`.split('\n');
+  const size = Math.max(10, Math.min(200, pageSize));
+  const pages = Math.max(1, Math.ceil(lines.length / size));
+  const current = Math.max(1, Math.min(pages, page));
+  return { text: lines.slice((current - 1) * size, current * size).join('\n'), page: current, pages, pageSize: size };
+}
+
+function duplicateLabel(title, id, rows, titleFor) {
+  return rows.filter((row) => titleFor(row) === title).length > 1 ? `${title} (${`${id}`.slice(-8)})` : title;
+}
+
 class BdflMcpServer {
   constructor({
     input = process.stdin,
     output = process.stdout,
-    projectRoot = process.cwd(),
     settingsLoader = loadSettings,
     settingsSaver = saveSettings,
-    store = new StateStore(projectRoot)
+    rootResolver = canonicalProjectRoot,
+    storeFactory = (root) => new StateStore(root),
+    coordinatorFactory,
+    id = () => crypto.randomUUID(),
+    now = () => new Date()
   } = {}) {
     this.input = input;
     this.output = output;
     this.settingsLoader = settingsLoader;
     this.settingsSaver = settingsSaver;
-    this.store = store;
+    this.rootResolver = rootResolver;
+    this.storeFactory = storeFactory;
+    this.coordinatorFactory = coordinatorFactory || ((root, store) => new ProjectCoordinator(root, { store, settingsLoader, id, now }));
+    this.id = id;
+    this.now = now;
+    this.projects = new Map();
     this.clientCapabilities = {};
     this.nextRequestId = 1;
     this.pending = new Map();
   }
 
   send(message) { this.output.write(`${JSON.stringify(message)}\n`); }
-
   respond(id, result) { this.send({ jsonrpc: '2.0', id, result }); }
-
   fail(id, code, message) { this.send({ jsonrpc: '2.0', id, error: { code, message } }); }
-
   supportsElicitation() { return Boolean(this.clientCapabilities.elicitation); }
+
+  project(projectRoot) {
+    const root = this.rootResolver(projectRoot);
+    if (!this.projects.has(root)) {
+      const store = this.storeFactory(root);
+      this.projects.set(root, { root, store, coordinator: this.coordinatorFactory(root, store) });
+    }
+    return this.projects.get(root);
+  }
 
   elicit(message, requestedSchema) {
     if (!this.supportsElicitation()) return Promise.resolve({ action: 'unsupported' });
     const id = `bdfl-elicitation-${this.nextRequestId++}`;
     const response = new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
-    this.send({
-      jsonrpc: '2.0',
-      id,
-      method: 'elicitation/create',
-      params: { mode: 'form', message, requestedSchema }
-    });
+    this.send({ jsonrpc: '2.0', id, method: 'elicitation/create', params: { mode: 'form', message, requestedSchema } });
     return response;
   }
 
-  async chooseModel() {
+  async choose(message, title, values, defaultValue) {
+    const response = await this.elicit(message, choiceSchema(title, values, defaultValue));
+    if (response.action === 'unsupported') return { unsupported: true, values };
+    if (response.action !== 'accept') return { cancelled: true, action: response.action };
+    if (!values.includes(response.content?.selection)) throw new Error(`Unknown ${title} selection`);
+    return { value: response.content.selection };
+  }
+
+  async manageModel() {
     const settings = this.settingsLoader();
-    const response = await this.elicit(
-      `Current model: ${settings.defaultModel}. The Model selector contains all ${settings.models.length} configured choices; expand it, then choose the exact model for future BDFL runs.`,
-      choiceSchema('Model', settings.models, settings.defaultModel)
-    );
-    if (response.action === 'unsupported') {
-      return textResult('This host does not expose MCP elicitation.', { current: settings.defaultModel, models: settings.models });
-    }
-    if (response.action !== 'accept') return textResult('Model selection cancelled.', { action: response.action });
-    const model = response.content?.selection;
-    validateModelSpec(model, settings.models);
-    const selected = this.settingsSaver({ ...settings, models: [...settings.models], defaultModel: model });
+    const picked = await this.choose(`Current model: ${settings.defaultModel}. Choose the exact model for future BDFL runs.`, 'Model', settings.models, settings.defaultModel);
+    if (picked.unsupported) return textResult('Model choices returned.', { current: settings.defaultModel, models: settings.models });
+    if (picked.cancelled) return textResult('Model selection cancelled.', { action: picked.action });
+    validateModelSpec(picked.value, settings.models);
+    const selected = this.settingsSaver({ ...settings, models: [...settings.models], defaultModel: picked.value });
     return textResult(`Selected model: ${selected.defaultModel}`, { selectedModel: selected.defaultModel });
   }
 
-  async choosePlan() {
-    const state = this.store.load();
-    if (!state.plans.length) return textResult('No plans.', { plans: [] });
-    const choices = new Map();
-    for (const plan of state.plans) {
-      for (const version of plan.versions || []) {
-        const label = `${plan.title || plan.id} (${plan.id}) — v${version.number}`;
-        choices.set(label, { planId: plan.id, version: version.number });
-      }
+  async turnOn(project) {
+    const state = project.store.load();
+    const recovery = recoveryOptions(state);
+    if (recovery.required) {
+      const options = ['Continue', 'Manage tasks', 'Archive run', 'Cancel run'];
+      const picked = await this.choose('BDFL has unfinished work. Choose what to do with it.', 'Recovery action', options);
+      if (picked.unsupported) return textResult('Unfinished BDFL work found.', { recovery: options, unfinished: recovery.unfinished });
+      if (picked.cancelled) return textResult('Recovery cancelled.', { action: picked.action });
+      if (picked.value === 'Manage tasks') return this.manageTasks(project, {});
+      const status = picked.value === 'Archive run' ? 'archived' : picked.value === 'Cancel run' ? 'cancelled' : 'running';
+      if (picked.value === 'Continue') project.coordinator.recoverStaleProcesses();
+      project.store.update((value) => {
+        for (const run of value.runs) if (RUNNING.has(run.status)) run.status = status;
+        if (status !== 'running') {
+          for (const task of value.tasks) if (RUNNING.has(task.status)) task.status = status;
+          for (const agent of value.agents) if (RUNNING.has(agent.status)) agent.status = status;
+          for (const item of value.inbox) if (item.status === 'open') item.status = status;
+        }
+        return value;
+      });
+      return textResult(`BDFL recovery: ${picked.value}.`, { active: status === 'running', action: picked.value });
     }
-    if (!choices.size) return textResult('No plans.', { plans: [] });
-    const response = await this.elicit('Choose the BDFL plan version to use for execution.', choiceSchema('Plan version', [...choices.keys()]));
-    if (response.action === 'unsupported') return textResult('This host does not expose MCP elicitation.', { plans: [...choices.keys()] });
-    if (response.action !== 'accept') return textResult('Plan selection cancelled.', { action: response.action });
-    const chosen = choices.get(response.content?.selection);
-    if (!chosen) throw new Error('Unknown plan selection');
-    this.store.update((value) => {
-      const index = value.plans.findIndex((plan) => plan.id === chosen.planId);
-      if (index === -1) throw new Error(`Unknown plan: ${chosen.planId}`);
-      value.plans[index] = selectPlanVersion(value.plans[index], chosen.version);
+    const settings = this.settingsLoader();
+    const run = { id: `run-${this.id()}`, title: path.basename(project.root), status: 'pending', model: settings.defaultModel, createdAt: this.now().toISOString() };
+    project.store.update((value) => { value.runs.push(run); return value; });
+    return textResult(`BDFL is active for ${run.title}.`, { active: true, runId: run.id, model: run.model });
+  }
+
+  turnOff(project) {
+    const state = project.store.load();
+    const agents = state.agents.filter((agent) => ['running', 'waiting'].includes(agent.status));
+    if (agents.length) return textResult(`Resolve ${agents.length} running agent(s) before turning BDFL off.`, { active: true, blocked: true });
+    project.store.update((value) => {
+      for (const run of value.runs) if (RUNNING.has(run.status)) run.status = 'completed';
       return value;
     });
-    return textResult(`Selected plan: ${chosen.planId} v${chosen.version}`, chosen);
+    return textResult('BDFL is off.', { active: false });
   }
 
-  async inspectAgent() {
-    const state = this.store.load();
+  capturePlan(project, args) {
+    let result;
+    project.store.update((state) => {
+      result = captureRunPlan(state, {
+        content: args.content, runId: args.runId, projectRoot: project.root,
+        now: this.now().toISOString(), id: () => `plan-${this.id()}`
+      });
+      return result.state;
+    });
+    return textResult(`${result.deduplicated ? 'Plan unchanged' : 'Captured plan'}: ${result.plan.title} v${result.version}.`, {
+      planId: result.plan.id, title: result.plan.title, version: result.version, deduplicated: result.deduplicated
+    });
+  }
+
+  async managePlans(project, args) {
+    const state = project.store.load();
+    if (!state.plans.length) return textResult('No plans.', { plans: [], needsPlanBackfill: true });
+    const planChoices = new Map(state.plans.map((plan) => {
+      const title = duplicateLabel(plan.title || plan.id, plan.id, state.plans, (row) => row.title || row.id);
+      return [`${title} — ${plan.versions?.length || 0} version(s)`, plan.id];
+    }));
+    const planPick = await this.choose('Choose a captured BDFL plan.', 'Plan', [...planChoices.keys()]);
+    if (planPick.unsupported) return textResult('Plan choices returned.', { plans: [...planChoices.keys()] });
+    if (planPick.cancelled) return textResult('Plan selection cancelled.', { action: planPick.action });
+    const plan = state.plans.find((candidate) => candidate.id === planChoices.get(planPick.value));
+    const versions = new Map(plan.versions.map((version) => [`v${version.number} — ${version.createdAt || 'unknown time'}`, version.number]));
+    const versionPick = await this.choose(`Choose a version of ${plan.title}.`, 'Version', [...versions.keys()], [...versions.keys()].at(-1));
+    if (versionPick.cancelled) return textResult('Plan selection cancelled.', { action: versionPick.action });
+    if (versionPick.unsupported) return textResult('Plan versions returned.', { plan: plan.title, versions: [...versions.keys()] });
+    const number = versions.get(versionPick.value);
+    const actionPick = await this.choose('Choose what to do with this plan version.', 'Action', ['View diff', 'View full', 'Approve']);
+    if (actionPick.cancelled) return textResult('Plan action cancelled.', { action: actionPick.action });
+    if (actionPick.unsupported) return textResult('Plan actions returned.', { actions: actionPick.values });
+    if (actionPick.value === 'Approve') {
+      project.store.update((value) => {
+        const index = value.plans.findIndex((candidate) => candidate.id === plan.id);
+        value.plans[index] = selectPlanVersion(value.plans[index], number);
+        return value;
+      });
+      return textResult(`Approved ${plan.title} v${number}.`, { planId: plan.id, version: number, approved: true });
+    }
+    const version = plan.versions.find((candidate) => candidate.number === number);
+    const before = plan.versions.find((candidate) => candidate.number === number - 1)?.content || '';
+    const full = actionPick.value === 'View full'
+      ? version.content
+      : diffLines(before, version.content).map((line) => `${line.type === 'addition' ? '+' : line.type === 'removal' ? '-' : ' '} ${line.text}`).join('\n');
+    const page = pageText(full, args.page, args.pageSize);
+    return textResult(`${plan.title} v${number} (${actionPick.value}, page ${page.page}/${page.pages})\n${page.text}`, {
+      planId: plan.id, version: number, view: actionPick.value, ...page
+    });
+  }
+
+  async manageTasks(project, args) {
+    const state = project.store.load();
+    if (!state.tasks.length) return textResult('No tasks.', { tasks: [] });
+    const choices = new Map(state.tasks.map((task) => [`${taskLabel(task, state.tasks)} — ${task.status || 'pending'}`, task.id]));
+    const picked = await this.choose('Choose a BDFL task.', 'Task', [...choices.keys()]);
+    if (picked.unsupported) return textResult('Task choices returned.', { tasks: state.tasks.map((task) => taskSummary(task, state.tasks)) });
+    if (picked.cancelled) return textResult('Task selection cancelled.', { action: picked.action });
+    const task = state.tasks.find((candidate) => candidate.id === choices.get(picked.value));
+    const actions = ['View summary', 'View prompt'];
+    if (task.status === 'review') actions.push('Approve');
+    if (RUNNING.has(task.status) || task.status === 'interrupted') actions.push('Cancel');
+    const action = await this.choose(`Choose an action for ${taskLabel(task, state.tasks)}.`, 'Action', actions.slice(0, 4));
+    if (action.cancelled) return textResult('Task action cancelled.', { action: action.action });
+    if (action.unsupported) return textResult('Task actions returned.', { actions });
+    if (action.value === 'Approve') {
+      project.coordinator.approveTask(task.id);
+      return textResult(`Approved task: ${taskLabel(task, state.tasks)}.`, { taskId: task.id, approved: true });
+    }
+    if (action.value === 'Cancel') {
+      project.coordinator.cancelTask(task.id);
+      return textResult(`Cancelled task: ${taskLabel(task, state.tasks)}.`, { taskId: task.id, cancelled: true });
+    }
+    if (action.value === 'View prompt') {
+      const page = pageText(task.prompt || task.objective || '', args.page, args.pageSize);
+      return textResult(`${taskLabel(task, state.tasks)} prompt (page ${page.page}/${page.pages})\n${page.text}`, { taskId: task.id, ...page });
+    }
+    return textResult(`${taskLabel(task, state.tasks)} — ${task.status || 'pending'}`, { task: taskSummary(task, state.tasks) });
+  }
+
+  async manageAgents(project, args) {
+    const state = project.store.load();
     if (!state.agents.length) return textResult('No agents.', { agents: [] });
-    const choices = new Map(state.agents.map((agent) => [
-      `${agent.title || agent.id} (${agent.id}) — ${agent.status || 'unknown'}`,
-      agent.id
-    ]));
-    const response = await this.elicit('Choose a BDFL agent to inspect.', choiceSchema('Agent', [...choices.keys()]));
-    if (response.action === 'unsupported') return textResult('This host does not expose MCP elicitation.', { agents: [...choices.keys()] });
-    if (response.action !== 'accept') return textResult('Agent selection cancelled.', { action: response.action });
-    const agentId = choices.get(response.content?.selection);
-    const agent = this.store.load().agents.find((candidate) => candidate.id === agentId);
-    if (!agent) throw new Error('Unknown agent selection');
-    return textResult(`Selected agent: ${agent.id}\n${JSON.stringify(agent, null, 2)}`, { agent });
+    const titleFor = (agent) => state.tasks.find((task) => task.id === agent.taskId)?.title || agent.title || agent.id;
+    const choices = new Map(state.agents.map((agent) => {
+      const title = duplicateLabel(titleFor(agent), agent.id, state.agents, titleFor);
+      return [`${title} — ${agent.status || 'unknown'}`, agent.id];
+    }));
+    const picked = await this.choose('Choose a BDFL agent.', 'Agent', [...choices.keys()]);
+    if (picked.unsupported) return textResult('Agent choices returned.', { agents: [...choices.keys()] });
+    if (picked.cancelled) return textResult('Agent selection cancelled.', { action: picked.action });
+    const agent = state.agents.find((candidate) => candidate.id === choices.get(picked.value));
+    const actions = ['View summary', 'View logs'];
+    if (['running', 'waiting'].includes(agent.status)) actions.push('Cancel');
+    const action = await this.choose(`Choose an action for ${titleFor(agent)}.`, 'Action', actions);
+    if (action.cancelled) return textResult('Agent action cancelled.', { action: action.action });
+    if (action.unsupported) return textResult('Agent actions returned.', { actions });
+    if (action.value === 'Cancel') {
+      project.coordinator.cancelTask(agent.taskId);
+      return textResult(`Cancelled agent for ${titleFor(agent)}.`, { agentId: agent.id, cancelled: true });
+    }
+    if (action.value === 'View logs') {
+      const logs = state.events.filter((event) => event.agentId === agent.id).map((event) => `${event.createdAt || ''} ${event.type}: ${event.text || event.message || JSON.stringify(event.result || event.raw || '')}`).join('\n');
+      const page = pageText(logs || 'No logs.', args.page, args.pageSize);
+      return textResult(`${titleFor(agent)} logs (page ${page.page}/${page.pages})\n${page.text}`, { agentId: agent.id, ...page });
+    }
+    return textResult(`${titleFor(agent)} — ${agent.status || 'unknown'}`, { agentId: agent.id, taskId: agent.taskId, status: agent.status });
   }
 
-  async answerInbox() {
-    const state = this.store.load();
+  async manageInbox(project) {
+    const state = project.store.load();
     const open = state.inbox.filter((item) => item.status === 'open');
     if (!open.length) return textResult('No agent questions.', { inbox: [] });
+    const labels = new Map(open.map((item) => {
+      const task = state.tasks.find((candidate) => candidate.id === state.agents.find((agent) => agent.id === item.agentId)?.taskId);
+      const message = typeof item.payload === 'string' ? item.payload : item.payload?.message || item.payload?.question || item.kind;
+      return [`${task?.title || 'Agent'} — ${message}`, item.id];
+    }));
     let item = open[0];
     if (open.length > 1) {
-      const choices = new Map(open.map((candidate) => {
-        const summary = typeof candidate.payload === 'string'
-          ? candidate.payload
-          : candidate.payload?.message || candidate.payload?.question || candidate.kind;
-        return [`${candidate.agentId} — ${summary} (${candidate.id})`, candidate.id];
-      }));
-      const picked = await this.elicit('Choose the waiting BDFL Inbox item to answer.', choiceSchema('Inbox item', [...choices.keys()]));
-      if (picked.action === 'unsupported') return textResult('This host does not expose MCP elicitation.', { inbox: [...choices.keys()] });
-      if (picked.action !== 'accept') return textResult('Inbox selection cancelled.', { action: picked.action });
-      item = open.find((candidate) => candidate.id === choices.get(picked.content?.selection));
-      if (!item) throw new Error('Unknown Inbox selection');
+      const selected = await this.choose('Choose the waiting agent question.', 'Question', [...labels.keys()]);
+      if (selected.unsupported) return textResult('Agent questions returned.', { inbox: [...labels.keys()] });
+      if (selected.cancelled) return textResult('Inbox selection cancelled.', { action: selected.action });
+      item = open.find((candidate) => candidate.id === labels.get(selected.value));
     }
-
     const payload = item.payload;
-    const message = typeof payload === 'string'
-      ? payload
-      : payload?.message || payload?.question || JSON.stringify(payload);
-    const rawOptions = typeof payload === 'object' && payload
-      ? payload.options || payload.choices
-      : null;
-    const options = Array.isArray(rawOptions)
-      ? rawOptions.map((option) => typeof option === 'string' ? option : option.label || option.title || option.value).filter(Boolean)
-      : [];
-    const requestedSchema = item.kind === 'permission'
-      ? choiceSchema('Decision', ['Approve', 'Deny'])
-      : options.length
-        ? choiceSchema('Answer', options)
-        : {
-            type: 'object',
-            properties: { selection: { type: 'string', title: 'Answer', minLength: 1 } },
-            required: ['selection']
-          };
-    const response = await this.elicit(`${item.agentId} asks: ${message}`, requestedSchema);
-    if (response.action === 'unsupported') return textResult('This host does not expose MCP elicitation.', { item });
-    if (response.action !== 'accept') return textResult('Agent remains suspended.', { action: response.action, inboxId: item.id });
-    const answer = response.content?.selection;
+    const message = typeof payload === 'string' ? payload : payload?.message || payload?.question || JSON.stringify(payload);
+    const raw = typeof payload === 'object' && payload ? payload.options || payload.choices : null;
+    const options = item.kind === 'permission' ? ['Approve', 'Deny'] : Array.isArray(raw) ? raw.map((option) => typeof option === 'string' ? option : option.label || option.title || option.value).filter(Boolean) : [];
+    const response = options.length
+      ? await this.choose(message, item.kind === 'permission' ? 'Decision' : 'Answer', options)
+      : await this.elicit(message, { type: 'object', properties: { selection: { type: 'string', title: 'Answer', minLength: 1 } }, required: ['selection'] });
+    if (response.unsupported || response.action === 'unsupported') return textResult('Agent question returned.', { item });
+    if (response.cancelled || response.action !== undefined && response.action !== 'accept') return textResult('Agent remains suspended.', { inboxId: item.id });
+    const answer = response.value || response.content?.selection;
     if (!answer) throw new Error('An explicit Inbox answer is required');
-    this.store.update((value) => {
+    project.store.update((value) => {
       const current = value.inbox.find((candidate) => candidate.id === item.id && candidate.status === 'open');
-      if (!current) throw new Error(`Open Inbox item not found: ${item.id}`);
-      current.status = 'answered';
-      current.answer = answer;
-      current.resolvedAt = new Date().toISOString();
-      current.deliveryStatus = 'pending';
+      current.status = 'answered'; current.answer = answer; current.resolvedAt = this.now().toISOString(); current.deliveryStatus = 'pending';
       return value;
     });
-    return textResult(`Recorded answer for ${item.agentId}: ${answer}`, {
-      inboxId: item.id,
-      agentId: item.agentId,
-      answer,
-      deliveryStatus: 'pending'
-    });
+    return textResult('Recorded agent answer.', { inboxId: item.id, answer, deliveryStatus: 'pending' });
   }
 
-  async callTool(name) {
-    if (name === 'models') return this.chooseModel();
-    if (name === 'plans') return this.choosePlan();
-    if (name === 'agents') return this.inspectAgent();
-    if (name === 'inbox') return this.answerInbox();
+  async manage(args) {
+    const project = this.project(args.projectRoot);
+    if (args.command === 'on') return this.turnOn(project);
+    if (args.command === 'off') return this.turnOff(project);
+    if (args.command === 'models') return this.manageModel();
+    if (args.command === 'plans') return this.managePlans(project, args);
+    if (args.command === 'tasks') return this.manageTasks(project, args);
+    if (args.command === 'agents') return this.manageAgents(project, args);
+    if (args.command === 'inbox') return this.manageInbox(project);
+    if (args.command === 'capture-plan') return this.capturePlan(project, args);
+    if (args.command === 'help') return textResult('BDFL commands: on, off, models, plans, tasks, agents, help.');
+    throw new Error(`Unknown BDFL command: ${args.command}`);
+  }
+
+  async callTool(name, args = {}) {
+    if (name === 'bdfl') return this.manage(args);
+    if (name === 'dispatch') {
+      const project = this.project(args.projectRoot);
+      const result = project.coordinator.dispatch(args);
+      return textResult(`Dispatched ${result.tasks.length} task(s).`, result);
+    }
     throw new Error(`Unknown tool: ${name}`);
   }
 
@@ -238,7 +402,7 @@ class BdflMcpServer {
         protocolVersion: message.params?.protocolVersion || '2025-11-25',
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'bdfl', version: '1.0.0' },
-        instructions: 'Use models, plans, and agents for native BDFL management selectors.'
+        instructions: 'Use bdfl for guided management and plan capture; use dispatch only for validated task manifests. Always pass the active Git project root.'
       });
       return;
     }
@@ -246,11 +410,8 @@ class BdflMcpServer {
     if (message.method === 'ping') { this.respond(message.id, {}); return; }
     if (message.method === 'tools/list') { this.respond(message.id, { tools: TOOLS }); return; }
     if (message.method === 'tools/call') {
-      try {
-        this.respond(message.id, await this.callTool(message.params?.name));
-      } catch (error) {
-        this.respond(message.id, { ...textResult(error.message), isError: true });
-      }
+      try { this.respond(message.id, await this.callTool(message.params?.name, message.params?.arguments || {})); }
+      catch (error) { this.respond(message.id, { ...textResult(error.message), isError: true }); }
       return;
     }
     if (message.id !== undefined) this.fail(message.id, -32601, `Method not found: ${message.method}`);
@@ -269,4 +430,4 @@ class BdflMcpServer {
 
 if (require.main === module) new BdflMcpServer().start();
 
-module.exports = { TOOLS, textResult, choiceSchema, BdflMcpServer };
+module.exports = { COMMANDS, TOOLS, textResult, choiceSchema, canonicalProjectRoot, pageText, BdflMcpServer };

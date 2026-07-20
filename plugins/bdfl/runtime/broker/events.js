@@ -31,6 +31,9 @@ class EventBroker {
       }
       if (event.type === 'completion' && agent) agent.status = 'review';
       if (event.type === 'error' && agent) { agent.status = 'failed'; agent.exitState = event.message; }
+      const task = agent?.taskId ? state.tasks.find((item) => item.id === agent.taskId) : null;
+      if (event.type === 'completion' && task) task.status = 'review';
+      if (event.type === 'error' && task) { task.status = 'failed'; task.exitState = event.message; }
       return state;
     });
     return record;
@@ -57,10 +60,11 @@ class EventBroker {
       agent.status = 'cancelled';
       agent.exitState = reason;
       agent.stoppedAt = timestamp(this.now());
+      const task = agent.taskId ? state.tasks.find((item) => item.id === agent.taskId) : null;
+      if (task) { task.status = 'cancelled'; task.exitState = reason; task.stoppedAt = agent.stoppedAt; }
       return state;
     });
   }
 }
 
 module.exports = { EventBroker };
-
