@@ -52,11 +52,15 @@ function installerPaths({ platform = process.platform, env = process.env, homedi
     claudePlugin: local ? path.join(projectRoot, '.bdfl', 'install', 'claude') : path.join(claudeRoot, 'plugins', 'marketplaces', 'bdfl'),
     claudeCache: path.join(claudeRoot, 'plugins', 'cache', 'bdfl'),
     claudeSettings: path.join(claudeRoot, local ? 'settings.local.json' : 'settings.json'),
+    claudeSkill: path.join(claudeRoot, 'skills', 'bdfl'),
     codexRoot,
     codexMarketplaceRoot: local ? projectRoot : homedir,
     codexPlugin: path.join(agentsRoot, 'plugins', 'plugins', 'bdfl'),
     codexCache: path.join(codexRoot, 'plugins', 'cache', 'personal', 'bdfl'),
     codexMarketplace: path.join(agentsRoot, 'plugins', 'marketplace.json'),
+    codexSkill: local ? path.join(agentsRoot, 'skills', 'bdfl') : path.join(codexRoot, 'skills', 'bdfl'),
+    runtime: path.join(configRoot, 'runtime'),
+    backups: path.join(configRoot, 'backups'),
     launcher: local
       ? path.join(projectRoot, '.bdfl', 'install', platform === 'win32' ? 'bdfl.cmd' : 'bdfl')
       : platform === 'win32'
@@ -111,6 +115,13 @@ function isBdflPlugin(directory, manifest, io = fs) {
   catch { return false; }
 }
 
+function isBdflSkill(directory, io = fs) {
+  const file = path.join(directory, 'SKILL.md');
+  if (!io.existsSync(file)) return false;
+  try { return /^---\s*[\s\S]*?^name:\s*bdfl\s*$/m.test(io.readFileSync(file, 'utf8')); }
+  catch { return false; }
+}
+
 function removeBdflMarketplaceEntry(current, pluginPath, marketplaceRoot = os.homedir()) {
   const next = structuredClone(current);
   next.plugins = (next.plugins || []).filter((plugin) => {
@@ -145,14 +156,17 @@ class Installer {
   }
 
   runClaude(args, tolerateFailure = false) {
+    const env = { ...process.env };
+    if (!process.env.CLAUDE_CONFIG_DIR) delete env.CLAUDE_CONFIG_DIR;
     const result = this.run('claude', args, {
       encoding: 'utf8',
       stdio: 'pipe',
-      env: { ...process.env, CLAUDE_CONFIG_DIR: this.paths.claudeRoot }
+      cwd: this.paths.projectRoot,
+      env
     });
     if (!tolerateFailure && (result.error || result.status !== 0)) {
       const detail = `${result.stderr || result.stdout || result.error?.message || 'unknown error'}`.trim();
-      throw new Error(`Claude Code plugin setup failed: ${detail}`);
+      throw new Error(`Claude Code setup failed: ${detail}`);
     }
     return result;
   }
@@ -161,7 +175,7 @@ class Installer {
     const result = this.run('codex', args, { encoding: 'utf8', stdio: 'pipe', cwd: this.paths.projectRoot });
     if (!tolerateFailure && (result.error || result.status !== 0)) {
       const detail = `${result.stderr || result.stdout || result.error?.message || 'unknown error'}`.trim();
-      throw new Error(`Codex plugin setup failed: ${detail}`);
+      throw new Error(`Codex setup failed: ${detail}`);
     }
     return result;
   }
@@ -177,8 +191,8 @@ class Installer {
 
   receiptlessHosts() {
     const hosts = [];
-    if (isBdflPlugin(this.paths.claudePlugin, path.join('.claude-plugin', 'plugin.json'), this.io)) hosts.push('claude');
-    if (isBdflPlugin(this.paths.codexPlugin, path.join('.codex-plugin', 'plugin.json'), this.io)) hosts.push('codex');
+    if (isBdflSkill(this.paths.claudeSkill, this.io) || isBdflPlugin(this.paths.claudePlugin, path.join('.claude-plugin', 'plugin.json'), this.io)) hosts.push('claude');
+    if (isBdflSkill(this.paths.codexSkill, this.io) || isBdflPlugin(this.paths.codexPlugin, path.join('.codex-plugin', 'plugin.json'), this.io)) hosts.push('codex');
     return hosts;
   }
 
@@ -195,23 +209,115 @@ class Installer {
     }) ? this.paths.launcher : null;
   }
 
+  copyTree(from, to, allow) {
+    this.io.mkdirSync(path.dirname(to), { recursive: true });
+    this.io.cpSync(from, to, {
+      recursive: true,
+      force: true,
+      filter: (source) => {
+        const relative = path.relative(from, source);
+        const first = relative.split(path.sep)[0];
+        return !relative || (!['.git', '.bdfl', '.agents', 'node_modules'].includes(first) && (!allow || allow.includes(first)));
+      }
+    });
+  }
+
+  preservePath(target, key, receipt, previousReceipt, force) {
+    if (!this.io.existsSync(target)) return;
+    if (previousReceipt?.managed?.[key] === target) {
+      this.io.rmSync(target, { recursive: true, force: true });
+      return;
+    }
+    if (!force) throw new Error(`Existing unmanaged path requires --force: ${target}`);
+    const backup = path.join(this.paths.backups, key);
+    if (this.io.existsSync(backup)) this.io.rmSync(backup, { recursive: true, force: true });
+    this.io.mkdirSync(path.dirname(backup), { recursive: true });
+    this.io.renameSync(target, backup);
+    receipt.previous.replacedPaths ||= {};
+    receipt.previous.replacedPaths[key] = { target, backup };
+  }
+
+  readMcp(host) {
+    const result = host === 'claude'
+      ? this.runClaude(['mcp', 'get', 'bdfl'], true)
+      : this.runCodex(['mcp', 'get', 'bdfl', '--json'], true);
+    if (result.error || result.status !== 0) return null;
+    const output = `${result.stdout || ''}`.trim();
+    if (!output) return null;
+    if (host === 'codex') {
+      try {
+        const value = JSON.parse(output);
+        const command = value.command || value.transport?.command || value.stdio?.command;
+        const args = value.args || value.transport?.args || value.stdio?.args || [];
+        return command ? { command, args } : { raw: output };
+      } catch { return { raw: output }; }
+    }
+    const command = output.match(/^\s*Command:\s*(.+)$/mi)?.[1]?.trim();
+    const args = output.match(/^\s*Args:\s*(.*)$/mi)?.[1]?.trim().split(/\s+/).filter(Boolean) || [];
+    return command ? { command, args } : { raw: output };
+  }
+
+  removeMcp(host) {
+    if (host === 'claude') this.runClaude(['mcp', 'remove', '--scope', this.paths.local ? 'local' : 'user', 'bdfl'], true);
+    else this.runCodex(['mcp', 'remove', 'bdfl'], true);
+  }
+
+  addMcp(host, command, args) {
+    if (host === 'claude') this.runClaude(['mcp', 'add', '--scope', this.paths.local ? 'local' : 'user', 'bdfl', '--', command, ...args]);
+    else this.runCodex(['mcp', 'add', 'bdfl', '--', command, ...args]);
+  }
+
+  configureMcp(host, runtime, receipt, previousReceipt, force) {
+    const existing = this.readMcp(host);
+    const legacyPath = host === 'claude' ? this.paths.claudePlugin : this.paths.codexPlugin;
+    const legacyManifest = host === 'claude' ? path.join('.claude-plugin', 'plugin.json') : path.join('.codex-plugin', 'plugin.json');
+    const managedBefore = previousReceipt?.managed?.mcp?.[host]
+      || previousReceipt?.hosts?.includes(host)
+      || receipt.previous?.legacyHosts?.includes(host)
+      || isBdflPlugin(legacyPath, legacyManifest, this.io);
+    if (existing && !managedBefore) {
+      if (!force) throw new Error(`Existing unmanaged MCP server requires --force: ${host}:bdfl`);
+      if (!existing.command) throw new Error(`Cannot safely preserve existing ${host} MCP server bdfl`);
+      receipt.previous.mcp ||= {};
+      receipt.previous.mcp[host] = existing;
+    }
+    if (existing) this.removeMcp(host);
+    this.addMcp(host, process.execPath, [runtime]);
+    receipt.managed.mcp ||= {};
+    receipt.managed.mcp[host] = { command: process.execPath, args: [runtime] };
+  }
+
+  cleanLegacy(host, receipt) {
+    if (host === 'claude') {
+      this.runClaude(['plugin', 'uninstall', 'bdfl@bdfl'], true);
+      this.runClaude(['plugin', 'marketplace', 'remove', 'bdfl'], true);
+      if (isBdflPlugin(this.paths.claudePlugin, path.join('.claude-plugin', 'plugin.json'), this.io)) this.io.rmSync(this.paths.claudePlugin, { recursive: true, force: true });
+      if (this.io.existsSync(this.paths.claudeCache)) this.io.rmSync(this.paths.claudeCache, { recursive: true, force: true });
+    } else {
+      this.runCodex(['plugin', 'remove', 'bdfl@personal'], true);
+      if (isBdflPlugin(this.paths.codexPlugin, path.join('.codex-plugin', 'plugin.json'), this.io)) this.io.rmSync(this.paths.codexPlugin, { recursive: true, force: true });
+      if (this.io.existsSync(this.paths.codexCache)) this.io.rmSync(this.paths.codexCache, { recursive: true, force: true });
+      const current = readJson(this.paths.codexMarketplace, { name: 'personal', interface: { displayName: 'Personal' }, plugins: [] });
+      receipt.previous.codexMarketplace ||= current;
+      writeJson(this.paths.codexMarketplace, removeBdflMarketplaceEntry(current, this.paths.codexPlugin, this.paths.codexMarketplaceRoot));
+    }
+  }
+
   plan(options, detected) {
     const hosts = ['claude', 'codex'].filter((host) => detected[host] && (!options.only || options.only === host));
-    const operations = [];
+    const operations = [{ type: 'runtime', from: this.sourceRoot, to: this.paths.runtime }];
     if (hosts.includes('claude')) {
-      operations.push({
-        type: 'copy', host: 'claude', from: this.sourceRoot, to: this.paths.claudePlugin,
-        allow: ['.claude-plugin', '.mcp.json', 'agents', 'bin', 'claude', 'src', 'package.json', 'LICENSE']
-      });
-      operations.push({ type: 'claude-native', host: 'claude', path: this.paths.claudePlugin });
+      operations.push({ type: 'skill', host: 'claude', from: path.join(this.sourceRoot, 'claude', 'skills', 'bdfl'), to: this.paths.claudeSkill });
+      operations.push({ type: 'legacy-cleanup', host: 'claude', path: this.paths.claudePlugin });
+      operations.push({ type: 'mcp', host: 'claude', path: path.join(this.paths.runtime, 'bin', 'bdfl-mcp.js') });
       operations.push({ type: 'settings-cleanup', host: 'claude', path: this.paths.claudeSettings });
     }
     if (hosts.includes('codex')) {
-      operations.push({ type: 'copy', host: 'codex', from: path.join(this.sourceRoot, 'plugins', 'bdfl'), to: this.paths.codexPlugin });
-      operations.push({ type: 'marketplace', host: 'codex', path: this.paths.codexMarketplace });
-      operations.push({ type: 'codex-native', host: 'codex', path: this.paths.codexMarketplace });
+      operations.push({ type: 'skill', host: 'codex', from: path.join(this.sourceRoot, 'skills', 'bdfl'), to: this.paths.codexSkill });
+      operations.push({ type: 'legacy-cleanup', host: 'codex', path: this.paths.codexPlugin });
+      operations.push({ type: 'mcp', host: 'codex', path: path.join(this.paths.runtime, 'bin', 'bdfl-mcp.js') });
     }
-    operations.push({ type: 'launcher', path: this.paths.launcher, host: hosts.includes('codex') ? 'codex' : 'claude' });
+    operations.push({ type: 'launcher', path: this.paths.launcher });
     operations.push({ type: 'receipt', path: this.paths.receipt });
     return { hosts, ollama: detected.ollama, scope: this.paths.local ? 'LOCAL' : 'GLOBAL', operations };
   }
@@ -221,58 +327,69 @@ class Installer {
     if (!plan.hosts.length) throw new Error(options.only ? `${options.only} was requested but is not detected` : 'Neither Claude Code nor Codex was detected');
     if (options.dryRun || options.list) return plan;
     const previousReceipt = readJson(this.paths.receipt, null);
-    if (previousReceipt) this.removeLegacyClaudeSkill(previousReceipt);
+    const legacyLauncher = this.receiptlessLauncher(plan.hosts);
+    for (const operation of plan.operations.filter((item) => ['runtime', 'skill'].includes(item.type))) {
+      const key = operation.type === 'runtime' ? 'runtime' : `${operation.host}Skill`;
+      if (this.io.existsSync(operation.to) && previousReceipt?.managed?.[key] !== operation.to && !options.force) {
+        throw new Error(`Existing unmanaged path requires --force: ${operation.to}`);
+      }
+    }
+    for (const host of plan.hosts) {
+      const existing = this.readMcp(host);
+      const legacyPath = host === 'claude' ? this.paths.claudePlugin : this.paths.codexPlugin;
+      const legacyManifest = host === 'claude' ? path.join('.claude-plugin', 'plugin.json') : path.join('.codex-plugin', 'plugin.json');
+      const managed = previousReceipt?.hosts?.includes(host) || isBdflPlugin(legacyPath, legacyManifest, this.io);
+      if (existing && !managed && !options.force) throw new Error(`Existing unmanaged MCP server requires --force: ${host}:bdfl`);
+    }
+    if (previousReceipt && plan.hosts.includes('claude')) this.removeLegacyClaudeSkill(previousReceipt);
     const receipt = {
-      version: 1,
-      hosts: plan.hosts,
+      version: 2,
+      hosts: [...new Set([...(previousReceipt?.hosts || []), ...plan.hosts])],
       paths: this.paths,
       previous: structuredClone(previousReceipt?.previous || {}),
-      managed: {},
+      managed: structuredClone(previousReceipt?.managed || {}),
       installedAt: previousReceipt?.installedAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
+    receipt.previous.legacyHosts ||= plan.hosts.filter((host) => {
+      const legacyPath = host === 'claude' ? this.paths.claudePlugin : this.paths.codexPlugin;
+      const manifest = host === 'claude' ? path.join('.claude-plugin', 'plugin.json') : path.join('.codex-plugin', 'plugin.json');
+      return isBdflPlugin(legacyPath, manifest, this.io);
+    });
     if (plan.hosts.includes('claude')) receipt.previous.claudeSettings ||= readJson(this.paths.claudeSettings, {});
     for (const operation of plan.operations) {
       report(operation, 'start');
-      if (operation.type === 'copy') {
-        if (this.io.existsSync(operation.to) && !options.force && !previousReceipt) throw new Error(`Existing unmanaged path requires --force: ${operation.to}`);
-        if (this.io.existsSync(operation.to) && previousReceipt) this.io.rmSync(operation.to, { recursive: true, force: true });
-        this.io.mkdirSync(path.dirname(operation.to), { recursive: true });
-        this.io.cpSync(operation.from, operation.to, {
-          recursive: true,
-          force: true,
-          filter: (source) => {
-            const relative = path.relative(operation.from, source);
-            const first = relative.split(path.sep)[0];
-            return !relative || (!['.git', '.bdfl', '.agents', 'node_modules'].includes(first) && (!operation.allow || operation.allow.includes(first)));
-          }
-        });
-      } else if (operation.type === 'claude-native') {
-        const scope = this.paths.local ? 'local' : 'user';
-        this.runClaude(['plugin', 'marketplace', 'add', '--scope', scope, operation.path]);
-        this.runClaude(['plugin', 'install', '--scope', scope, 'bdfl@bdfl']);
-        this.runClaude(['plugin', 'update', 'bdfl@bdfl']);
+      if (operation.type === 'runtime') {
+        this.preservePath(operation.to, 'runtime', receipt, previousReceipt, options.force);
+        this.copyTree(operation.from, operation.to, ['bin', 'src', 'package.json', 'LICENSE']);
+        receipt.managed.runtime = operation.to;
+      } else if (operation.type === 'skill') {
+        const key = `${operation.host}Skill`;
+        this.preservePath(operation.to, key, receipt, previousReceipt, options.force);
+        this.copyTree(operation.from, operation.to);
+        receipt.managed[key] = operation.to;
+      } else if (operation.type === 'mcp') {
+        this.configureMcp(operation.host, operation.path, receipt, previousReceipt, options.force);
+      } else if (operation.type === 'legacy-cleanup') {
+        this.cleanLegacy(operation.host, receipt);
       } else if (operation.type === 'settings-cleanup') {
         const current = readJson(operation.path, {});
         writeJson(operation.path, removeBdflStatusLine(current, receipt.previous.claudeSettings));
-      } else if (operation.type === 'marketplace') {
-        const current = readJson(operation.path, { name: 'personal', interface: { displayName: 'Personal' }, plugins: [] });
-        receipt.previous.codexMarketplace ||= current;
-        writeJson(operation.path, mergeCodexMarketplace(current, this.paths.codexPlugin, this.paths.codexMarketplaceRoot));
-      } else if (operation.type === 'codex-native') {
-        this.runCodex(['plugin', 'add', 'bdfl@personal']);
       } else if (operation.type === 'launcher') {
-        const targetRoot = operation.host === 'codex' ? this.paths.codexPlugin : this.paths.claudePlugin;
-        const target = path.join(targetRoot, 'bin', 'bdfl');
-        if (!pathExists(this.io, operation.path)) {
+        const target = path.join(this.paths.runtime, 'bin', 'bdfl');
+        const wasManaged = previousReceipt?.managed?.launcher === operation.path;
+        const replace = wasManaged || legacyLauncher === operation.path;
+        if (replace) {
+          if (this.io.lstatSync(operation.path).isSymbolicLink()) this.io.unlinkSync(operation.path);
+          else this.io.rmSync(operation.path, { force: true });
+        }
+        if (replace || !pathExists(this.io, operation.path)) {
           this.io.mkdirSync(path.dirname(operation.path), { recursive: true });
           if (process.platform === 'win32' || operation.path.endsWith('.cmd')) {
-            this.io.writeFileSync(operation.path, `@echo off\r\nnode "${path.join(targetRoot, 'bin', 'bdfl.js')}" %*\r\n`);
+            this.io.writeFileSync(operation.path, `@echo off\r\nnode "${path.join(this.paths.runtime, 'bin', 'bdfl.js')}" %*\r\n`);
           } else {
             this.io.symlinkSync(target, operation.path);
           }
-          receipt.managed.launcher = operation.path;
-        } else if (previousReceipt?.managed?.launcher === operation.path) {
           receipt.managed.launcher = operation.path;
         }
       }
@@ -294,21 +411,21 @@ class Installer {
       managed: { launcher: this.receiptlessLauncher(hosts) }
     };
     const removed = [];
-    if (!options.dryRun && receipt.hosts.includes('claude')) {
-      this.runClaude(['plugin', 'uninstall', 'bdfl@bdfl'], true);
-      this.runClaude(['plugin', 'marketplace', 'remove', 'bdfl'], true);
-    }
-    if (!options.dryRun && receipt.hosts.includes('codex')) this.runCodex(['plugin', 'remove', 'bdfl@personal'], true);
     for (const host of receipt.hosts) {
-      const target = host === 'claude' ? this.paths.claudePlugin : this.paths.codexPlugin;
-      if (options.dryRun) { removed.push(target); continue; }
-      if (this.io.existsSync(target)) { this.io.rmSync(target, { recursive: true, force: true }); removed.push(target); }
+      if (!options.dryRun) {
+        this.removeMcp(host);
+        if (receipt.previous?.mcp?.[host]?.command) this.addMcp(host, receipt.previous.mcp[host].command, receipt.previous.mcp[host].args || []);
+        this.cleanLegacy(host, receipt);
+      }
+      const key = `${host}Skill`;
+      const target = receipt.managed?.[key] || (host === 'claude' ? this.paths.claudeSkill : this.paths.codexSkill);
+      const owned = receipt.managed?.[key] === target || isBdflSkill(target, this.io);
+      if (options.dryRun) { if (owned && this.io.existsSync(target)) removed.push(target); }
+      else if (owned && this.io.existsSync(target)) { this.io.rmSync(target, { recursive: true, force: true }); removed.push(target); }
     }
-    const caches = hosts.map((host) => host === 'claude' ? this.paths.claudeCache : this.paths.codexCache);
-    for (const cache of caches) {
-      if (options.dryRun) { if (this.io.existsSync(cache)) removed.push(cache); continue; }
-      if (this.io.existsSync(cache)) { this.io.rmSync(cache, { recursive: true, force: true }); removed.push(cache); }
-    }
+    const runtime = receipt.managed?.runtime || this.paths.runtime;
+    if (options.dryRun) { if (this.io.existsSync(runtime)) removed.push(runtime); }
+    else if (this.io.existsSync(runtime)) { this.io.rmSync(runtime, { recursive: true, force: true }); removed.push(runtime); }
     const launcher = receipt.managed?.launcher;
     if (launcher) {
       if (options.dryRun) { if (pathExists(this.io, launcher)) removed.push(launcher); }
@@ -316,6 +433,12 @@ class Installer {
     }
     if (!options.dryRun) this.removeLegacyClaudeSkill(receipt, removed);
     if (!options.dryRun) {
+      for (const replacement of Object.values(receipt.previous?.replacedPaths || {})) {
+        if (!replacement?.target || !replacement?.backup || !this.io.existsSync(replacement.backup)) continue;
+        this.io.mkdirSync(path.dirname(replacement.target), { recursive: true });
+        this.io.renameSync(replacement.backup, replacement.target);
+      }
+      if (this.io.existsSync(this.paths.backups) && this.io.readdirSync(this.paths.backups).length === 0) this.io.rmdirSync(this.paths.backups);
       if (receiptless && hosts.includes('claude')) {
         const current = readJson(this.paths.claudeSettings, {});
         writeJson(this.paths.claudeSettings, removeBdflStatusLine(current));
@@ -351,13 +474,12 @@ function theme(enabled) {
 }
 
 function operationLabel(operation) {
-  if (operation.type === 'copy' && operation.host === 'claude') return `Claude marketplace files  ${operation.to}`;
-  if (operation.type === 'claude-native') return 'Claude marketplace registration and plugin install';
+  if (operation.type === 'runtime') return `Shared BDFL runtime      ${operation.to}`;
+  if (operation.type === 'skill') return `${operation.host === 'claude' ? 'Claude' : 'Codex'} /bdfl skill        ${operation.to}`;
+  if (operation.type === 'mcp') return `${operation.host === 'claude' ? 'Claude' : 'Codex'} MCP registration   bdfl`;
+  if (operation.type === 'legacy-cleanup') return `${operation.host === 'claude' ? 'Claude' : 'Codex'} legacy plugin cleanup`;
   if (operation.type === 'settings-cleanup') return `Remove legacy status UI ${operation.path}`;
-  if (operation.type === 'copy' && operation.host === 'codex') return `Codex plugin files       ${operation.to}`;
-  if (operation.type === 'marketplace') return `Codex marketplace entry  ${operation.path}`;
-  if (operation.type === 'codex-native') return 'Codex plugin installation';
-  if (operation.type === 'launcher') return `Terminal launcher        ${operation.path}`;
+  if (operation.type === 'launcher') return `Compatibility launcher  ${operation.path}`;
   return `Installation receipt    ${operation.path}`;
 }
 
@@ -385,8 +507,8 @@ function formatCompletion(plan, { color = false, uninstall = false } = {}) {
   if (uninstall && plan.receiptless) return `${c.green('✓')} Legacy BDFL installation removed.`;
   if (uninstall) return `${c.green('✓')} BDFL removed. Recorded host settings were restored.`;
   const lines = ['', c.yellow('READY'), `  ${c.green('✓')} BDFL installed for ${plan.hosts.map((host) => host === 'claude' ? 'Claude Code' : 'Codex').join(' and ')}`];
-  if (plan.hosts.includes('claude')) lines.push(`  ${c.yellow('!')} Restart Claude Code, then run ${c.bold('/bdfl:bdfl')}`);
-  if (plan.hosts.includes('codex')) lines.push(`  ${c.yellow('!')} Restart Codex, then run ${c.bold('$bdfl:bdfl')}`);
+  if (plan.hosts.includes('claude')) lines.push(`  ${c.yellow('!')} Restart Claude Code, then run ${c.bold('/bdfl')}`);
+  if (plan.hosts.includes('codex')) lines.push(`  ${c.yellow('!')} Restart Codex, then run ${c.bold('$bdfl')}`);
   lines.push(`  ${c.dim('Uninstall:')} node bin/install.js --uninstall`);
   return lines.join('\n');
 }
@@ -418,4 +540,4 @@ function main(argv = process.argv.slice(2), output = process.stdout, error = pro
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { parseArgs, commandAvailable, detectHosts, installerPaths, sha256, verifyChecksum, removeBdflStatusLine, isBdflPlugin, removeBdflMarketplaceEntry, mergeCodexMarketplace, Installer, LOGO, theme, operationLabel, formatPlan, formatCompletion, main };
+module.exports = { parseArgs, commandAvailable, detectHosts, installerPaths, sha256, verifyChecksum, removeBdflStatusLine, isBdflPlugin, isBdflSkill, removeBdflMarketplaceEntry, mergeCodexMarketplace, Installer, LOGO, theme, operationLabel, formatPlan, formatCompletion, main };

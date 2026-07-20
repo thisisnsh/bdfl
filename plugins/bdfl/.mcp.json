@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "bdfl": {
-      "command": "node",
-      "args": ["./bin/bdfl-mcp.js"],
-      "cwd": "."
-    }
-  }
-}

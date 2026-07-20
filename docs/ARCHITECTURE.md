@@ -1,6 +1,6 @@
 # Architecture
 
-The command skills under `skills/` and runtime under `src/` are canonical. `scripts/package.js` mirrors them into `plugins/bdfl/` and builds a deterministic activation skill archive at `dist/bdfl.skill`; `npm run package:check` rejects drift.
+The standalone skill under `skills/bdfl/` and runtime under `src/` are canonical. `scripts/package.js` builds deterministic release artifacts; `npm run package:check` rejects drift.
 
 ## Runtime flow
 
@@ -21,4 +21,4 @@ State uses schema version 1 and atomic temporary-file rename. Records include ru
 
 ## Host bridges
 
-Claude Code uses the native marketplace command and plugin installer. Its custom status-line script reads the host's workspace JSON and durable project state, selects a process verb, and animates in yellow at Claude Code's minimum supported one-second refresh interval. Set `BDFL_STATUS_NO_COLOR=1` only when plain status output is required. Codex uses the same dynamic banner at activation and inside the shared TUI at 500 ms; no footer patch or parent wrapper is installed.
+Claude Code and Codex load one standalone skill and one directly configured stdio MCP server. The server exposes only `bdfl` for guided management and `dispatch` for validated task execution. BDFL installs no session-start hook, status line, footer patch, or parent wrapper.

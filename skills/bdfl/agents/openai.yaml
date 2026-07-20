@@ -1,6 +1,6 @@
 interface:
-  display_name: "bdfl:bdfl"
-  short_description: "Turn BDFL orchestration on or off safely"
-  default_prompt: "Use $bdfl:bdfl to turn BDFL orchestration on, or pass off to deactivate it."
+  display_name: "bdfl"
+  short_description: "Manage BDFL with native guided controls"
+  default_prompt: "Use $bdfl to turn BDFL on, or pass models, plans, tasks, agents, off, or help."
 policy:
   allow_implicit_invocation: false

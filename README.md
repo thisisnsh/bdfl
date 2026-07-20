@@ -38,7 +38,7 @@ Install only for the current project with `--local`:
 curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh | bash -s -- --local
 ```
 
-The installer detects Claude Code and Codex, verifies the release archive checksum, installs each detected native plugin, and prints every path and setting before mutation. Use `--only claude`, `--only codex`, or `--dry-run` to narrow or preview it. See [INSTALL.md](INSTALL.md) for all options.
+The installer detects Claude Code and Codex, verifies the release archive checksum, installs one standalone `bdfl` skill per host, registers the shared MCP server directly, and prints every path and setting before mutation. Use `--only claude`, `--only codex`, or `--dry-run` to narrow or preview it. See [INSTALL.md](INSTALL.md) for all options.
 
 ## Use cases
 
@@ -50,7 +50,7 @@ The installer detects Claude Code and Codex, verifies the release archive checks
 | An agent needs clarification or wider permission | Suspends it and returns the request to Inbox for your decision. |
 | A plan changes after review | Records every revision and lets you choose the version to execute. |
 | Completed branches need a safe landing path | Reviews per task, validates the batch on a temporary branch, then asks before integration. |
-| A previous run crashed or was interrupted | Offers resume, inspect, archive, or cancel without choosing automatically. |
+| A previous run crashed or was interrupted | Offers Continue, Manage tasks, Archive run, or Cancel run without choosing automatically. |
 
 ## Try it now
 
@@ -59,32 +59,32 @@ Start from a clean Git worktree. BDFL never activates automatically.
 ### Claude Code
 
 ```text
-/bdfl:bdfl
+/bdfl
 Build the API and CLI in separate tasks, then validate them together.
-/bdfl:agents
+/bdfl agents
 ```
 
 Choose Claude explicitly, then turn BDFL on:
 
 ```text
-/bdfl:models claude:sonnet:medium
-/bdfl:bdfl
+/bdfl models
+/bdfl
 Refactor authentication while a separate agent updates deterministic tests.
 ```
 
 ### Codex
 
 ```text
-$bdfl:bdfl
+$bdfl
 Split the provider implementation, tests, and documentation into safe parallel tasks.
-$bdfl:plans
+$bdfl plans
 ```
 
 Choose Codex explicitly:
 
 ```text
-$bdfl:models codex:gpt-5.6-sol:medium
-$bdfl:bdfl
+$bdfl models
+$bdfl
 Add the migration, rollback test, and operator documentation.
 ```
 
@@ -92,19 +92,20 @@ Add the migration, rollback test, and operator documentation.
 
 Ollama support is coming soon.
 
-Without a model selection, BDFL defaults to `claude:sonnet:medium` when Claude is installed. If Claude is unavailable and Codex is installed, it uses `codex:gpt-5.6-sol:medium`. A choice made through `bdfl:models` persists for future runs.
+Without a model selection, BDFL defaults to `claude:sonnet:medium`. A choice made through `models` persists for future runs.
 
 ## Commands
 
 | Action | Claude Code | Codex |
 |---|---|---|
-| Turn BDFL on; `on` is the default | `/bdfl:bdfl [on]` | `$bdfl:bdfl [on]` |
-| Turn BDFL off after active agents resolve | `/bdfl:bdfl off` | `$bdfl:bdfl off` |
-| List and choose an exact run model | `/bdfl:models [provider:model:effort]` | `$bdfl:models [provider:model:effort]` |
-| Review plan versions, diffs, and approvals | `/bdfl:plans` | `$bdfl:plans` |
-| Inspect and act on agents and attempts | `/bdfl:agents` | `$bdfl:agents` |
+| Turn BDFL on; `on` is the default | `/bdfl [on]` | `$bdfl [on]` |
+| Turn BDFL off after active agents resolve | `/bdfl off` | `$bdfl off` |
+| List and choose an exact run model | `/bdfl models` | `$bdfl models` |
+| Review plan versions, diffs, and approvals | `/bdfl plans` | `$bdfl plans` |
+| Inspect and act on tasks | `/bdfl tasks` | `$bdfl tasks` |
+| Inspect and act on agents and attempts | `/bdfl agents` | `$bdfl agents` |
 
-The plugin has no separate help, activate, off, or generic list skill. `/bdfl:bdfl` and `$bdfl:bdfl` are the single on/off controls; Models, Plans, and Agents are focused management views. Native host planning remains native.
+There is one command and one skill: `bdfl`. Its optional argument selects a guided management view. Native host planning remains native.
 
 ## What you get
 
@@ -120,14 +121,15 @@ The plugin has no separate help, activate, off, or generic list skill. `/bdfl:bd
 
 ## Native management dialogs
 
-Models, Plans, Agents, and Inbox use a bundled MCP server to request structured input from the host. Claude Code and Codex render those requests with their native controls; BDFL does not ask the model to write a numbered list or depend on a standalone terminal UI.
+Models, Plans, Tasks, Agents, and Inbox use a small MCP server to request structured input from the host. Claude Code and Codex render those requests with their native controls; BDFL does not ask the model to write a numbered list or depend on a standalone terminal UI.
 
-- `/bdfl:models` or `$bdfl:models` renders the complete configured model list.
-- `/bdfl:plans` or `$bdfl:plans` renders captured plan versions, or `No plans.`
-- `/bdfl:agents` or `$bdfl:agents` renders recorded agents, or `No agents.`
+- `/bdfl models` or `$bdfl models` renders the complete configured model list.
+- `/bdfl plans` or `$bdfl plans` renders captured plan versions, or `No plans.`
+- `/bdfl tasks` or `$bdfl tasks` renders readable task titles and statuses.
+- `/bdfl agents` or `$bdfl agents` renders agents using their task titles, or `No agents.`
 - Agent questions with options render as a selector; free-form questions render as text input; permission requests render explicit Approve/Deny choices.
 
-BDFL compiles the selected plan into an execution manifest with an objective, context, allowed paths, dependencies, exact model, permission mode, validation commands, and completion criteria for every atomic task.
+BDFL compiles the selected plan into an execution manifest with a readable title, exact provider prompt, objective, context, allowed paths, dependencies, exact model, permission mode, validation commands, and completion criteria for every atomic task.
 
 ```text
 pending → running → waiting → running → review → approved → validating → integrated
@@ -138,7 +140,7 @@ pending → running → waiting → running → review → approved → validati
 
 Model specifications use `provider:exact-model:exact-effort`.
 
-Run `/bdfl:models` or `$bdfl:models`. The bundled MCP tool passes the complete configured list to the host-native selector, so it is not limited by Claude Code's four-option question-tool schema.
+Run `/bdfl models` or `$bdfl models`. The MCP tool passes the complete configured list to the host-native selector, so it is not limited by Claude Code's four-option question-tool schema.
 
 ```json
 {
@@ -161,7 +163,7 @@ Preflight checks the executable, authentication surface, exact allowlisted model
 - Parent permissions are preserved; parent plan mode maps to ordinary default execution permissions.
 - Agents cannot infer answers or broaden permission.
 - A dirty main worktree blocks dispatch until you clean it, authorize a recoverable snapshot, or cancel.
-- Unfinished state always offers `resume`, `inspect`, `archive`, or `cancel`.
+- Unfinished state always offers Continue, Manage tasks, Archive run, or Cancel run.
 - Rewind retains prior branches, logs, events, checkpoints, and session IDs.
 - Agent work never merges directly into `main`.
 
@@ -175,7 +177,7 @@ host request → plan revisions → selected plan → execution manifest
              → batch validation → explicit integration
 ```
 
-Canonical runtime code lives in `src/` and canonical command skills live in `skills/`. Deterministic packaging mirrors them into `plugins/bdfl/`; CI fails when packaged files drift.
+Canonical runtime code lives in `src/` and the canonical Codex skill lives in `skills/bdfl/`. Deterministic packaging keeps release artifacts in sync; CI fails when packaged files drift.
 
 ## Privacy and limitations
 
@@ -197,7 +199,7 @@ For a project-local installation:
 curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.sh | sh -s -- --local
 ```
 
-Add `--purge` only when you also want to permanently delete the current project's `.bdfl/` run state and recovery worktrees. Uninstall removes only receipt-owned plugin files and restores settings captured during installation.
+Add `--purge` only when you also want to permanently delete the current project's `.bdfl/` run state and recovery worktrees. Uninstall removes only receipt-owned skills, runtime files, and MCP registrations, then restores replaced paths and settings captured during installation.
 
 ## Project
 

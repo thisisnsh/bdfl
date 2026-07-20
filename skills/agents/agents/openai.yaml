@@ -1,6 +1,0 @@
-interface:
-  display_name: "bdfl:agents"
-  short_description: "Inspect, stop, rewind, and guide BDFL agents"
-  default_prompt: "Use $bdfl:agents to inspect and manage BDFL agents."
-policy:
-  allow_implicit_invocation: false

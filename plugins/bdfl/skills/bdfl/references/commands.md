@@ -1,6 +1,6 @@
 # Commands and keys
 
-Claude Code uses `/bdfl:bdfl [on|off]`, `/bdfl:models`, `/bdfl:plans`, and `/bdfl:agents`. Codex uses the same names with `$` instead of `/`. The main skill defaults to `on`; model choice and management views use their dedicated skills.
+Claude Code uses `/bdfl [on|off|models|plans|tasks|agents|help]`. Codex uses `$bdfl` with the same optional arguments. The single skill defaults to `on` and routes every management view through MCP.
 
 The list UI has `Runs | Plans | Tasks | Agents | Inbox | Models`. Left/right selects a tab, up/down selects a row, Enter opens details, and Esc returns. Always render contextual keys on the bottom row.
 

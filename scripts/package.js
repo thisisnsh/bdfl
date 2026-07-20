@@ -14,7 +14,6 @@ const mappings = [
   ['bin/bdfl.js', 'plugins/bdfl/bin/bdfl.js'],
   ['bin/bdfl', 'plugins/bdfl/bin/bdfl'],
   ['bin/bdfl-mcp.js', 'plugins/bdfl/bin/bdfl-mcp.js'],
-  ['codex/.mcp.json', 'plugins/bdfl/.mcp.json'],
   ['agents/bdfl-agent.md', 'plugins/bdfl/agents/bdfl-agent.md'],
   ['docs/assets/bdfl-mark.svg', 'plugins/bdfl/assets/bdfl-mark.svg']
 ];

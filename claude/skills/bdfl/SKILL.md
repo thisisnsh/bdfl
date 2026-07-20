@@ -1,14 +1,14 @@
 ---
 name: bdfl
-description: Turn BDFL orchestration on or off only when explicitly invoked.
+description: Manage BDFL orchestration, models, plans, tasks, and agents only when explicitly invoked.
 disable-model-invocation: true
-argument-hint: "[on|off]"
+argument-hint: "[on|off|models|plans|tasks|agents|help]"
 ---
 
 # BDFL
 
-Immediately run `"${CLAUDE_PLUGIN_ROOT}/bin/bdfl"` with the Bash tool; never call bare `bdfl` and do not announce the tool call first. With no argument or `on`, pass exactly `on`. With `off`, pass exactly `off`. Reject every other argument and direct model changes to `/bdfl:models`.
+Parse the argument as `on`, `off`, `models`, `plans`, `tasks`, `agents`, or `help`; no argument means `on`. Call the BDFL MCP `bdfl` tool with that command and the absolute active Git project root. Never call Bash or construct a choice list.
 
-If the executable is missing, report a broken plugin installation. Do not search npm, install a global package, or improvise another runtime path. Never broaden permissions, choose recovery automatically, or merge agent work directly into the main branch.
+If `plans` returns `needsPlanBackfill: true`, capture the most recent `<proposed_plan>` from this conversation with MCP command `capture-plan`, preserving its exact Markdown, then call `plans` again. If none exists, report `No plans.` While BDFL is active, capture each new or revised proposed plan before returning it.
 
-When an agent is waiting on a question or permission request, call the bundled BDFL MCP server's `inbox` tool so Claude Code renders the native controls. Keep the agent suspended until answer delivery is confirmed.
+Use MCP `dispatch` for validated tasks. Each task must have a readable title and the exact provider prompt. Route waiting questions with command `inbox`. Never infer recovery, approval, permission, or integration choices.
