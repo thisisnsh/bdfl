@@ -1,5 +1,10 @@
 'use strict';
 
+const crypto = require('node:crypto');
+const path = require('node:path');
+
+const ACTIVE_RUN_STATUSES = new Set(['pending', 'running', 'waiting', 'review', 'approved', 'validating']);
+
 function capturePlan(plan, content, now = new Date().toISOString()) {
   if (!content || typeof content !== 'string') throw new Error('Plan content is required');
   const versions = plan?.versions ? [...plan.versions] : [];
@@ -7,6 +12,50 @@ function capturePlan(plan, content, now = new Date().toISOString()) {
   if (previous?.content === content) return { ...plan, versions };
   versions.push(Object.freeze({ number: versions.length + 1, content, createdAt: now }));
   return { ...(plan || {}), versions, selectedVersion: plan?.selectedVersion ?? null };
+}
+
+function derivePlanTitle(content, projectRoot = process.cwd()) {
+  const heading = `${content || ''}`.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/m);
+  return heading?.[1]?.trim() || path.basename(projectRoot) || 'BDFL plan';
+}
+
+function currentRun(state, runId) {
+  if (runId) {
+    const run = state.runs.find((candidate) => candidate.id === runId);
+    if (!run) throw new Error(`Unknown BDFL run: ${runId}`);
+    return run;
+  }
+  return [...state.runs].reverse().find((candidate) => ACTIVE_RUN_STATUSES.has(candidate.status));
+}
+
+function captureRunPlan(state, {
+  content,
+  runId,
+  projectRoot = process.cwd(),
+  now = new Date().toISOString(),
+  id = () => `plan-${crypto.randomUUID()}`
+} = {}) {
+  if (!content || typeof content !== 'string') throw new Error('Plan content is required');
+  const run = currentRun(state, runId);
+  if (!run) throw new Error('Activate BDFL before capturing a plan');
+  const next = structuredClone(state);
+  const index = next.plans.findIndex((candidate) => candidate.runId === run.id);
+  const existing = index === -1
+    ? { id: id(), runId: run.id, title: derivePlanTitle(content, projectRoot), versions: [], selectedVersion: null, createdAt: now }
+    : next.plans[index];
+  const before = existing.versions.length;
+  const captured = capturePlan(existing, content, now);
+  captured.title = derivePlanTitle(content, projectRoot);
+  captured.updatedAt = now;
+  if (index === -1) next.plans.push(captured);
+  else next.plans[index] = captured;
+  return {
+    state: next,
+    plan: structuredClone(captured),
+    version: captured.versions.at(-1).number,
+    created: index === -1,
+    deduplicated: captured.versions.length === before
+  };
 }
 
 function selectPlanVersion(plan, number) {
@@ -38,5 +87,4 @@ function diffLines(before = '', after = '') {
   return result;
 }
 
-module.exports = { capturePlan, selectPlanVersion, diffLines };
-
+module.exports = { ACTIVE_RUN_STATUSES, capturePlan, derivePlanTitle, captureRunPlan, selectPlanVersion, diffLines };
