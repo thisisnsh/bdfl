@@ -20,8 +20,7 @@
     "test": "node --test tests/**/*.test.js",
     "package": "node scripts/package.js",
     "package:check": "node scripts/package.js --check",
-    "release:version": "node scripts/set-release-version.js",
-    "validate": "npm run package:check && node scripts/validate-manifests.js"
+    "validate": "npm run package:check"
   },
-  "files": ["bin/bdfl", "bin/bdfl.js", "bin/bdfl-mcp.js", "skills/", "src/", "LICENSE", "README.md", "SECURITY.md", "SUPPORT.md"]
+  "files": ["bin/bdfl", "bin/bdfl-mcp.js", "skills/", "src/", "LICENSE", "README.md", "SECURITY.md", "SUPPORT.md"]
 }

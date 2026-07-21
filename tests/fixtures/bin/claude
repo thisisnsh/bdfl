@@ -1,9 +1,0 @@
-#!/usr/bin/env node
-'use strict';
-const args = process.argv.slice(2);
-if (args[0] === '--version') console.log('claude fixture-build');
-else if (args[0] === 'auth' && args[1] === 'status') console.log('Logged in');
-else {
-  console.log(JSON.stringify({ type: 'system', session_id: 'fake-claude-session' }));
-  console.log(JSON.stringify({ type: 'result', result: 'fake complete' }));
-}

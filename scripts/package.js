@@ -8,12 +8,7 @@ const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 const check = process.argv.includes('--check');
 const mappings = [
-  ['src', 'plugins/bdfl/runtime'],
-  ['bin/bdfl.js', 'plugins/bdfl/bin/bdfl.js'],
-  ['bin/bdfl', 'plugins/bdfl/bin/bdfl'],
-  ['bin/bdfl-mcp.js', 'plugins/bdfl/bin/bdfl-mcp.js'],
-  ['skills/bdfl-plan', 'plugins/bdfl/skills/bdfl-plan'],
-  ['docs/assets/bdfl-mark.svg', 'plugins/bdfl/assets/bdfl-mark.svg']
+  ['src', 'plugins/bdfl/runtime']
 ];
 
 function filesUnder(relative) {
@@ -73,4 +68,4 @@ if (check && changed.length) {
   console.error(`Packaged files are stale:\n${changed.map((file) => `- ${file}`).join('\n')}`);
   process.exit(1);
 }
-if (!check) console.log(`Packaged ${mappings.length} canonical source trees.`);
+if (!check) console.log('Packaged canonical src/ runtime mirror.');
