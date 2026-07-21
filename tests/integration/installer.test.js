@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   parseArgs, installerPaths, verifyChecksum, removeBdflStatusLine, mergeCodexMarketplace,
-  Installer, formatPlan, formatCompletion
+  mergeCommandHook, removeCommandHook, Installer, formatPlan, formatCompletion
 } = require('../../bin/install');
 
 function fixture(t) {
@@ -81,6 +81,8 @@ test('installation is repeatable and uninstall removes owned skills, runtime, an
   assert.equal(fs.existsSync(path.join(paths.runtime, 'bin', 'bdfl-mcp.js')), true);
   assert.deepEqual(Object.keys(mcps).sort(), ['claude', 'codex']);
   assert.equal(JSON.parse(fs.readFileSync(paths.claudeSettings)).statusLine, undefined);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(paths.claudeSettings)).hooks).sort(), ['PostToolUse', 'PreToolUse']);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(paths.codexHooks)).hooks), ['Stop']);
   assert.equal(fs.lstatSync(paths.launcher).isSymbolicLink(), true);
   assert.ok(calls.some(([, args]) => args.join(' ').includes('mcp add --scope user bdfl --')));
   assert.ok(calls.some(([, args]) => args.join(' ').includes('mcp add bdfl --')));
@@ -94,6 +96,15 @@ test('installation is repeatable and uninstall removes owned skills, runtime, an
   assert.equal(fs.existsSync(paths.runtime), false);
   assert.equal(fs.existsSync(paths.launcher), false);
   assert.deepEqual(mcps, {});
+});
+
+test('hook merging is idempotent and removal preserves unrelated lifecycle hooks', () => {
+  const initial = { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'keep-me' }] }] } };
+  const once = mergeCommandHook(initial, 'Stop', 'bdfl-hook');
+  const twice = mergeCommandHook(once, 'Stop', 'bdfl-hook');
+  assert.equal(twice.hooks.Stop.length, 2);
+  assert.deepEqual(removeCommandHook(twice, 'bdfl-hook'), initial);
+  assert.equal(Object.hasOwn(twice.hooks, 'SessionStart'), false);
 });
 
 test('legacy plugins migrate without force and no longer remain registered', (t) => {
@@ -169,6 +180,7 @@ test('formats standalone skill and MCP installation without ANSI', (t) => {
   assert.match(output, /Ollama \(coming soon\)/);
   assert.match(output, /Claude \/bdfl skill/);
   assert.match(output, /Claude MCP registration/);
+  assert.match(output, /Claude plan capture hook/);
   assert.doesNotMatch(output, /marketplace registration|plugin install/);
   assert.doesNotMatch(output, /\u001b\[/);
 });

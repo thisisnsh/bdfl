@@ -7,12 +7,12 @@ const readline = require('node:readline');
 const { execFileSync } = require('node:child_process');
 const { loadSettings, saveSettings } = require('../core/settings');
 const { validateModelSpec } = require('../core/model-spec');
-const { captureRunPlan, diffLines, selectPlanVersion } = require('../core/plans');
+const { PlanStore, diffLines } = require('../core/plans');
 const { taskLabel, taskSummary } = require('../core/tasks');
 const { ProjectCoordinator, RUNNING } = require('../core/coordinator');
 const { StateStore, recoveryOptions } = require('../state/store');
 
-const COMMANDS = Object.freeze(['on', 'off', 'models', 'plans', 'tasks', 'agents', 'inbox', 'help', 'capture-plan']);
+const COMMANDS = Object.freeze(['on', 'off', 'models', 'plans', 'tasks', 'agents', 'help']);
 const TOOL_TASK = {
   type: 'object',
   properties: {
@@ -42,7 +42,6 @@ const TOOLS = Object.freeze([
       properties: {
         projectRoot: { type: 'string', description: 'Absolute path to the active Git project.' },
         command: { type: 'string', enum: COMMANDS },
-        content: { type: 'string', description: 'Exact proposed-plan Markdown for capture-plan.' },
         runId: { type: 'string' },
         page: { type: 'integer', minimum: 1 },
         pageSize: { type: 'integer', minimum: 10, maximum: 200 }
@@ -89,14 +88,29 @@ function choiceSchema(title, values, defaultValue) {
 }
 
 function canonicalProjectRoot(projectRoot, run = execFileSync, io = fs) {
-  if (!projectRoot || !path.isAbsolute(projectRoot)) throw new Error('projectRoot must be an absolute Git project path');
+  if (!projectRoot || !path.isAbsolute(projectRoot)) throw new Error('BDFL requires an absolute Git worktree path. Open an existing repository or run git init first.');
   let root;
   try {
     root = `${run('git', ['-C', projectRoot, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })}`.trim();
   } catch {
-    throw new Error(`Not a Git project: ${projectRoot}`);
+    throw new Error(`BDFL requires a Git repository at ${projectRoot}. Run git init or open an existing repository; BDFL will not initialize Git automatically.`);
   }
   return io.realpathSync(root);
+}
+
+function ensureGitExclude(projectRoot, io = fs) {
+  const gitDirectory = path.join(projectRoot, '.git');
+  let exclude = path.join(gitDirectory, 'info', 'exclude');
+  if (io.existsSync(gitDirectory) && io.statSync(gitDirectory).isFile()) {
+    const pointer = io.readFileSync(gitDirectory, 'utf8').match(/^gitdir:\s*(.+)\s*$/i)?.[1];
+    if (!pointer) throw new Error(`Invalid Git worktree metadata: ${gitDirectory}`);
+    exclude = path.join(path.resolve(projectRoot, pointer), 'info', 'exclude');
+  }
+  io.mkdirSync(path.dirname(exclude), { recursive: true });
+  const existing = io.existsSync(exclude) ? io.readFileSync(exclude, 'utf8') : '';
+  const lines = existing.split(/\r?\n/);
+  if (!lines.includes('.bdfl/')) io.appendFileSync(exclude, `${existing && !existing.endsWith('\n') ? '\n' : ''}.bdfl/\n`);
+  return exclude;
 }
 
 function pageText(value, page = 1, pageSize = 80) {
@@ -118,17 +132,21 @@ class BdflMcpServer {
     settingsLoader = loadSettings,
     settingsSaver = saveSettings,
     rootResolver = canonicalProjectRoot,
+    gitExcluder = ensureGitExclude,
     storeFactory = (root) => new StateStore(root),
-    coordinatorFactory,
     id = () => crypto.randomUUID(),
-    now = () => new Date()
+    now = () => new Date(),
+    planStoreFactory = (root) => new PlanStore(root, { id, now }),
+    coordinatorFactory
   } = {}) {
     this.input = input;
     this.output = output;
     this.settingsLoader = settingsLoader;
     this.settingsSaver = settingsSaver;
     this.rootResolver = rootResolver;
+    this.gitExcluder = gitExcluder;
     this.storeFactory = storeFactory;
+    this.planStoreFactory = planStoreFactory;
     this.coordinatorFactory = coordinatorFactory || ((root, store) => new ProjectCoordinator(root, { store, settingsLoader, id, now }));
     this.id = id;
     this.now = now;
@@ -147,7 +165,12 @@ class BdflMcpServer {
     const root = this.rootResolver(projectRoot);
     if (!this.projects.has(root)) {
       const store = this.storeFactory(root);
-      this.projects.set(root, { root, store, coordinator: this.coordinatorFactory(root, store) });
+      const plans = this.planStoreFactory(root);
+      if (store.exists?.()) {
+        const migrated = plans.migrateStatePlans(store.load());
+        if (migrated.migrated || store.load().plans?.length) store.save(migrated.state);
+      }
+      this.projects.set(root, { root, store, plans, coordinator: this.coordinatorFactory(root, store) });
     }
     return this.projects.get(root);
   }
@@ -179,6 +202,7 @@ class BdflMcpServer {
   }
 
   async turnOn(project) {
+    this.gitExcluder(project.root);
     const state = project.store.load();
     const recovery = recoveryOptions(state);
     if (recovery.required) {
@@ -217,31 +241,17 @@ class BdflMcpServer {
     return textResult('BDFL is off.', { active: false });
   }
 
-  capturePlan(project, args) {
-    let result;
-    project.store.update((state) => {
-      result = captureRunPlan(state, {
-        content: args.content, runId: args.runId, projectRoot: project.root,
-        now: this.now().toISOString(), id: () => `plan-${this.id()}`
-      });
-      return result.state;
-    });
-    return textResult(`${result.deduplicated ? 'Plan unchanged' : 'Captured plan'}: ${result.plan.title} v${result.version}.`, {
-      planId: result.plan.id, title: result.plan.title, version: result.version, deduplicated: result.deduplicated
-    });
-  }
-
   async managePlans(project, args) {
-    const state = project.store.load();
-    if (!state.plans.length) return textResult('No plans.', { plans: [], needsPlanBackfill: true });
-    const planChoices = new Map(state.plans.map((plan) => {
-      const title = duplicateLabel(plan.title || plan.id, plan.id, state.plans, (row) => row.title || row.id);
+    const plans = project.plans.list();
+    if (!plans.length) return textResult('No plans.', { plans: [] });
+    const planChoices = new Map(plans.map((plan) => {
+      const title = duplicateLabel(plan.title || plan.id, plan.id, plans, (row) => row.title || row.id);
       return [`${title} — ${plan.versions?.length || 0} version(s)`, plan.id];
     }));
     const planPick = await this.choose('Choose a captured BDFL plan.', 'Plan', [...planChoices.keys()]);
     if (planPick.unsupported) return textResult('Plan choices returned.', { plans: [...planChoices.keys()] });
     if (planPick.cancelled) return textResult('Plan selection cancelled.', { action: planPick.action });
-    const plan = state.plans.find((candidate) => candidate.id === planChoices.get(planPick.value));
+    const plan = plans.find((candidate) => candidate.id === planChoices.get(planPick.value));
     const versions = new Map(plan.versions.map((version) => [`v${version.number} — ${version.createdAt || 'unknown time'}`, version.number]));
     const versionPick = await this.choose(`Choose a version of ${plan.title}.`, 'Version', [...versions.keys()], [...versions.keys()].at(-1));
     if (versionPick.cancelled) return textResult('Plan selection cancelled.', { action: versionPick.action });
@@ -251,18 +261,14 @@ class BdflMcpServer {
     if (actionPick.cancelled) return textResult('Plan action cancelled.', { action: actionPick.action });
     if (actionPick.unsupported) return textResult('Plan actions returned.', { actions: actionPick.values });
     if (actionPick.value === 'Approve') {
-      project.store.update((value) => {
-        const index = value.plans.findIndex((candidate) => candidate.id === plan.id);
-        value.plans[index] = selectPlanVersion(value.plans[index], number);
-        return value;
-      });
+      project.plans.select(plan.id, number);
       return textResult(`Approved ${plan.title} v${number}.`, { planId: plan.id, version: number, approved: true });
     }
-    const version = plan.versions.find((candidate) => candidate.number === number);
-    const before = plan.versions.find((candidate) => candidate.number === number - 1)?.content || '';
+    const content = project.plans.content(plan.id, number);
+    const before = number > 1 ? project.plans.content(plan.id, number - 1) : '';
     const full = actionPick.value === 'View full'
-      ? version.content
-      : diffLines(before, version.content).map((line) => `${line.type === 'addition' ? '+' : line.type === 'removal' ? '-' : ' '} ${line.text}`).join('\n');
+      ? content
+      : diffLines(before, content).map((line) => `${line.type === 'addition' ? '+' : line.type === 'removal' ? '-' : ' '} ${line.text}`).join('\n');
     const page = pageText(full, args.page, args.pageSize);
     return textResult(`${plan.title} v${number} (${actionPick.value}, page ${page.page}/${page.pages})\n${page.text}`, {
       planId: plan.id, version: number, view: actionPick.value, ...page
@@ -370,8 +376,6 @@ class BdflMcpServer {
     if (args.command === 'plans') return this.managePlans(project, args);
     if (args.command === 'tasks') return this.manageTasks(project, args);
     if (args.command === 'agents') return this.manageAgents(project, args);
-    if (args.command === 'inbox') return this.manageInbox(project);
-    if (args.command === 'capture-plan') return this.capturePlan(project, args);
     if (args.command === 'help') return textResult('BDFL commands: on, off, models, plans, tasks, agents, help.');
     throw new Error(`Unknown BDFL command: ${args.command}`);
   }
@@ -430,4 +434,4 @@ class BdflMcpServer {
 
 if (require.main === module) new BdflMcpServer().start();
 
-module.exports = { COMMANDS, TOOLS, textResult, choiceSchema, canonicalProjectRoot, pageText, BdflMcpServer };
+module.exports = { COMMANDS, TOOLS, textResult, choiceSchema, canonicalProjectRoot, ensureGitExclude, pageText, BdflMcpServer };

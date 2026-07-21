@@ -2,8 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { initialState } = require('../../src/state/store');
-const { BdflMcpServer, canonicalProjectRoot, pageText } = require('../../src/mcp/server');
+const { BdflMcpServer, canonicalProjectRoot, ensureGitExclude, pageText } = require('../../src/mcp/server');
 
 class Store {
   constructor(state = initialState()) { this.state = state; }
@@ -21,6 +25,17 @@ function fixture(state = initialState(), { elicitation = true } = {}) {
   };
   let persisted = settings;
   const store = new Store(state);
+  const planRows = [];
+  const planBodies = new Map();
+  const plans = {
+    list: () => structuredClone(planRows),
+    select: (id, number) => { planRows.find((plan) => plan.id === id).selectedVersion = number; },
+    content: (id, number) => planBodies.get(`${id}:${number}`),
+    add: (plan, bodies) => {
+      planRows.push(structuredClone(plan));
+      bodies.forEach((body, index) => planBodies.set(`${plan.id}:${index + 1}`, body));
+    }
+  };
   const calls = [];
   const coordinator = {
     recoverStaleProcesses: () => calls.push('recover'),
@@ -33,12 +48,14 @@ function fixture(state = initialState(), { elicitation = true } = {}) {
     settingsLoader: () => structuredClone(persisted),
     settingsSaver: (value) => { persisted = structuredClone(value); return structuredClone(value); },
     rootResolver: () => '/repo',
+    gitExcluder: () => {},
     storeFactory: () => store,
+    planStoreFactory: () => plans,
     coordinatorFactory: () => coordinator,
     id: () => 'fixed-id',
     now: () => new Date('2026-01-01T00:00:00.000Z')
   });
-  return { messages, server, settings: () => persisted, store, calls, elicitation };
+  return { messages, server, settings: () => persisted, store, plans, calls, elicitation };
 }
 
 async function initialize(fix) {
@@ -81,7 +98,7 @@ test('model management elicits all configured options without a four-option limi
   assert.equal(fix.settings().defaultModel, 'codex:gpt-5.6-sol:medium');
 });
 
-test('empty plans request backfill and cannot accidentally route to agents', async () => {
+test('empty plans return the exact empty state and cannot accidentally route to agents', async () => {
   const state = initialState();
   state.agents.push({ id: 'agent-1', title: 'Unrelated agent', status: 'waiting' });
   const fix = fixture(state);
@@ -89,26 +106,26 @@ test('empty plans request backfill and cannot accidentally route to agents', asy
   await call(fix, 2, 'plans');
   const result = fix.messages.find((message) => message.id === 2).result;
   assert.equal(result.content[0].text, 'No plans.');
-  assert.equal(result.structuredContent.needsPlanBackfill, true);
+  assert.deepEqual(result.structuredContent, { plans: [] });
   assert.equal(fix.messages.some((message) => message.method === 'elicitation/create'), false);
 });
 
-test('captures, versions, deduplicates, and approves the current run plan', async () => {
+test('selects and approves a filesystem-backed plan version', async () => {
   const state = initialState();
   state.runs.push({ id: 'run-1', title: 'repo', status: 'pending' });
   const fix = fixture(state);
   await initialize(fix);
-  await call(fix, 2, 'capture-plan', { content: '# Ship router\n\nVersion one.' });
-  await call(fix, 3, 'capture-plan', { content: '# Ship router\n\nVersion one.' });
-  await call(fix, 4, 'capture-plan', { content: '# Ship router\n\nVersion two.' });
-  assert.equal(fix.store.load().plans[0].versions.length, 2);
+  fix.plans.add({ id: 'plan-1', title: 'Ship router', selectedVersion: null, versions: [
+    { number: 1, createdAt: '2026-01-01T00:00:00.000Z' },
+    { number: 2, createdAt: '2026-01-01T00:00:00.000Z' }
+  ] }, ['# Ship router\n\nVersion one.', '# Ship router\n\nVersion two.']);
 
   const pending = call(fix, 5, 'plans');
   await answerLatest(fix, 'Ship router — 2 version(s)');
   await answerLatest(fix, 'v2 — 2026-01-01T00:00:00.000Z');
   await answerLatest(fix, 'Approve');
   await pending;
-  assert.equal(fix.store.load().plans[0].selectedVersion, 2);
+  assert.equal(fix.plans.list()[0].selectedVersion, 2);
 });
 
 test('task and agent selectors use readable task titles while prompts remain opt-in', async () => {
@@ -146,4 +163,14 @@ test('canonical roots reject non-absolute paths and pagination is bounded', () =
   assert.throws(() => canonicalProjectRoot('relative'), /absolute/);
   assert.equal(canonicalProjectRoot('/repo/subdir', () => '/repo\n', { realpathSync: (value) => value }), '/repo');
   assert.deepEqual(pageText('a\nb\nc', 2, 1), { text: 'a\nb\nc', page: 1, pages: 1, pageSize: 10 });
+});
+
+test('activation exclusion adds .bdfl once to Git local metadata', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-git-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-q', root]);
+  ensureGitExclude(root);
+  ensureGitExclude(root);
+  const exclude = fs.readFileSync(path.join(root, '.git', 'info', 'exclude'), 'utf8');
+  assert.equal(exclude.split('\n').filter((line) => line === '.bdfl/').length, 1);
 });

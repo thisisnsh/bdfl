@@ -54,6 +54,7 @@ function installerPaths({ platform = process.platform, env = process.env, homedi
     claudeSettings: path.join(claudeRoot, local ? 'settings.local.json' : 'settings.json'),
     claudeSkill: path.join(claudeRoot, 'skills', 'bdfl'),
     codexRoot,
+    codexHooks: local ? path.join(projectRoot, '.codex', 'hooks.json') : path.join(codexRoot, 'hooks.json'),
     codexMarketplaceRoot: local ? projectRoot : homedir,
     codexPlugin: path.join(agentsRoot, 'plugins', 'plugins', 'bdfl'),
     codexCache: path.join(codexRoot, 'plugins', 'cache', 'personal', 'bdfl'),
@@ -96,6 +97,31 @@ function pathExists(io, file) {
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function hookHandler(command) { return { type: 'command', command }; }
+
+function mergeCommandHook(current, event, command, matcher) {
+  const next = structuredClone(current || {});
+  next.hooks ||= {};
+  const groups = Array.isArray(next.hooks[event]) ? next.hooks[event] : [];
+  const exists = groups.some((group) => (group.hooks || [group]).some((hook) => hook.command === command));
+  if (!exists) groups.push({ ...(matcher ? { matcher } : {}), hooks: [hookHandler(command)] });
+  next.hooks[event] = groups;
+  return next;
+}
+
+function removeCommandHook(current, command) {
+  const next = structuredClone(current || {});
+  for (const [event, groups] of Object.entries(next.hooks || {})) {
+    next.hooks[event] = (Array.isArray(groups) ? groups : []).map((group) => {
+      const hooks = (group.hooks || [group]).filter((hook) => hook.command !== command);
+      return group.hooks ? { ...group, hooks } : hooks[0];
+    }).filter((group) => group && (group.hooks ? group.hooks.length : true));
+    if (!next.hooks[event].length) delete next.hooks[event];
+  }
+  if (next.hooks && !Object.keys(next.hooks).length) delete next.hooks;
+  return next;
 }
 
 function removeBdflStatusLine(current, previous = {}) {
@@ -311,11 +337,13 @@ class Installer {
       operations.push({ type: 'legacy-cleanup', host: 'claude', path: this.paths.claudePlugin });
       operations.push({ type: 'mcp', host: 'claude', path: path.join(this.paths.runtime, 'bin', 'bdfl-mcp.js') });
       operations.push({ type: 'settings-cleanup', host: 'claude', path: this.paths.claudeSettings });
+      operations.push({ type: 'hooks', host: 'claude', path: this.paths.claudeSettings });
     }
     if (hosts.includes('codex')) {
       operations.push({ type: 'skill', host: 'codex', from: path.join(this.sourceRoot, 'skills', 'bdfl'), to: this.paths.codexSkill });
       operations.push({ type: 'legacy-cleanup', host: 'codex', path: this.paths.codexPlugin });
       operations.push({ type: 'mcp', host: 'codex', path: path.join(this.paths.runtime, 'bin', 'bdfl-mcp.js') });
+      operations.push({ type: 'hooks', host: 'codex', path: this.paths.codexHooks });
     }
     operations.push({ type: 'launcher', path: this.paths.launcher });
     operations.push({ type: 'receipt', path: this.paths.receipt });
@@ -357,6 +385,7 @@ class Installer {
       return isBdflPlugin(legacyPath, manifest, this.io);
     });
     if (plan.hosts.includes('claude')) receipt.previous.claudeSettings ||= readJson(this.paths.claudeSettings, {});
+    receipt.previous.hooks ||= {};
     for (const operation of plan.operations) {
       report(operation, 'start');
       if (operation.type === 'runtime') {
@@ -375,6 +404,19 @@ class Installer {
       } else if (operation.type === 'settings-cleanup') {
         const current = readJson(operation.path, {});
         writeJson(operation.path, removeBdflStatusLine(current, receipt.previous.claudeSettings));
+      } else if (operation.type === 'hooks') {
+        const current = readJson(operation.path, {});
+        receipt.previous.hooks[operation.host] ||= structuredClone(current.hooks || {});
+        const executable = path.join(this.paths.runtime, 'bin', 'bdfl-hook.js');
+        const command = `"${process.execPath}" "${executable}" ${operation.host}`;
+        let next = current;
+        if (operation.host === 'claude') {
+          next = mergeCommandHook(next, 'PreToolUse', command, 'ExitPlanMode');
+          next = mergeCommandHook(next, 'PostToolUse', command, 'ExitPlanMode');
+        } else next = mergeCommandHook(next, 'Stop', command);
+        writeJson(operation.path, next);
+        receipt.managed.hooks ||= {};
+        receipt.managed.hooks[operation.host] = { path: operation.path, command };
       } else if (operation.type === 'launcher') {
         const target = path.join(this.paths.runtime, 'bin', 'bdfl');
         const wasManaged = previousReceipt?.managed?.launcher === operation.path;
@@ -422,6 +464,11 @@ class Installer {
       const owned = receipt.managed?.[key] === target || isBdflSkill(target, this.io);
       if (options.dryRun) { if (owned && this.io.existsSync(target)) removed.push(target); }
       else if (owned && this.io.existsSync(target)) { this.io.rmSync(target, { recursive: true, force: true }); removed.push(target); }
+      const managedHook = receipt.managed?.hooks?.[host];
+      if (!options.dryRun && managedHook?.path && this.io.existsSync(managedHook.path)) {
+        const current = readJson(managedHook.path, {});
+        writeJson(managedHook.path, removeCommandHook(current, managedHook.command));
+      }
     }
     const runtime = receipt.managed?.runtime || this.paths.runtime;
     if (options.dryRun) { if (this.io.existsSync(runtime)) removed.push(runtime); }
@@ -479,6 +526,7 @@ function operationLabel(operation) {
   if (operation.type === 'mcp') return `${operation.host === 'claude' ? 'Claude' : 'Codex'} MCP registration   bdfl`;
   if (operation.type === 'legacy-cleanup') return `${operation.host === 'claude' ? 'Claude' : 'Codex'} legacy plugin cleanup`;
   if (operation.type === 'settings-cleanup') return `Remove legacy status UI ${operation.path}`;
+  if (operation.type === 'hooks') return `${operation.host === 'claude' ? 'Claude' : 'Codex'} plan capture hook`;
   if (operation.type === 'launcher') return `Compatibility launcher  ${operation.path}`;
   return `Installation receipt    ${operation.path}`;
 }
@@ -508,7 +556,7 @@ function formatCompletion(plan, { color = false, uninstall = false } = {}) {
   if (uninstall) return `${c.green('✓')} BDFL removed. Recorded host settings were restored.`;
   const lines = ['', c.yellow('READY'), `  ${c.green('✓')} BDFL installed for ${plan.hosts.map((host) => host === 'claude' ? 'Claude Code' : 'Codex').join(' and ')}`];
   if (plan.hosts.includes('claude')) lines.push(`  ${c.yellow('!')} Restart Claude Code, then run ${c.bold('/bdfl')}`);
-  if (plan.hosts.includes('codex')) lines.push(`  ${c.yellow('!')} Restart Codex, then run ${c.bold('$bdfl')}`);
+  if (plan.hosts.includes('codex')) lines.push(`  ${c.yellow('!')} Restart Codex, review the one-time hook trust prompt, then run ${c.bold('$bdfl')}`);
   lines.push(`  ${c.dim('Uninstall:')} node bin/install.js --uninstall`);
   return lines.join('\n');
 }
@@ -540,4 +588,4 @@ function main(argv = process.argv.slice(2), output = process.stdout, error = pro
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { parseArgs, commandAvailable, detectHosts, installerPaths, sha256, verifyChecksum, removeBdflStatusLine, isBdflPlugin, isBdflSkill, removeBdflMarketplaceEntry, mergeCodexMarketplace, Installer, LOGO, theme, operationLabel, formatPlan, formatCompletion, main };
+module.exports = { parseArgs, commandAvailable, detectHosts, installerPaths, sha256, verifyChecksum, mergeCommandHook, removeCommandHook, removeBdflStatusLine, isBdflPlugin, isBdflSkill, removeBdflMarketplaceEntry, mergeCodexMarketplace, Installer, LOGO, theme, operationLabel, formatPlan, formatCompletion, main };

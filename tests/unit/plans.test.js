@@ -2,65 +2,53 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { capturePlan, derivePlanTitle, captureRunPlan, selectPlanVersion, diffLines } = require('../../src/core/plans');
-const { initialState } = require('../../src/state/store');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { PlanStore, derivePlanTitle, diffLines } = require('../../src/core/plans');
 
-test('captures immutable distinct revisions and selects one', () => {
-  const first = capturePlan({ id: 'p1', versions: [], selectedVersion: null }, 'one', '2026-01-01');
-  const duplicate = capturePlan(first, 'one', '2026-01-02');
-  const second = capturePlan(duplicate, 'one\ntwo', '2026-01-03');
-  assert.equal(second.versions.length, 2);
-  assert.equal(selectPlanVersion(second, 1).selectedVersion, 1);
-  assert.throws(() => selectPlanVersion(second, 3), /Unknown plan version/);
-});
+function fixture(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-plans-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let sequence = 0;
+  return { root, store: new PlanStore(root, { id: () => `abcdef${++sequence}123456`, now: () => new Date('2026-01-01T00:00:00Z') }) };
+}
 
-test('produces semantic line additions and removals', () => {
-  assert.deepEqual(diffLines('keep\nold', 'keep\nnew'), [
-    { type: 'context', text: 'keep' },
-    { type: 'addition', text: 'new' },
-    { type: 'removal', text: 'old' }
-  ]);
-});
-
-test('derives plan titles from the first Markdown heading with a repository fallback', () => {
-  assert.equal(derivePlanTitle('intro\n## Ship the router\nbody', '/repo/bdfl'), 'Ship the router');
-  assert.equal(derivePlanTitle('No heading here', '/repo/bdfl'), 'bdfl');
-});
-
-test('captures one versioned plan per active run and deduplicates unchanged content', () => {
-  const state = initialState();
-  state.runs.push({ id: 'run-1', status: 'pending' }, { id: 'run-old', status: 'completed' });
-  const first = captureRunPlan(state, {
-    content: '# Implement selectors\n\nFirst version.',
-    projectRoot: '/repo/bdfl',
-    now: '2026-01-01',
-    id: () => 'plan-internal'
-  });
-  assert.equal(first.plan.id, 'plan-internal');
-  assert.equal(first.plan.runId, 'run-1');
-  assert.equal(first.plan.title, 'Implement selectors');
-  assert.equal(first.version, 1);
-  assert.equal(first.created, true);
-
-  const duplicate = captureRunPlan(first.state, {
-    content: '# Implement selectors\n\nFirst version.', projectRoot: '/repo/bdfl', now: '2026-01-02'
-  });
-  assert.equal(duplicate.state.plans.length, 1);
-  assert.equal(duplicate.plan.versions.length, 1);
+test('stores immutable Markdown revisions atomically and deduplicates by SHA-256', (t) => {
+  const { root, store } = fixture(t);
+  const first = store.capture({ content: '# Ship router\n\none', host: 'claude', session: 's1', episode: '1', sourcePath: '/native/plan.md' });
+  const duplicate = store.capture({ content: '# Ship router\n\none', host: 'claude', session: 's1', episode: '1' });
+  const second = store.capture({ content: '# Ship router\n\ntwo', host: 'claude', session: 's1', episode: '1' });
+  assert.equal(first.plan.id, second.plan.id);
   assert.equal(duplicate.deduplicated, true);
-
-  const revision = captureRunPlan(duplicate.state, {
-    content: '# Implement selectors safely\n\nSecond version.', projectRoot: '/repo/bdfl', now: '2026-01-03'
-  });
-  assert.equal(revision.state.plans.length, 1);
-  assert.equal(revision.plan.title, 'Implement selectors safely');
-  assert.equal(revision.plan.versions.length, 2);
-  assert.equal(revision.version, 2);
+  assert.equal(store.list()[0].versions.length, 2);
+  assert.equal(store.content(first.plan.id, 2), '# Ship router\n\ntwo');
+  assert.deepEqual(fs.readdirSync(path.join(root, '.bdfl', 'plans', first.plan.directory, 'versions')), ['0001.md', '0002.md']);
+  assert.equal(fs.readdirSync(path.join(root, '.bdfl', 'plans')).some((file) => file.endsWith('.tmp')), false);
 });
 
-test('captures against an explicit run and refuses capture without an active run', () => {
-  const state = initialState();
-  state.runs.push({ id: 'run-1', status: 'completed' });
-  assert.equal(captureRunPlan(state, { runId: 'run-1', content: '# Backfill' }).plan.runId, 'run-1');
-  assert.throws(() => captureRunPlan(initialState(), { content: '# Missing run' }), /Activate BDFL/);
+test('separates plan episodes in one host session and selects a version', (t) => {
+  const { store } = fixture(t);
+  const one = store.capture({ content: '# First', host: 'codex', session: 'same', episode: '1' });
+  const two = store.capture({ content: '# Second', host: 'codex', session: 'same', episode: '2' });
+  assert.notEqual(one.plan.id, two.plan.id);
+  assert.equal(store.select(one.plan.id, 1).selectedVersion, 1);
+  assert.throws(() => store.select(one.plan.id, 9), /Unknown plan version/);
+});
+
+test('migrates legacy state plans once and removes embedded bodies', (t) => {
+  const { store } = fixture(t);
+  const state = { plans: [{ id: 'old', runId: 'run', title: 'Legacy', selectedVersion: 2, versions: [{ number: 1, content: 'one', createdAt: '2025-01-01' }, { number: 2, content: 'two', createdAt: '2025-01-02' }] }] };
+  const migrated = store.migrateStatePlans(state);
+  assert.equal(migrated.migrated, true);
+  assert.deepEqual(migrated.state.plans, []);
+  assert.equal(store.list()[0].selectedVersion, 2);
+  assert.equal(store.migrateStatePlans(state).migrated, false);
+});
+
+test('derives titles and produces semantic line additions and removals', () => {
+  assert.equal(derivePlanTitle('intro\n## Ship the router\nbody', '/repo/bdfl'), 'Ship the router');
+  assert.deepEqual(diffLines('keep\nold', 'keep\nnew'), [
+    { type: 'context', text: 'keep' }, { type: 'addition', text: 'new' }, { type: 'removal', text: 'old' }
+  ]);
 });
