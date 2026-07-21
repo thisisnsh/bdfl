@@ -1,34 +1,76 @@
-name: Release
-
+name: Publish bdfl
 on:
   push:
-    tags: ["v*"]
-  workflow_dispatch:
-
+    branches: [main]
+  release:
+    types: [published]
 permissions:
   contents: write
-
+  id-token: write
 jobs:
-  release:
+  staging:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Read version from tag
-        run: npm run release:version -- "$GITHUB_REF_NAME"
-      - run: npm run package
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
       - run: npm test
       - run: npm run validate
-      - name: Build archives
+      - name: Build staging package
         run: |
-          mkdir artifacts
-          tar --exclude=.git --exclude=.bdfl --exclude=artifacts -czf artifacts/bdfl.tar.gz .
-          zip -qr artifacts/bdfl.zip . -x '.git/*' '.bdfl/*' 'artifacts/*'
-          cp install.sh install.ps1 uninstall.sh uninstall.ps1 artifacts/
-          cd artifacts
-          sha256sum bdfl.tar.gz bdfl.zip install.sh install.ps1 uninstall.sh uninstall.ps1 > checksums.txt
-      - uses: softprops/action-gh-release@v2
+          short_sha="${GITHUB_SHA::7}"
+          npm version "0.1.0-staging.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${short_sha}" --no-git-tag-version
+          npm pack
+          sha256sum bdfl-*.tgz > SHA256SUMS
+      - run: npm publish bdfl-*.tgz --tag staging --provenance --access public
+      - uses: actions/upload-artifact@v4
         with:
-          files: artifacts/*
+          name: bdfl-staging-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            bdfl-*.tgz
+            SHA256SUMS
+          retention-days: 14
+  production:
+    if: github.event_name == 'release'
+    environment: production
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm test
+      - run: npm run validate
+      - name: Validate release identity
+        if: matrix.node == 20
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Build release evidence
+        if: matrix.node == 20
+        run: |
+          npm pack
+          sha256sum bdfl-*.tgz > SHA256SUMS
+          npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
+      - name: Publish latest
+        if: matrix.node == 20
+        run: npm publish bdfl-*.tgz --tag latest --provenance --access public
+      - name: Attach release evidence
+        if: matrix.node == 20
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" bdfl-*.tgz SHA256SUMS sbom.cdx.json SUPPORT.md

@@ -12,9 +12,6 @@ const mappings = [
   ['bin/bdfl.js', 'plugins/bdfl/bin/bdfl.js'],
   ['bin/bdfl', 'plugins/bdfl/bin/bdfl'],
   ['bin/bdfl-mcp.js', 'plugins/bdfl/bin/bdfl-mcp.js'],
-  ['bin/bdfl-hook.js', 'plugins/bdfl/bin/bdfl-hook.js'],
-  ['bin/bdfl-statusline.js', 'plugins/bdfl/bin/bdfl-statusline.js'],
-  ['agents/bdfl-agent.md', 'plugins/bdfl/agents/bdfl-agent.md'],
   ['skills/bdfl-plan', 'plugins/bdfl/skills/bdfl-plan'],
   ['docs/assets/bdfl-mark.svg', 'plugins/bdfl/assets/bdfl-mark.svg']
 ];

@@ -1,7 +1,7 @@
 {
-  "name": "bdfl-agent-orchestrator",
-  "version": "0.0.0-development",
-  "description": "Benevolent Delegator for LLMs: explicit managed agents for Claude Code and Codex",
+  "name": "bdfl",
+  "version": "0.1.0",
+  "description": "Foreground terminal supervisor for delegator-led Claude Code and Codex workstreams",
   "license": "MIT",
   "author": "thisisnsh",
   "repository": {
@@ -23,5 +23,5 @@
     "release:version": "node scripts/set-release-version.js",
     "validate": "npm run package:check && node scripts/validate-manifests.js"
   },
-  "files": ["bin/", "plugins/", "skills/", "src/", "LICENSE", "README.md", "SECURITY.md"]
+  "files": ["bin/bdfl", "bin/bdfl.js", "bin/bdfl-mcp.js", "skills/", "src/", "LICENSE", "README.md", "SECURITY.md", "SUPPORT.md"]
 }

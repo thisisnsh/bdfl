@@ -1,15 +1,15 @@
 'use strict';
 
-const fs = require('node:fs'); const path = require('node:path'); const crypto = require('node:crypto');
+const fs = require('node:fs'); const path = require('node:path'); const crypto = require('node:crypto'); const { EventEmitter } = require('node:events');
 const { atomicWrite } = require('../core/plans');
 
 const ACTIVE = new Set(['running', 'waiting']);
 
 class WorkerScheduler {
-  constructor(root, { store, lineage, launcher, validator, worktrees, now = () => new Date(), id = () => crypto.randomUUID() } = {}) { this.root = path.resolve(root); this.store = store; this.lineage = lineage; this.launcher = launcher; this.validator = validator; this.worktrees = worktrees; this.now = now; this.id = id; }
+  constructor(root, { store, lineage, launcher, validator, worktrees, now = () => new Date(), id = () => crypto.randomUUID() } = {}) { this.root = path.resolve(root); this.store = store; this.lineage = lineage; this.launcher = launcher; this.validator = validator; this.worktrees = worktrees; this.now = now; this.id = id; this.emitter = new EventEmitter(); }
   executionFile(id) { return path.join(this.root, '.bdfl', 'executions', id, 'execution.json'); }
   load(id) { return JSON.parse(fs.readFileSync(this.executionFile(id), 'utf8')); }
-  save(execution) { atomicWrite(this.executionFile(execution.id), `${JSON.stringify(execution, null, 2)}\n`); return execution; }
+  save(execution) { atomicWrite(this.executionFile(execution.id), `${JSON.stringify(execution, null, 2)}\n`); this.emitter.emit(execution.id); return execution; }
   freeze(planId, version, workstreamId, baseline = 'HEAD') {
     if (!this.lineage.executable(planId, version)) throw new Error('Execution requires approval of every current plan section');
     const manifest = this.lineage.readManifest(planId, version); const workspace = this.store.load(); const stream = workspace.workstreams.find((item) => item.id === workstreamId); if (!stream) throw new Error(`Unknown workstream: ${workstreamId}`);
@@ -36,6 +36,7 @@ class WorkerScheduler {
   setCapacity(id, capacity) { if (!Number.isInteger(capacity) || capacity < 1 || capacity > 5) throw new Error('Worker capacity must be an integer from 1 to 5'); const execution = this.load(id); execution.capacity = capacity; this.save(execution); return this.recalculate(id); }
   status(id) { const execution = this.load(id); return { id, planId: execution.planId, version: execution.version, status: execution.status, capacity: execution.capacity, chunks: execution.chunks.map(({ id: chunkId, status, commit, dependsOn }) => ({ id: chunkId, status, commit, dependsOn })), paths: { execution: this.executionFile(id) } }; }
   events(id, cursor = 0) { const events = this.load(id).events.slice(cursor, cursor + 20); return { cursor: cursor + events.length, events: events.map(({ type, chunkId, at }) => ({ type, chunkId, at })) }; }
+  wait(id, cursor = 0, timeout = 55000) { const immediate = this.events(id, cursor); if (immediate.events.length) return Promise.resolve(immediate); return new Promise((resolve) => { const finish = () => { clearTimeout(timer); this.emitter.off(id, finish); resolve(this.events(id, cursor)); }; const timer = setTimeout(finish, timeout); this.emitter.once(id, finish); }); }
 }
 
 module.exports = { WorkerScheduler, ACTIVE };
