@@ -10,7 +10,7 @@
 ## Stable channel
 
 ```bash
-npm install --global bdfl
+npm install --global @thisisnsh/bdfl
 bdfl --version
 cd /path/to/a/git-repository
 bdfl
@@ -21,17 +21,17 @@ bdfl
 Every successful `main` build publishes an immutable prerelease under the npm `staging` tag:
 
 ```bash
-npm install --global bdfl@staging
-npm view bdfl dist-tags
+npm install --global @thisisnsh/bdfl@staging
+npm view @thisisnsh/bdfl dist-tags
 ```
 
-Staging does not move `latest`. Return to stable with `npm install --global bdfl@latest`.
+Staging does not move `latest`. Return to stable with `npm install --global @thisisnsh/bdfl@latest`.
 
 ## Update or remove
 
 ```bash
-npm update --global bdfl
-npm uninstall --global bdfl
+npm update --global @thisisnsh/bdfl
+npm uninstall --global @thisisnsh/bdfl
 ```
 
 Uninstalling the package does not delete repository-local `.bdfl/` state. Remove that directory manually only after confirming that its plans, sessions, worktrees, and recovery data are no longer needed.

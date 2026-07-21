@@ -1,5 +1,5 @@
 {
-  "name": "bdfl",
+  "name": "@thisisnsh/bdfl",
   "version": "0.1.0",
   "description": "Foreground terminal supervisor for delegator-led Claude Code and Codex workstreams",
   "license": "MIT",

@@ -1,0 +1,4 @@
+'use strict';
+const test = require('node:test'); const assert = require('node:assert/strict'); const fs = require('node:fs'); const path = require('node:path');
+const root = path.resolve(__dirname, '../..');
+test('uses the scoped npm identity throughout packaging and updates', () => { const pkg = require(path.join(root, 'package.json')); const lock = require(path.join(root, 'package-lock.json')); const updates = fs.readFileSync(path.join(root, 'src/core/updates.js'), 'utf8'); const workflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8'); assert.equal(pkg.name, '@thisisnsh/bdfl'); assert.equal(lock.name, '@thisisnsh/bdfl'); assert.equal(lock.packages[''].name, '@thisisnsh/bdfl'); assert.match(updates, /%40thisisnsh%2Fbdfl/); assert.match(workflow, /npm pack --json/); assert.doesNotMatch(workflow, /bdfl-\*\.tgz/); });

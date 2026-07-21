@@ -10,10 +10,10 @@ BDFL publishes only to the public npm registry. `main` produces staging builds; 
    ```bash
    npm login
    npm whoami
-   npm view bdfl name version dist-tags
+   npm view @thisisnsh/bdfl name version dist-tags
    ```
 
-3. If `bdfl` has never been published, bootstrap the package once from the exact clean release commit. Inspect the tarball before using a short-lived granular token:
+3. If `@thisisnsh/bdfl` has never been published, bootstrap the package once from the exact clean release commit. Inspect the tarball before using a short-lived granular token:
 
    ```bash
    npm ci
@@ -25,7 +25,7 @@ BDFL publishes only to the public npm registry. `main` produces staging builds; 
 
    Revoke that token after trusted publishing works. Routine releases must not use a stored npm token.
 
-4. On npmjs.com, open **bdfl → Settings → Trusted Publisher → GitHub Actions** and configure:
+4. On npmjs.com, open **@thisisnsh/bdfl → Settings → Trusted Publisher → GitHub Actions** and configure:
 
    | Field | Value |
    |---|---|
@@ -60,9 +60,9 @@ The version receives the npm `staging` tag. `latest` is untouched. The tarball a
 Verify a staging publication:
 
 ```bash
-npm view bdfl dist-tags
-npm view bdfl@staging version --json
-npm install --global bdfl@staging
+npm view @thisisnsh/bdfl dist-tags
+npm view @thisisnsh/bdfl@staging version --json
+npm install --global @thisisnsh/bdfl@staging
 bdfl --version
 ```
 
@@ -96,9 +96,9 @@ The workflow then:
 ## Post-release verification
 
 ```bash
-npm view bdfl version dist-tags time --json
-npm view bdfl@latest dist.integrity dist.shasum --json
-npm install --global bdfl@latest
+npm view @thisisnsh/bdfl version dist-tags time --json
+npm view @thisisnsh/bdfl@latest dist.integrity dist.shasum --json
+npm install --global @thisisnsh/bdfl@latest
 bdfl --version
 gh release view v0.2.0
 ```

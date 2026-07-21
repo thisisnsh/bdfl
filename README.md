@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/bdfl"><img src="https://img.shields.io/npm/v/bdfl?color=facc15" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@thisisnsh/bdfl"><img src="https://img.shields.io/npm/v/%40thisisnsh%2Fbdfl?color=facc15" alt="npm version"></a>
   <a href="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml"><img src="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/thisisnsh/bdfl"><img src="https://img.shields.io/badge/node-%3E%3D20-42ba75" alt="Node 20+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/thisisnsh/bdfl" alt="MIT license"></a>
@@ -53,7 +53,7 @@ You + read-only delegator
 Requires macOS or Linux, Node.js 20+, Git, and at least one authenticated CLI: `claude` or `codex`.
 
 ```bash
-npm install --global bdfl
+npm install --global @thisisnsh/bdfl
 cd your-repository
 bdfl
 ```
@@ -66,7 +66,7 @@ The first-run wizard asks for a delegator, a worker profile, and worker capacity
 Want the build from the latest `main` push?
 
 ```bash
-npm install --global bdfl@staging
+npm install --global @thisisnsh/bdfl@staging
 ```
 
 ## The workflow

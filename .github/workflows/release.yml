@@ -24,17 +24,19 @@ jobs:
       - run: npm test
       - run: npm run validate
       - name: Build staging package
+        id: pack
         run: |
           short_sha="${GITHUB_SHA::7}"
           npm version "0.1.0-staging.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${short_sha}" --no-git-tag-version --allow-same-version
-          npm pack
-          sha256sum bdfl-*.tgz > SHA256SUMS
-      - run: npm publish bdfl-*.tgz --tag staging --provenance --access public
+          tarball=$(npm pack --json | node -e 'let value=""; process.stdin.on("data", chunk => value += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(value)[0].filename));')
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          sha256sum "$tarball" > SHA256SUMS
+      - run: npm publish "${{ steps.pack.outputs.tarball }}" --tag staging --provenance --access public
       - uses: actions/upload-artifact@v4
         with:
           name: bdfl-staging-${{ github.run_number }}-${{ github.run_attempt }}
           path: |
-            bdfl-*.tgz
+            *.tgz
             SHA256SUMS
           retention-days: 14
 
@@ -104,14 +106,16 @@ jobs:
       - name: Stamp ephemeral package version
         run: npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
       - name: Build release evidence
+        id: pack
         run: |
-          npm pack
-          sha256sum bdfl-*.tgz > SHA256SUMS
+          tarball=$(npm pack --json | node -e 'let value=""; process.stdin.on("data", chunk => value += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(value)[0].filename));')
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          sha256sum "$tarball" > SHA256SUMS
           npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
       - name: Publish latest
-        run: npm publish bdfl-*.tgz --tag latest --provenance --access public
+        run: npm publish "${{ steps.pack.outputs.tarball }}" --tag latest --provenance --access public
       - name: Attach release evidence
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" bdfl-*.tgz SHA256SUMS sbom.cdx.json SUPPORT.md
+        run: gh release upload "$RELEASE_TAG" "${{ steps.pack.outputs.tarball }}" SHA256SUMS sbom.cdx.json SUPPORT.md
