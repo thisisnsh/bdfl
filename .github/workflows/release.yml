@@ -26,9 +26,9 @@ jobs:
           mkdir artifacts
           tar --exclude=.git --exclude=.bdfl --exclude=artifacts -czf artifacts/bdfl.tar.gz .
           zip -qr artifacts/bdfl.zip . -x '.git/*' '.bdfl/*' 'artifacts/*'
-          cp dist/bdfl.skill install.sh install.ps1 uninstall.sh uninstall.ps1 artifacts/
+          cp install.sh install.ps1 uninstall.sh uninstall.ps1 artifacts/
           cd artifacts
-          sha256sum bdfl.tar.gz bdfl.zip bdfl.skill install.sh install.ps1 uninstall.sh uninstall.ps1 > checksums.txt
+          sha256sum bdfl.tar.gz bdfl.zip install.sh install.ps1 uninstall.sh uninstall.ps1 > checksums.txt
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*

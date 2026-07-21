@@ -14,7 +14,7 @@ function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-installer-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const source = path.join(root, 'source');
-  for (const directory of ['src/mcp', 'bin', 'skills/bdfl/agents', 'claude/skills/bdfl', 'plugins/bdfl/.codex-plugin', '.claude-plugin']) {
+  for (const directory of ['src/mcp', 'bin', 'plugins/bdfl/.codex-plugin', '.claude-plugin']) {
     fs.mkdirSync(path.join(source, directory), { recursive: true });
   }
   fs.writeFileSync(path.join(source, 'src', 'mcp', 'server.js'), 'module.exports = {};\n');
@@ -23,9 +23,6 @@ function fixture(t) {
   fs.writeFileSync(path.join(source, 'bin', 'bdfl'), '#!/bin/sh\n');
   fs.writeFileSync(path.join(source, 'package.json'), '{}\n');
   fs.writeFileSync(path.join(source, 'LICENSE'), 'MIT\n');
-  fs.writeFileSync(path.join(source, 'skills', 'bdfl', 'SKILL.md'), '---\nname: bdfl\ndescription: test\n---\n');
-  fs.writeFileSync(path.join(source, 'skills', 'bdfl', 'agents', 'openai.yaml'), 'policy: {}\n');
-  fs.writeFileSync(path.join(source, 'claude', 'skills', 'bdfl', 'SKILL.md'), '---\nname: bdfl\ndescription: test\n---\n');
   fs.writeFileSync(path.join(source, 'plugins', 'bdfl', '.codex-plugin', 'plugin.json'), '{"name":"bdfl"}\n');
   fs.writeFileSync(path.join(source, '.claude-plugin', 'plugin.json'), '{"name":"bdfl"}\n');
   const home = path.join(root, 'home');
@@ -59,25 +56,25 @@ test('parses every public installer option', () => {
   assert.throws(() => parseArgs(['--only', 'ollama']), /claude or codex/);
 });
 
-test('dry-run installs one standalone skill and one direct MCP registration per host', (t) => {
+test('dry-run installs no skills and one direct MCP registration per host', (t) => {
   const { source, paths, run } = fixture(t);
   const plan = new Installer({ sourceRoot: source, paths, run }).install({ dryRun: true }, { claude: true, codex: true, ollama: true });
   assert.deepEqual(plan.hosts, ['claude', 'codex']);
-  assert.equal(plan.operations.filter((item) => item.type === 'skill').length, 2);
+  assert.equal(plan.operations.filter((item) => item.type === 'skill').length, 0);
   assert.equal(plan.operations.filter((item) => item.type === 'mcp').length, 2);
   assert.equal(plan.operations.some((item) => ['claude-native', 'codex-native', 'marketplace'].includes(item.type)), false);
   assert.equal(fs.existsSync(paths.receipt), false);
 });
 
-test('installation is repeatable and uninstall removes owned skills, runtime, and MCP registrations', (t) => {
+test('installation is repeatable and uninstall removes runtime and MCP registrations', (t) => {
   const { source, paths, calls, mcps, run } = fixture(t);
   fs.mkdirSync(path.dirname(paths.claudeSettings), { recursive: true });
   fs.writeFileSync(paths.claudeSettings, '{"theme":"dark"}\n');
   const installer = new Installer({ sourceRoot: source, paths, run });
   installer.install({ force: false }, { claude: true, codex: true, ollama: false });
   installer.install({ force: false }, { claude: true, codex: true, ollama: false });
-  assert.equal(fs.existsSync(path.join(paths.claudeSkill, 'SKILL.md')), true);
-  assert.equal(fs.existsSync(path.join(paths.codexSkill, 'SKILL.md')), true);
+  assert.equal(fs.existsSync(paths.claudeSkill), false);
+  assert.equal(fs.existsSync(paths.codexSkill), false);
   assert.equal(fs.existsSync(path.join(paths.runtime, 'bin', 'bdfl-mcp.js')), true);
   assert.deepEqual(Object.keys(mcps).sort(), ['claude', 'codex']);
   assert.equal(JSON.parse(fs.readFileSync(paths.claudeSettings)).statusLine, undefined);
@@ -142,14 +139,21 @@ test('legacy plugins migrate without force and no longer remain registered', (t)
   assert.ok(calls.some(([, args]) => args.join(' ') === 'plugin remove bdfl@personal'));
 });
 
-test('unmanaged skill and runtime paths require force and are restored on uninstall', (t) => {
+test('upgrades remove only receipt-owned legacy skills and preserve unmanaged skills', (t) => {
   const { source, paths, run } = fixture(t);
   fs.mkdirSync(paths.codexSkill, { recursive: true });
   fs.writeFileSync(path.join(paths.codexSkill, 'custom.txt'), 'preserve');
   const installer = new Installer({ sourceRoot: source, paths, run });
-  assert.throws(() => installer.install({ force: false }, { claude: false, codex: true, ollama: false }), /requires --force/);
-  installer.install({ force: true }, { claude: false, codex: true, ollama: false });
-  assert.equal(fs.existsSync(path.join(paths.codexSkill, 'SKILL.md')), true);
+  installer.install({ force: false }, { claude: false, codex: true, ollama: false });
+  assert.equal(fs.readFileSync(path.join(paths.codexSkill, 'custom.txt'), 'utf8'), 'preserve');
+  const receipt = JSON.parse(fs.readFileSync(paths.receipt));
+  const legacy = path.join(paths.projectRoot, 'owned-legacy-skill');
+  fs.mkdirSync(legacy, { recursive: true });
+  fs.writeFileSync(path.join(legacy, 'SKILL.md'), 'legacy');
+  receipt.managed.codexSkill = legacy;
+  fs.writeFileSync(paths.receipt, `${JSON.stringify(receipt)}\n`);
+  installer.install({ force: false }, { claude: false, codex: true, ollama: false });
+  assert.equal(fs.existsSync(legacy), false);
   installer.uninstall({ dryRun: false });
   assert.equal(fs.readFileSync(path.join(paths.codexSkill, 'custom.txt'), 'utf8'), 'preserve');
 });
@@ -188,12 +192,12 @@ test('receiptless uninstall refuses unverified directories and reports no-op', (
   assert.match(formatCompletion(result, { uninstall: true }), /Nothing was removed/);
 });
 
-test('formats standalone skill and MCP installation without ANSI', (t) => {
+test('formats MCP-only installation without ANSI', (t) => {
   const { source, paths, run } = fixture(t);
   const output = formatPlan(new Installer({ sourceRoot: source, paths, run }).plan({}, { claude: true, codex: false, ollama: false }));
   assert.match(output, /██████╗/);
   assert.match(output, /Ollama \(coming soon\)/);
-  assert.match(output, /Claude \/bdfl skill/);
+  assert.doesNotMatch(output, /skill/);
   assert.match(output, /Claude MCP registration/);
   assert.match(output, /Claude plan capture hook/);
   assert.doesNotMatch(output, /marketplace registration|plugin install/);

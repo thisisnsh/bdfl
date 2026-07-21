@@ -22,7 +22,7 @@ To install only for the current project:
 curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh | bash -s -- --local
 ```
 
-Claude Code installs the local skill under `.claude/skills/`; Codex installs it under `.agents/skills/`. Local runtime files and the receipt are rooted in the current project.
+Local runtime files and the receipt are rooted in the current project.
 
 ## Options
 
@@ -53,10 +53,10 @@ The installer prints all paths before use. Defaults are:
 
 | Host | Files |
 |---|---|
-| Claude Code, global | `~/.claude/skills/bdfl`, `~/.claude/settings.json` |
-| Codex, global | `~/.codex/skills/bdfl`, `~/.codex/hooks.json` |
-| Claude Code, local | `<project>/.claude/skills/bdfl`, `<project>/.claude/settings.local.json` |
-| Codex, local | `<project>/.agents/skills/bdfl`, `<project>/.codex/hooks.json` |
+| Claude Code, global | `~/.claude/settings.json` |
+| Codex, global | `~/.codex/hooks.json` |
+| Claude Code, local | `<project>/.claude/settings.local.json` |
+| Codex, local | `<project>/.codex/hooks.json` |
 | BDFL | Platform config directory `runtime/`, `install.json` receipt, and `settings.json` |
 
 Environment overrides: `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `AGENTS_HOME`, and `BDFL_CONFIG_HOME`.
@@ -70,7 +70,6 @@ node bin/install.js --list
 node bin/install.js --dry-run
 npm test
 npm run validate
-unzip -t dist/bdfl.skill
 ```
 
 ## Uninstall
@@ -95,14 +94,13 @@ The original installer remains usable directly:
 node bin/install.js --uninstall
 ```
 
-The uninstaller removes exact receipt-owned skills, runtime files, MCP registrations, and BDFL hook entries, cleans verified legacy plugin entries, and restores recorded settings without removing unrelated hooks. Project `.bdfl/` directories contain recoverable state and remain by default. Add `--purge` only when that state and recovery data should be permanently deleted.
+The uninstaller removes runtime files, MCP registrations, receipt-owned legacy skills, and BDFL hook entries, cleans verified legacy plugin entries, and restores recorded settings without removing unrelated hooks. Project `.bdfl/` directories contain recoverable state and remain by default. Add `--purge` only when that state and recovery data should be permanently deleted.
 
 ## Troubleshooting
 
 - “Neither Claude Code nor Codex was detected”: install a host and ensure its executable is on `PATH`.
 - “Existing unmanaged path requires --force”: inspect the printed target; rerun with `--force` only if BDFL may replace it.
 - “Checksum verification failed”: stop. Redownload from the release page; do not bypass verification.
-- BDFL command is missing: confirm the installed `skills/bdfl/SKILL.md` path printed by the installer, restart the host, then invoke `/bdfl` or `$bdfl`.
 - Codex hook trust prompt: review the displayed BDFL hook command once; the hook remains disabled until trusted.
 - Model preflight failures: check host authentication, exact allowlisted model, and effort support.
 - Unfinished state prompt: choose Continue, Manage tasks, Archive run, or Cancel run. Removing files manually can destroy recovery information.

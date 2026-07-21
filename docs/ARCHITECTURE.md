@@ -1,6 +1,6 @@
 # Architecture
 
-The standalone skill under `skills/bdfl/` and runtime under `src/` are canonical. `scripts/package.js` builds deterministic release artifacts; `npm run package:check` rejects drift.
+The runtime under `src/` is canonical; `plugins/bdfl/runtime/` is its generated mirror. `scripts/package.js` builds deterministic release artifacts, and `npm run package:check` rejects drift.
 
 ## Runtime flow
 

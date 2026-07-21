@@ -4,12 +4,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { writeSkill } = require('./skill-archive');
 
 const root = path.resolve(__dirname, '..');
 const check = process.argv.includes('--check');
 const mappings = [
-  ['skills', 'plugins/bdfl/skills'],
   ['src', 'plugins/bdfl/runtime'],
   ['bin/bdfl.js', 'plugins/bdfl/bin/bdfl.js'],
   ['bin/bdfl', 'plugins/bdfl/bin/bdfl'],
@@ -71,8 +69,6 @@ function sync(source, target) {
 }
 
 const changed = mappings.flatMap(([source, target]) => sync(source, target));
-if (check && !writeSkill({ check: true })) changed.push('dist/bdfl.skill');
-if (!check) writeSkill();
 if (check && changed.length) {
   console.error(`Packaged files are stale:\n${changed.map((file) => `- ${file}`).join('\n')}`);
   process.exit(1);

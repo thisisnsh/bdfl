@@ -64,7 +64,6 @@ npm run package
 git diff --exit-code
 npm test
 npm run validate
-unzip -t dist/bdfl.skill
 sh -n install.sh
 sh -n uninstall.sh
 ```
@@ -128,7 +127,6 @@ Expected assets:
 - `uninstall.ps1`
 - `bdfl.tar.gz`
 - `bdfl.zip`
-- `bdfl.skill`
 - `checksums.txt`
 
 Download and verify all assets in a temporary directory:
@@ -138,7 +136,6 @@ bdfl_release_dir="$(mktemp -d)"
 gh release download "v${bdfl_release_version}" --dir "$bdfl_release_dir"
 (cd "$bdfl_release_dir" && shasum -a 256 -c checksums.txt)
 unzip -t "$bdfl_release_dir/bdfl.zip"
-unzip -t "$bdfl_release_dir/bdfl.skill"
 ```
 
 Check that the archive contains the tag-derived version:

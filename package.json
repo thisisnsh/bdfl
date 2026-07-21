@@ -18,5 +18,5 @@
     "release:version": "node scripts/set-release-version.js",
     "validate": "npm run package:check && node scripts/validate-manifests.js"
   },
-  "files": ["bin/", "dist/", "plugins/", "skills/", "src/", "install.sh", "install.ps1", "uninstall.sh", "uninstall.ps1", "LICENSE", "README.md"]
+  "files": ["bin/", "plugins/", "src/", "install.sh", "install.ps1", "uninstall.sh", "uninstall.ps1", "LICENSE", "README.md"]
 }

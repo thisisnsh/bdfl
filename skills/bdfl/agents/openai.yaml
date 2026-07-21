@@ -1,6 +1,0 @@
-interface:
-  display_name: "bdfl"
-  short_description: "Manage BDFL with native guided controls"
-  default_prompt: "Use $bdfl to turn BDFL on, or pass models, plans, tasks, agents, off, or help."
-policy:
-  allow_implicit_invocation: false

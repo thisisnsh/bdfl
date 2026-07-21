@@ -15,7 +15,6 @@
     "worktrees",
     "context"
   ],
-  "skills": "./skills/",
   "interface": {
     "displayName": "bdfl",
     "shortDescription": "Managed agents with safe Git integration",

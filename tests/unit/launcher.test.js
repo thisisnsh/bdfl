@@ -13,27 +13,11 @@ test('the unadvertised compatibility executable still launches the runtime', () 
   assert.match(result.stdout, /Usage: bdfl/);
 });
 
-test('Codex ships one bare skill that routes management and dispatch through MCP', () => {
-  const contents = fs.readFileSync(path.resolve(__dirname, '..', '..', 'skills', 'bdfl', 'SKILL.md'), 'utf8');
-  assert.match(contents, /MCP `bdfl`/);
-  assert.match(contents, /MCP `dispatch`/);
-  assert.match(contents, /MCP `continue`/);
-  assert.doesNotMatch(contents, /needsPlanBackfill/);
-  assert.doesNotMatch(contents, /bin\/bdfl|bundled executable/);
-  for (const removed of ['models', 'plans', 'agents']) {
-    assert.equal(fs.existsSync(path.resolve(__dirname, '..', '..', 'skills', removed, 'SKILL.md')), false);
-  }
-});
-
-test('Claude ships one bare skill with the event-driven command protocol', () => {
-  const contents = fs.readFileSync(path.resolve(__dirname, '..', '..', 'claude', 'skills', 'bdfl', 'SKILL.md'), 'utf8');
-  assert.match(contents, /`on`, `off`, `models`, `plans`, `tasks`, `agents`, or `help`/);
-  assert.match(contents, /MCP `continue`/);
-  assert.doesNotMatch(contents, /needsPlanBackfill/);
-  assert.doesNotMatch(contents, /CLAUDE_PLUGIN_ROOT|bin\/bdfl/);
-  for (const removed of ['models', 'plans', 'agents']) {
-    assert.equal(fs.existsSync(path.resolve(__dirname, '..', '..', 'claude', 'skills', removed, 'SKILL.md')), false);
-  }
+test('neither host ships a BDFL command skill', () => {
+  const root = path.resolve(__dirname, '..', '..');
+  assert.equal(fs.existsSync(path.join(root, 'skills', 'bdfl', 'SKILL.md')), false);
+  assert.equal(fs.existsSync(path.join(root, 'claude', 'skills', 'bdfl', 'SKILL.md')), false);
+  assert.equal(fs.existsSync(path.join(root, 'plugins', 'bdfl', 'skills', 'bdfl', 'SKILL.md')), false);
 });
 
 test('the directly runnable MCP server completes a fresh handshake', () => {

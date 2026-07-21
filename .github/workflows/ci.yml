@@ -20,4 +20,3 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm test
       - run: npm run validate
-      - run: unzip -t dist/bdfl.skill
