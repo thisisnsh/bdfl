@@ -37,7 +37,6 @@ function task(key, dependencies = []) {
 
 test('dispatch stores readable tasks and sends the exact stored prompt to linked agents', () => {
   const state = initialState();
-  state.runs.push({ id: 'run-1', status: 'pending' });
   const store = new Store(state);
   let next = 0;
   const starts = [];
@@ -56,8 +55,10 @@ test('dispatch stores readable tasks and sends the exact stored prompt to linked
       stop: () => {}
     }
   });
-  const result = coordinator.dispatch({ host: 'codex', tasks: [task('src'), task('tests')] });
+  const result = coordinator.dispatch({ request: 'BDFL execute this', host: 'codex', tasks: [task('src'), task('tests')] });
   assert.equal(result.tasks.length, 2);
+  assert.equal(store.load().runs.length, 1);
+  assert.equal(store.load().runs[0].request, 'BDFL execute this');
   assert.equal(starts.length, 2);
   const saved = store.load();
   for (const start of starts) {
@@ -70,7 +71,6 @@ test('dispatch stores readable tasks and sends the exact stored prompt to linked
 
 test('dependencies wait for explicit review approval before the next wave starts', () => {
   const state = initialState();
-  state.runs.push({ id: 'run-1', status: 'pending' });
   const store = new Store(state);
   let next = 0;
   const starts = [];
@@ -82,7 +82,7 @@ test('dependencies wait for explicit review approval before the next wave starts
     store, settingsLoader: () => settings, id: () => `id-${++next}`,
     worktrees: { create: (id) => ({ branch: `bdfl/${id}`, worktree: `/worktrees/${id}` }) }, runner
   });
-  coordinator.dispatch({ host: 'codex', tasks: [task('src'), task('tests', ['src'])] });
+  coordinator.dispatch({ request: 'BDFL execute this', host: 'codex', tasks: [task('src'), task('tests', ['src'])] });
   assert.equal(starts.length, 1);
   const first = store.load().tasks.find((item) => item.title === 'Readable src');
   new EventBroker(store, { id: () => 'event-1' }).publish(first.agentId, { type: 'completion', result: {} });

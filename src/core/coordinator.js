@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const path = require('node:path');
 const { compileManifest, scheduleWaves, taskSummary } = require('./tasks');
 const { parseModelSpec } = require('./model-spec');
 const { EventBroker } = require('../broker/events');
@@ -53,13 +54,21 @@ class ProjectCoordinator {
 
   dispatch(input) {
     const settings = this.settingsLoader();
-    const run = this.activeRun();
-    if (!run) throw new Error('Turn BDFL on before dispatching tasks');
+    if (this.activeRun()) throw new Error('BDFL has an unresolved run; resolve it before dispatching new work');
+    const run = {
+      id: `run-${this.id()}`,
+      title: input.title || path.basename(this.root),
+      status: 'pending',
+      model: settings.defaultModel,
+      request: input.request,
+      createdAt: this.now().toISOString()
+    };
     const manifest = compileManifest({ runId: run.id, tasks: input.tasks }, settings, { id: this.id });
     const waves = scheduleWaves(manifest.tasks, settings.maxAgents);
     const waveById = new Map(waves.flatMap((wave, index) => wave.map((taskId) => [taskId, index])));
     const createdAt = this.now().toISOString();
     this.store.update((state) => {
+      state.runs.push(run);
       for (const task of manifest.tasks) state.tasks.push({ ...task, runId: run.id, host: input.host, wave: waveById.get(task.id), status: 'pending', createdAt });
       const current = state.runs.find((candidate) => candidate.id === run.id);
       if (current) current.status = 'running';

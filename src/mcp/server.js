@@ -12,7 +12,8 @@ const { taskLabel, taskSummary } = require('../core/tasks');
 const { ProjectCoordinator, RUNNING } = require('../core/coordinator');
 const { StateStore, recoveryOptions } = require('../state/store');
 
-const COMMANDS = Object.freeze(['on', 'off', 'models', 'plans', 'tasks', 'agents', 'help']);
+const COMMANDS = Object.freeze(['status', 'models', 'plans', 'tasks', 'agents', 'help']);
+const INSTRUCTIONS = `BDFL acts only when the user's request explicitly contains BDFL as a standalone term. Copy that request verbatim into the request field for management and dispatch calls. Plan approval, task complexity, and a splittable request are never authorization by themselves. "BDFL plan this" authorizes planning or plan management only, not execution. "BDFL execute…" or an equally explicit request to BDFL authorizes one workflow and remains valid through that workflow's later approval and review turns. Dispatch only when there are at least two useful atomic tasks; keep small single-stream work native. A valid dispatch automatically creates its run and must never be mixed into unfinished work. Use status for unfinished runs and present Continue, Manage tasks, Archive run, and Cancel run without choosing for the user. Once a workflow is explicitly started, use continue for its questions, permissions, reviews, retries, and integration decisions without requiring the user to repeat BDFL. Plan capture is automatic while this host's MCP process is live. Always pass the absolute Git worktree root.`;
 const TOOL_TASK = {
   type: 'object',
   properties: {
@@ -36,18 +37,19 @@ const TOOLS = Object.freeze([
   {
     name: 'bdfl',
     title: 'Manage BDFL',
-    description: 'Run one guided BDFL command for a Git project.',
+    description: 'Manage BDFL only after the user explicitly names BDFL. Copy the user request verbatim. Plan approval alone is not authorization. Natural requests such as "BDFL plans" are valid.',
     inputSchema: {
       type: 'object',
       properties: {
         projectRoot: { type: 'string', description: 'Absolute path to the active Git project.' },
+        request: { type: 'string', minLength: 1, description: 'The user request copied verbatim; it must contain BDFL as a standalone term.' },
         command: { type: 'string', enum: COMMANDS },
         host: { type: 'string', enum: ['claude', 'codex'], description: 'Invoking host for default model selection.' },
         runId: { type: 'string' },
         page: { type: 'integer', minimum: 1 },
         pageSize: { type: 'integer', minimum: 10, maximum: 200 }
       },
-      required: ['projectRoot', 'command'],
+      required: ['projectRoot', 'request', 'command'],
       additionalProperties: false
     },
     annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
@@ -55,15 +57,16 @@ const TOOLS = Object.freeze([
   {
     name: 'dispatch',
     title: 'Dispatch BDFL tasks',
-    description: 'Validate and start a managed BDFL task manifest.',
+    description: 'Start one explicitly authorized BDFL workflow. Copy the authorizing user request verbatim. Approval or complexity alone never authorizes dispatch. Use at least two useful atomic tasks; small single-stream work stays native. A valid dispatch creates its own run and refuses unfinished work.',
     inputSchema: {
       type: 'object',
       properties: {
         projectRoot: { type: 'string', description: 'Absolute path to the active Git project.' },
+        request: { type: 'string', minLength: 1, description: 'The user request copied verbatim; it must contain BDFL as a standalone term and authorize this workflow.' },
         host: { type: 'string', enum: ['claude', 'codex'] },
-        tasks: { type: 'array', minItems: 1, items: TOOL_TASK }
+        tasks: { type: 'array', minItems: 2, items: TOOL_TASK }
       },
-      required: ['projectRoot', 'host', 'tasks'],
+      required: ['projectRoot', 'request', 'host', 'tasks'],
       additionalProperties: false
     },
     annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
@@ -71,7 +74,7 @@ const TOOLS = Object.freeze([
   {
     name: 'continue',
     title: 'Continue BDFL workflow',
-    description: 'Resolve current workflow events and wait for the next attention state.',
+    description: 'Continue an already authorized BDFL workflow through questions, permissions, reviews, retries, and integration. The original authorization remains valid, so later answers need not repeat BDFL. Never infer a decision.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -150,6 +153,21 @@ function pageText(value, page = 1, pageSize = 80) {
 
 function duplicateLabel(title, id, rows, titleFor) {
   return rows.filter((row) => titleFor(row) === title).length > 1 ? `${title} (${`${id}`.slice(-8)})` : title;
+}
+
+function requireExplicitRequest(request) {
+  if (typeof request !== 'string' || !/(?:^|[^A-Za-z0-9_])BDFL(?:$|[^A-Za-z0-9_])/i.test(request)) {
+    throw new Error('BDFL must be explicitly named as a standalone term in the verbatim user request. Plan approval or task complexity alone is not authorization.');
+  }
+  return request;
+}
+
+function requireDispatchAuthorization(request) {
+  requireExplicitRequest(request);
+  const planningOnly = /\bBDFL\s+(?:please\s+)?plan(?:s|ning)?\b/i.test(request)
+    && !/\b(?:execute|implement|build|fix|change|update|run|dispatch|delegate|split|do)\b/i.test(request);
+  if (planningOnly) throw new Error('"BDFL plan this" authorizes planning only, not execution. Ask BDFL to execute or delegate when ready.');
+  return request;
 }
 
 class BdflMcpServer {
@@ -243,8 +261,7 @@ class BdflMcpServer {
     return textResult(`Selected model: ${selected.defaultModel}`, { selectedModel: selected.defaultModel });
   }
 
-  async turnOn(project, host) {
-    this.gitExcluder(project.root);
+  async manageStatus(project) {
     const state = project.store.load();
     const recovery = recoveryOptions(state);
     if (recovery.required) {
@@ -266,22 +283,10 @@ class BdflMcpServer {
       });
       return textResult(`BDFL recovery: ${picked.value}.`, { active: status === 'running', action: picked.value });
     }
-    const settings = this.settingsLoader(undefined, { invokingHost: host });
-    if (!settings.defaultModel) throw new Error('No supported models discovered. Install or configure Claude Code or Codex first.');
-    const run = { id: `run-${this.id()}`, title: path.basename(project.root), status: 'pending', model: settings.defaultModel, createdAt: this.now().toISOString() };
-    project.store.update((value) => { value.runs.push(run); return value; });
-    return textResult(`BDFL is active for ${run.title}.`, { active: true, runId: run.id, model: run.model });
-  }
-
-  turnOff(project) {
-    const state = project.store.load();
-    const agents = state.agents.filter((agent) => ['running', 'waiting'].includes(agent.status));
-    if (agents.length) return textResult(`Resolve ${agents.length} running agent(s) before turning BDFL off.`, { active: true, blocked: true });
-    project.store.update((value) => {
-      for (const run of value.runs) if (RUNNING.has(run.status)) run.status = 'completed';
-      return value;
-    });
-    return textResult('BDFL is off.', { active: false });
+    const active = [...state.runs].reverse().find((run) => RUNNING.has(run.status));
+    return active
+      ? textResult(`BDFL run ${active.title || active.id}: ${active.status}.`, { active: true, run: active })
+      : textResult('No unfinished BDFL run.', { active: false });
   }
 
   async managePlans(project, args) {
@@ -455,21 +460,26 @@ class BdflMcpServer {
   }
 
   async manage(args) {
+    requireExplicitRequest(args.request);
     const project = this.project(args.projectRoot);
-    if (args.command === 'on') return this.turnOn(project, args.host);
-    if (args.command === 'off') return this.turnOff(project);
+    if (args.command === 'status') return this.manageStatus(project);
     if (args.command === 'models') return this.manageModel(args.host);
     if (args.command === 'plans') return this.managePlans(project, args);
     if (args.command === 'tasks') return this.manageTasks(project, args);
     if (args.command === 'agents') return this.manageAgents(project, args);
-    if (args.command === 'help') return textResult('BDFL commands: on, off, models, plans, tasks, agents, help.', { commands: [...COMMANDS], protocolTools: ['dispatch', 'continue'] });
+    if (args.command === 'help') return textResult('BDFL commands: status, models, plans, tasks, agents, help.', { commands: [...COMMANDS], protocolTools: ['dispatch', 'continue'] });
     throw new Error(`Invalid BDFL command: ${args.command}. Commands: ${COMMANDS.join(', ')}.`);
   }
 
   async callTool(name, args = {}, signal) {
     if (name === 'bdfl') return this.manage(args);
     if (name === 'dispatch') {
+      requireDispatchAuthorization(args.request);
+      if (!Array.isArray(args.tasks) || args.tasks.length < 2) throw new Error('BDFL dispatch requires at least two useful atomic tasks; keep small single-stream work native.');
       const project = this.project(args.projectRoot);
+      const recovery = recoveryOptions(project.store.load());
+      if (recovery.required) throw new Error('BDFL has unfinished work. Use status to Continue, Manage tasks, Archive run, or Cancel run before dispatching new work.');
+      this.gitExcluder(project.root);
       const result = project.coordinator.dispatchAndWait
         ? await project.coordinator.dispatchAndWait(args, signal)
         : project.coordinator.dispatch(args);
@@ -495,7 +505,7 @@ class BdflMcpServer {
         protocolVersion: message.params?.protocolVersion || '2025-11-25',
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'bdfl', version: '1.0.0' },
-        instructions: 'Use bdfl for guided management, dispatch to start and wait, and continue for event decisions. Always pass the absolute Git worktree root.'
+        instructions: INSTRUCTIONS
       });
       return;
     }
@@ -534,4 +544,4 @@ class BdflMcpServer {
 
 if (require.main === module) new BdflMcpServer().start();
 
-module.exports = { COMMANDS, TOOLS, textResult, choiceSchema, canonicalProjectRoot, ensureGitExclude, pageText, BdflMcpServer };
+module.exports = { COMMANDS, INSTRUCTIONS, TOOLS, textResult, choiceSchema, canonicalProjectRoot, ensureGitExclude, pageText, requireExplicitRequest, requireDispatchAuthorization, BdflMcpServer };

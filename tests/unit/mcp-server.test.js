@@ -91,7 +91,7 @@ async function answerLatest(fix, selection) {
 function call(fix, id, command, extra = {}) {
   return fix.server.handleMessage({
     jsonrpc: '2.0', id, method: 'tools/call',
-    params: { name: 'bdfl', arguments: { projectRoot: '/repo', command, ...extra } }
+    params: { name: 'bdfl', arguments: { projectRoot: '/repo', request: `BDFL ${command}`, command, ...extra } }
   });
 }
 
@@ -100,7 +100,9 @@ test('advertises only the compact management, dispatch, and continue tools', asy
   await initialize(fix);
   await fix.server.handleMessage({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
   assert.deepEqual(fix.messages.at(-1).result.tools.map((tool) => tool.name), ['bdfl', 'dispatch', 'continue']);
-  assert.ok(fix.messages[0].result.instructions.length < 512);
+  assert.match(fix.messages[0].result.instructions, /Plan approval.*never authorization/i);
+  assert.match(fix.messages[0].result.instructions, /at least two useful atomic tasks/i);
+  assert.match(fix.messages[0].result.instructions, /remains valid.*later approval/i);
 });
 
 test('invalid workflow command returns authoritative help instead of an empty object', async () => {
@@ -110,7 +112,7 @@ test('invalid workflow command returns authoritative help instead of an empty ob
   const result = fix.messages.find((message) => message.id === 7).result;
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /Invalid BDFL command: workflow/);
-  assert.match(result.content[0].text, /on, off, models, plans, tasks, agents, help/);
+  assert.match(result.content[0].text, /status, models, plans, tasks, agents, help/);
 });
 
 test('continue renders simultaneous native decisions and keeps viewed reviews open', async () => {
@@ -189,20 +191,49 @@ test('task and agent selectors use readable task titles while prompts remain opt
   assert.doesNotMatch(JSON.stringify(tasks.structuredContent), /secret exact prompt/);
 });
 
-test('startup recovery presents guided choices and preserves artifacts when cancelling', async () => {
+test('status presents guided recovery choices and preserves artifacts when cancelling', async () => {
   const state = initialState();
   state.runs.push({ id: 'run-1', status: 'running' });
   state.tasks.push({ id: 'task-1', title: 'Task', status: 'running', prompt: 'keep me' });
   state.agents.push({ id: 'agent-1', taskId: 'task-1', status: 'running', worktree: '/kept' });
   const fix = fixture(state);
   await initialize(fix);
-  const pending = call(fix, 2, 'on');
+  const pending = call(fix, 2, 'status');
   const request = await answerLatest(fix, 'Cancel run');
   assert.deepEqual(request.params.requestedSchema.properties.selection.enum, ['Continue', 'Manage tasks', 'Archive run', 'Cancel run']);
   await pending;
   assert.equal(fix.store.load().tasks[0].prompt, 'keep me');
   assert.equal(fix.store.load().agents[0].worktree, '/kept');
   assert.equal(fix.store.load().runs[0].status, 'cancelled');
+});
+
+test('management rejects approval without an explicit BDFL request and accepts natural requests', async () => {
+  const fix = fixture();
+  await initialize(fix);
+  await fix.server.handleMessage({ jsonrpc: '2.0', id: 20, method: 'tools/call', params: { name: 'bdfl', arguments: { projectRoot: '/repo', request: 'Execute the approved plan', command: 'plans' } } });
+  const rejected = fix.messages.find((message) => message.id === 20).result;
+  assert.equal(rejected.isError, true);
+  assert.match(rejected.content[0].text, /explicitly named/);
+  await fix.server.handleMessage({ jsonrpc: '2.0', id: 21, method: 'tools/call', params: { name: 'bdfl', arguments: { projectRoot: '/repo', request: 'Could you show me BDFL plans?', command: 'plans' } } });
+  assert.equal(fix.messages.find((message) => message.id === 21).result.content[0].text, 'No plans.');
+});
+
+test('dispatch requires explicit invocation, two tasks, and no unfinished recovery', async () => {
+  const fix = fixture();
+  await initialize(fix);
+  const base = { projectRoot: '/repo', host: 'codex', tasks: [{ title: 'only one' }] };
+  await fix.server.handleMessage({ jsonrpc: '2.0', id: 22, method: 'tools/call', params: { name: 'dispatch', arguments: { ...base, request: 'Do this work' } } });
+  assert.match(fix.messages.find((message) => message.id === 22).result.content[0].text, /explicitly named/);
+  await fix.server.handleMessage({ jsonrpc: '2.0', id: 23, method: 'tools/call', params: { name: 'dispatch', arguments: { ...base, request: 'BDFL do this work' } } });
+  assert.match(fix.messages.find((message) => message.id === 23).result.content[0].text, /at least two/);
+  await fix.server.handleMessage({ jsonrpc: '2.0', id: 25, method: 'tools/call', params: { name: 'dispatch', arguments: { ...base, request: 'BDFL plan this', tasks: [{}, {}] } } });
+  assert.match(fix.messages.find((message) => message.id === 25).result.content[0].text, /planning only/);
+
+  fix.store.state.runs.push({ id: 'old', status: 'running' });
+  fix.store.state.tasks.push({ id: 'old-task', status: 'running' });
+  await fix.server.handleMessage({ jsonrpc: '2.0', id: 24, method: 'tools/call', params: { name: 'dispatch', arguments: { projectRoot: '/repo', request: 'BDFL execute this', host: 'codex', tasks: [{}, {}] } } });
+  assert.match(fix.messages.find((message) => message.id === 24).result.content[0].text, /Use status/);
+  assert.equal(fix.calls.some((entry) => entry[0] === 'dispatch'), false);
 });
 
 test('canonical roots reject non-absolute paths and pagination is bounded', () => {
