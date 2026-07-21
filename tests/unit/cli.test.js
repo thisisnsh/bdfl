@@ -11,7 +11,7 @@ class Store {
   update(fn) { this.state = fn(structuredClone(this.state)); return this.state; }
 }
 
-const settings = { defaultModel: 'claude:sonnet:medium', models: ['claude:sonnet:medium'] };
+const settings = { defaultModel: 'claude:sonnet', models: ['claude:sonnet'] };
 
 test('compatibility help exposes inspection only', () => {
   assert.match(HELP, /status\|models\|plans\|tasks\|agents\|help/);
@@ -19,12 +19,12 @@ test('compatibility help exposes inspection only', () => {
 });
 
 test('model selection validates and persists the exact listed model', () => {
-  const configured = { defaultModel: 'claude:sonnet:medium', models: ['claude:sonnet:medium', 'codex:gpt-5.6-sol:medium'] };
+  const configured = { defaultModel: 'claude:sonnet', models: ['claude:sonnet', 'codex:gpt-5.6-sol'] };
   let persisted;
-  const selected = selectModel('codex:gpt-5.6-sol:medium', configured, (value) => { persisted = value; return value; });
-  assert.equal(selected.defaultModel, 'codex:gpt-5.6-sol:medium');
-  assert.equal(persisted.defaultModel, 'codex:gpt-5.6-sol:medium');
-  assert.throws(() => selectModel('codex:unknown:medium', configured, () => {}), /not listed/);
+  const selected = selectModel('codex:gpt-5.6-sol', configured, (value) => { persisted = value; return value; });
+  assert.equal(selected.defaultModel, 'codex:gpt-5.6-sol');
+  assert.equal(persisted.defaultModel, 'codex:gpt-5.6-sol');
+  assert.throws(() => selectModel('codex:unknown', configured, () => {}), /not listed/);
 });
 
 test('focused snapshots open the requested management tab', () => {
@@ -34,10 +34,11 @@ test('focused snapshots open the requested management tab', () => {
 });
 
 test('non-interactive model list has a current marker and no dead key hints', () => {
-  const configured = { defaultModel: 'claude:sonnet:medium', models: ['claude:sonnet:medium', 'codex:gpt-5.6-sol:medium'] };
+  const configured = { defaultModel: 'claude:sonnet', models: ['claude:sonnet', 'codex:gpt-5.6-sol'] };
   const output = formatModelList(configured);
   assert.match(output, /^BDFL · models/m);
-  assert.match(output, /● claude:sonnet:medium/);
-  assert.match(output, /○ codex:gpt-5.6-sol:medium/);
+  assert.match(output, /● claude:sonnet/);
+  assert.match(output, /○ codex:gpt-5.6-sol/);
+  assert.match(output, /medium effort/);
   assert.doesNotMatch(output, /arrow|↑|↓|Enter/);
 });

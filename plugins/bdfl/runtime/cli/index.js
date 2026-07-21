@@ -40,7 +40,8 @@ function formatModelList(settings) {
     '',
     ...settings.models.map((model) => `${model === settings.defaultModel ? '●' : '○'} ${model}`),
     '',
-    'Select: bdfl models <provider:model:effort>'
+    'All models use medium effort.',
+    'Select: bdfl models <provider:model>'
   ].join('\n');
 }
 

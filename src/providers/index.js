@@ -5,6 +5,7 @@ const { parseModelSpec } = require('../core/model-spec');
 const { mapPermissionMode } = require('../core/permissions');
 
 const EXECUTABLES = Object.freeze({ claude: 'claude', codex: 'codex', ollama: 'ollama' });
+const DEFAULT_EFFORT = 'medium';
 
 function codexSandbox(permissionMode) {
   if (permissionMode === 'read-only') return 'read-only';
@@ -13,7 +14,7 @@ function codexSandbox(permissionMode) {
 }
 
 function buildInvocation(specification, options) {
-  const { provider, model, effort } = parseModelSpec(specification);
+  const { provider, model } = parseModelSpec(specification);
   const permissionMode = mapPermissionMode(options.host, options.permissionMode);
   const prompt = options.prompt;
   if (!prompt) throw new Error('Provider prompt is required');
@@ -21,27 +22,27 @@ function buildInvocation(specification, options) {
   if (provider === 'codex') {
     return {
       command: 'codex',
-      args: ['exec', '--json', '-m', model, '-c', `model_reasoning_effort="${effort}"`, '--sandbox', codexSandbox(permissionMode), prompt],
+      args: ['exec', '--json', '-m', model, '-c', `model_reasoning_effort="${DEFAULT_EFFORT}"`, '--sandbox', codexSandbox(permissionMode), prompt],
       env: {}
     };
   }
   if (provider === 'claude') {
     return {
       command: 'claude',
-      args: ['--print', '--output-format', 'stream-json', '--verbose', '--model', model, '--effort', effort, '--permission-mode', permissionMode, prompt],
+      args: ['--print', '--output-format', 'stream-json', '--verbose', '--model', model, '--effort', DEFAULT_EFFORT, '--permission-mode', permissionMode, prompt],
       env: {}
     };
   }
   if (options.host === 'codex') {
     return {
       command: 'codex',
-      args: ['exec', '--json', '--oss', '--local-provider', 'ollama', '-m', model, '-c', `model_reasoning_effort="${effort}"`, '--sandbox', codexSandbox(permissionMode), prompt],
+      args: ['exec', '--json', '--oss', '--local-provider', 'ollama', '-m', model, '-c', `model_reasoning_effort="${DEFAULT_EFFORT}"`, '--sandbox', codexSandbox(permissionMode), prompt],
       env: { OLLAMA_HOST: options.ollamaBaseUrl }
     };
   }
   return {
     command: 'claude',
-    args: ['--print', '--output-format', 'stream-json', '--verbose', '--model', model, '--effort', effort, '--permission-mode', permissionMode, prompt],
+    args: ['--print', '--output-format', 'stream-json', '--verbose', '--model', model, '--effort', DEFAULT_EFFORT, '--permission-mode', permissionMode, prompt],
     env: { ANTHROPIC_BASE_URL: options.ollamaBaseUrl, BDFL_OLLAMA_MODEL: model }
   };
 }
@@ -99,18 +100,18 @@ function runProvider(specification, options) {
 }
 
 function buildResumeInvocation(specification, options) {
-  const { provider, model, effort } = parseModelSpec(specification);
+  const { provider, model } = parseModelSpec(specification);
   if (!options.sessionId) throw new Error('A provider session ID is required to resume an agent');
   if (!options.prompt) throw new Error('A resume prompt is required');
   const permissionMode = mapPermissionMode(options.host, options.permissionMode);
   if (provider === 'codex') return {
     command: 'codex',
-    args: ['exec', 'resume', '--json', '-m', model, '-c', `model_reasoning_effort="${effort}"`, options.sessionId, options.prompt],
+    args: ['exec', 'resume', '--json', '-m', model, '-c', `model_reasoning_effort="${DEFAULT_EFFORT}"`, options.sessionId, options.prompt],
     env: {}
   };
   if (provider === 'claude') return {
     command: 'claude',
-    args: ['--resume', options.sessionId, '--print', '--output-format', 'stream-json', '--verbose', '--model', model, '--effort', effort, '--permission-mode', permissionMode, options.prompt],
+    args: ['--resume', options.sessionId, '--print', '--output-format', 'stream-json', '--verbose', '--model', model, '--effort', DEFAULT_EFFORT, '--permission-mode', permissionMode, options.prompt],
     env: {}
   };
   return buildInvocation(specification, options);
@@ -121,4 +122,4 @@ function resumeProvider(specification, options) {
   return spawn(invocation.command, invocation.args, { cwd: options.cwd, env: { ...process.env, ...invocation.env }, signal: options.signal, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
-module.exports = { EXECUTABLES, buildInvocation, buildResumeInvocation, preflight, normalizeEvent, runProvider, resumeProvider };
+module.exports = { EXECUTABLES, DEFAULT_EFFORT, buildInvocation, buildResumeInvocation, preflight, normalizeEvent, runProvider, resumeProvider };

@@ -18,16 +18,16 @@ class Store {
 function fixture(state = initialState(), { elicitation = true, attention = [] } = {}) {
   const messages = [];
   const settings = {
-    version: 2,
-    defaultModel: 'claude:sonnet:medium',
-    models: ['claude:sonnet:medium', 'claude:opus:medium', 'claude:haiku:medium', 'codex:gpt-5.6-sol:medium', 'ollama:qwen3.5:medium'],
-    discoveredModels: ['claude:sonnet:medium', 'claude:opus:medium', 'claude:haiku:medium', 'codex:gpt-5.6-sol:medium'],
-    customModels: ['ollama:qwen3.5:medium'],
+    version: 3,
+    defaultModel: 'claude:sonnet',
+    models: ['claude:sonnet', 'claude:opus', 'claude:haiku', 'codex:gpt-5.6-sol'],
+    discoveredModels: ['claude:sonnet', 'claude:opus', 'claude:haiku', 'codex:gpt-5.6-sol'],
+    customModels: [],
     modelCatalog: [
-      { provider: 'claude', model: 'sonnet', efforts: ['medium'], defaultEffort: 'medium' },
-      { provider: 'claude', model: 'opus', efforts: ['medium'], defaultEffort: 'medium' },
-      { provider: 'claude', model: 'haiku', efforts: ['medium'], defaultEffort: 'medium' },
-      { provider: 'codex', model: 'gpt-5.6-sol', efforts: ['medium'], defaultEffort: 'medium' }
+      { provider: 'claude', model: 'sonnet' },
+      { provider: 'claude', model: 'opus' },
+      { provider: 'claude', model: 'haiku' },
+      { provider: 'codex', model: 'gpt-5.6-sol' }
     ],
     maxAgents: 4,
     ollamaBaseUrl: 'http://localhost:11434'
@@ -145,15 +145,14 @@ test('continue renders simultaneous native decisions and keeps viewed reviews op
   assert.equal(result.structuredContent.events.length, 2);
 });
 
-test('model management elicits all configured options without a four-option limit', async () => {
+test('model management elicits all configured options once and uses medium effort', async () => {
   const fix = fixture();
   await initialize(fix);
   const pending = call(fix, 2, 'models');
   const request = await answerLatest(fix, 'codex:gpt-5.6-sol');
-  assert.equal(request.params.requestedSchema.properties.selection.enum.length, 5);
-  await answerLatest(fix, 'medium');
+  assert.equal(request.params.requestedSchema.properties.selection.enum.length, 4);
   await pending;
-  assert.equal(fix.settings().defaultModel, 'codex:gpt-5.6-sol:medium');
+  assert.equal(fix.settings().defaultModel, 'codex:gpt-5.6-sol');
 });
 
 test('empty plans return the exact empty state and cannot accidentally route to agents', async () => {

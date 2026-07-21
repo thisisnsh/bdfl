@@ -13,8 +13,8 @@ class Store {
 }
 
 const settings = {
-  defaultModel: 'codex:gpt-5.6-sol:medium',
-  models: ['codex:gpt-5.6-sol:medium'],
+  defaultModel: 'codex:gpt-5.6-sol',
+  models: ['codex:gpt-5.6-sol'],
   maxAgents: 4,
   ollamaBaseUrl: 'http://localhost:11434'
 };
@@ -28,7 +28,7 @@ function task(key, dependencies = []) {
     context: 'Context',
     allowedPaths: [key],
     dependencies,
-    model: 'codex:gpt-5.6-sol:medium',
+    model: 'codex:gpt-5.6-sol',
     permissionMode: 'default',
     validationCommands: ['node --test'],
     completionCriteria: 'Tests pass'

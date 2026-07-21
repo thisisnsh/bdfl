@@ -245,24 +245,11 @@ class BdflMcpServer {
   async manageModel(host) {
     const settings = this.settingsLoader(undefined, { invokingHost: host });
     if (!settings.models.length) return textResult('No supported models discovered. Install or configure Claude Code or Codex.', { current: null, models: [] });
-    const byModel = new Map();
-    for (const entry of settings.modelCatalog || []) byModel.set(`${entry.provider}:${entry.model}`, entry);
-    for (const specification of settings.customModels || []) {
-      const parsed = validateModelSpec(specification, settings.models);
-      const key = `${parsed.provider}:${parsed.model}`;
-      if (!byModel.has(key)) byModel.set(key, { provider: parsed.provider, model: parsed.model, efforts: [parsed.effort], defaultEffort: parsed.effort, custom: true });
-    }
-    const current = settings.defaultModel ? settings.defaultModel.slice(0, settings.defaultModel.lastIndexOf(':')) : null;
-    const picked = await this.choose(`Current model: ${settings.defaultModel || 'none'}. Choose a model for future BDFL runs.`, 'Model', [...byModel.keys()], current);
-    if (picked.unsupported) return textResult('Model choices returned.', { current: settings.defaultModel, models: [...byModel.keys()] });
+    const picked = await this.choose(`Current model: ${settings.defaultModel || 'none'}. Choose a model for future BDFL runs. All models use medium effort.`, 'Model', settings.models, settings.defaultModel);
+    if (picked.unsupported) return textResult('Model choices returned.', { current: settings.defaultModel, models: settings.models });
     if (picked.cancelled) return textResult('Model selection cancelled.', { action: picked.action });
-    const entry = byModel.get(picked.value);
-    const effort = await this.choose(`Choose the supported effort for ${picked.value}.`, 'Effort', entry.efforts, entry.defaultEffort);
-    if (effort.unsupported) return textResult('Effort choices returned.', { model: picked.value, efforts: entry.efforts });
-    if (effort.cancelled) return textResult('Model selection cancelled.', { action: effort.action });
-    const specification = `${picked.value}:${effort.value}`;
-    validateModelSpec(specification, settings.models);
-    const selected = this.settingsSaver({ ...settings, models: [...settings.models], discoveredModels: [...settings.discoveredModels], customModels: [...settings.customModels], modelCatalog: settings.modelCatalog.map((item) => ({ ...item, efforts: [...item.efforts] })), defaultModel: specification });
+    validateModelSpec(picked.value, settings.models);
+    const selected = this.settingsSaver({ ...settings, models: [...settings.models], discoveredModels: [...settings.discoveredModels], customModels: [...settings.customModels], modelCatalog: settings.modelCatalog.map((item) => ({ ...item })), defaultModel: picked.value });
     return textResult(`Selected model: ${selected.defaultModel}`, { selectedModel: selected.defaultModel });
   }
 

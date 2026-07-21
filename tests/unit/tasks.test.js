@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { compileManifest, pathsOverlap, scheduleWaves, shouldDispatch, taskLabel, taskSummary, taskTitle } = require('../../src/core/tasks');
 
-const settings = { models: ['codex:gpt-5.6-sol:medium'] };
+const settings = { models: ['codex:gpt-5.6-sol'] };
 const task = (id, allowedPaths, dependencies = []) => ({
   id,
   title: `Task ${id}`,
@@ -13,7 +13,7 @@ const task = (id, allowedPaths, dependencies = []) => ({
   context: 'context',
   allowedPaths,
   dependencies,
-  model: 'codex:gpt-5.6-sol:medium',
+  model: 'codex:gpt-5.6-sol',
   permissionMode: 'default',
   validationCommands: ['node --test'],
   completionCriteria: 'tests pass'

@@ -40,12 +40,12 @@ test('navigates all tabs, details, Esc, and every contextual action', () => {
 });
 
 test('opens focused views and exposes model selection', () => {
-  const ui = new TuiController({ models: [{ id: 'claude:sonnet:medium', selected: true }] }, { color: false, initialTab: 'Models', focused: true });
+  const ui = new TuiController({ models: [{ id: 'claude:sonnet', selected: true }] }, { color: false, initialTab: 'Models', focused: true });
   assert.equal(TABS[ui.tab], 'Models');
   assert.equal(ui.key('a').action, 'select');
   assert.equal(ui.key('\r').action, 'select');
   assert.equal(ui.key('q').action, 'quit');
-  assert.match(ui.render(), /● claude:sonnet:medium/);
+  assert.match(ui.render(), /● claude:sonnet/);
   assert.match(ui.render(), /Enter select/);
   assert.match(ui.render(), /^BDFL · models/);
   assert.doesNotMatch(ui.render(), /Runs.*Plans.*Tasks/);

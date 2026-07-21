@@ -12,24 +12,14 @@ function available(command, run = spawnSync) {
   return !result?.error && result?.status === 0;
 }
 
-function effortsFromHelp(output, fallback = ['medium']) {
-  const section = `${output || ''}`.match(/--effort[\s\S]{0,320}?(?:choices|possible values):?\s*([^\n]+)/i)?.[1] || '';
-  const quoted = [...section.matchAll(/["'`]([a-z][\w-]*)["'`]/gi)].map((match) => match[1]);
-  const plain = quoted.length ? quoted : section.replace(/[()[\],]/g, ' ').split(/\s+/).filter((value) => /^(low|medium|high|xhigh|max|ultra)$/i.test(value));
-  return [...new Set(plain.length ? plain : fallback)];
-}
-
 function discoverCodex(run = spawnSync) {
   if (!available('codex', run)) return [];
   const result = run('codex', ['debug', 'models'], { encoding: 'utf8', stdio: 'pipe' });
   if (result?.error || result?.status !== 0) return [];
   try {
     const rows = JSON.parse(result.stdout || '{}').models || [];
-    return rows.filter((row) => row.slug && row.visibility !== 'hide' && row.visibility !== 'hidden').map((row) => {
-      const efforts = (row.supported_reasoning_levels || []).map((level) => level.effort).filter(Boolean);
-      const supportedEfforts = efforts.length ? efforts : [row.default_reasoning_level || 'medium'];
-      return { provider: 'codex', model: row.slug, displayName: row.display_name || row.slug, efforts: supportedEfforts, defaultEffort: supportedEfforts.includes(row.default_reasoning_level) ? row.default_reasoning_level : supportedEfforts[0] };
-    });
+    return rows.filter((row) => row.slug && row.visibility !== 'hide' && row.visibility !== 'hidden')
+      .map((row) => ({ provider: 'codex', model: row.slug, displayName: row.display_name || row.slug }));
   } catch { return []; }
 }
 
@@ -48,10 +38,7 @@ function discoverClaude(run = spawnSync, options = {}) {
   if (!available('claude', run)) return [];
   const configured = options.availableModels || configuredClaudeModels(options);
   const models = configured?.length ? configured : CLAUDE_ALIASES;
-  const help = run('claude', ['--help'], { encoding: 'utf8', stdio: 'pipe' });
-  const efforts = effortsFromHelp(help?.stdout || help?.stderr, ['medium']);
-  const defaultEffort = efforts.includes('medium') ? 'medium' : efforts[0];
-  return models.map((model) => ({ provider: 'claude', model, displayName: model, efforts, defaultEffort }));
+  return models.map((model) => ({ provider: 'claude', model, displayName: model }));
 }
 
 function discoverModels(options = {}) {
@@ -60,7 +47,7 @@ function discoverModels(options = {}) {
 }
 
 function catalogSpecifications(catalog) {
-  return catalog.flatMap((entry) => entry.efforts.map((effort) => `${entry.provider}:${entry.model}:${effort}`));
+  return catalog.map((entry) => `${entry.provider}:${entry.model}`);
 }
 
-module.exports = { CLAUDE_ALIASES, available, effortsFromHelp, configuredClaudeModels, discoverClaude, discoverCodex, discoverModels, catalogSpecifications };
+module.exports = { CLAUDE_ALIASES, available, configuredClaudeModels, discoverClaude, discoverCodex, discoverModels, catalogSpecifications };
