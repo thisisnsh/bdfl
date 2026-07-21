@@ -66,37 +66,27 @@ npm install --global bdfl@staging
 bdfl --version
 ```
 
-## Production checklist
+## Production release
 
-1. Pull `main` and confirm the worktree is clean.
-2. Choose the next stable SemVer and update `package.json` plus `package-lock.json` together:
+The GitHub Release tag is the only production version source. Do not edit `package.json` or `package-lock.json`, create a version commit, or run `npm publish` locally.
 
-   ```bash
-   npm version 0.2.0 --no-git-tag-version
-   ```
-
-3. Update `README.md`, `SUPPORT.md`, and any migration or deprecation notice.
-4. Run the exact release checks:
-
-   ```bash
-   npm ci
-   npm run package
-   npm test
-   npm run validate
-   npm pack --dry-run
-   git diff --exit-code plugins/bdfl/runtime
-   ```
-
-5. Commit the version and documentation, merge it to `main`, and wait for the staging workflow to pass.
-6. Create a **published** GitHub Release targeting that exact `main` commit. The tag must be `v` followed by the package version:
+Once the desired code and documentation are already on `main`, create a **published** GitHub Release targeting that exact commit. Choose the stable version only in the `v`-prefixed tag:
 
    ```bash
    gh release create v0.2.0 --target main --title "BDFL 0.2.0" --generate-notes
    ```
 
-7. Approve the `production` environment deployment after checking the tag, target commit, and generated notes.
+Approve the `production` environment deployment after checking the tag, target commit, and generated notes. That is the entire recurring release procedure.
 
-The workflow then verifies that the tag matches `package.json`, checks that the release commit is reachable from `main`, tests Node 20/22/current, publishes with the `latest` tag, and attaches:
+The workflow then:
+
+1. Validates that the release tag is stable `v`-prefixed SemVer and that its commit is reachable from `main`.
+2. Derives `0.2.0` from `v0.2.0`.
+3. Ephemerally stamps both `package.json` and `package-lock.json` inside each Actions runner. No generated version change returns to Git.
+4. Tests the stamped package on Node 20/22/current.
+5. Waits for the protected `production` approval.
+6. Packs and publishes that exact derived version under npm `latest` with provenance.
+7. Attaches:
 
 - npm tarball
 - SHA-256 report
@@ -123,4 +113,4 @@ Confirm that `latest` changed only for the production release and that the previ
 - **Bad stable release:** publish a corrected patch version. Deprecate the bad version through an authenticated maintainer session if needed; BDFL stores no separate deprecation token.
 - **GitHub assets fail after npm succeeds:** rerun or attach evidence without republishing the immutable npm version.
 
-Never rewrite an existing release tag or reuse a published npm version.
+Never rewrite an existing release tag or reuse a published npm version. To ship another build, create a new GitHub Release with a new stable version tag.

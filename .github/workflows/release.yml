@@ -1,12 +1,15 @@
 name: Publish bdfl
+
 on:
   push:
     branches: [main]
   release:
     types: [published]
+
 permissions:
   contents: write
   id-token: write
+
 jobs:
   staging:
     if: github.event_name == 'push'
@@ -23,7 +26,7 @@ jobs:
       - name: Build staging package
         run: |
           short_sha="${GITHUB_SHA::7}"
-          npm version "0.1.0-staging.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${short_sha}" --no-git-tag-version
+          npm version "0.1.0-staging.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${short_sha}" --no-git-tag-version --allow-same-version
           npm pack
           sha256sum bdfl-*.tgz > SHA256SUMS
       - run: npm publish bdfl-*.tgz --tag staging --provenance --access public
@@ -34,9 +37,9 @@ jobs:
             bdfl-*.tgz
             SHA256SUMS
           retention-days: 14
-  production:
+
+  production-test:
     if: github.event_name == 'release'
-    environment: production
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -48,28 +51,66 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-          registry-url: https://registry.npmjs.org
       - run: npm ci
-      - run: npm test
-      - run: npm run validate
-      - name: Validate release identity
-        if: matrix.node == 20
+      - name: Resolve version from GitHub Release
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const semver = require('semver');
+          const tag = process.env.RELEASE_TAG || '';
+          const version = tag.startsWith('v') ? tag.slice(1) : '';
+          if (!semver.valid(version) || semver.prerelease(version)) {
+            throw new Error(`Production release tag must be a stable v-prefixed SemVer: ${tag}`);
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV, `RELEASE_VERSION=${version}\n`);
+          NODE
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Stamp ephemeral package version
+        run: npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
+      - run: npm test
+      - run: npm run validate
+
+  production:
+    if: github.event_name == 'release'
+    needs: production-test
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - name: Resolve version from GitHub Release
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const semver = require('semver');
+          const tag = process.env.RELEASE_TAG || '';
+          const version = tag.startsWith('v') ? tag.slice(1) : '';
+          if (!semver.valid(version) || semver.prerelease(version)) {
+            throw new Error(`Production release tag must be a stable v-prefixed SemVer: ${tag}`);
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV, `RELEASE_VERSION=${version}\n`);
+          NODE
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Stamp ephemeral package version
+        run: npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
       - name: Build release evidence
-        if: matrix.node == 20
         run: |
           npm pack
           sha256sum bdfl-*.tgz > SHA256SUMS
           npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
       - name: Publish latest
-        if: matrix.node == 20
         run: npm publish bdfl-*.tgz --tag latest --provenance --access public
       - name: Attach release evidence
-        if: matrix.node == 20
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
