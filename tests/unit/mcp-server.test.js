@@ -100,7 +100,8 @@ test('advertises only the compact management, dispatch, and continue tools', asy
   await initialize(fix);
   await fix.server.handleMessage({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
   assert.deepEqual(fix.messages.at(-1).result.tools.map((tool) => tool.name), ['bdfl', 'dispatch', 'continue']);
-  assert.match(fix.messages[0].result.instructions, /Plan approval.*never authorization/i);
+  assert.match(fix.messages[0].result.instructions, /executeApprovedPlan.*immediately begin/i);
+  assert.match(fix.messages[0].result.instructions, /displayVerbatim.*without summarizing/i);
   assert.match(fix.messages[0].result.instructions, /at least two useful atomic tasks/i);
   assert.match(fix.messages[0].result.instructions, /remains valid.*later approval/i);
 });
@@ -183,6 +184,29 @@ test('selects and approves a filesystem-backed plan version', async () => {
   await answerLatest(fix, 'Approve');
   await pending;
   assert.equal(fix.plans.list()[0].selectedVersion, 2);
+  const result = fix.messages.find((message) => message.id === 5).result;
+  assert.equal(result.structuredContent.executeApprovedPlan, true);
+  assert.equal(result.structuredContent.plan, '# Ship router\n\nVersion two.');
+});
+
+test('returns plan diffs verbatim and lists newest plans and versions first', async () => {
+  const fix = fixture();
+  await initialize(fix);
+  fix.plans.add({ id: 'old', title: 'Old plan', updatedAt: '2026-01-01', versions: [{ number: 1, createdAt: '2026-01-01' }] }, ['old']);
+  fix.plans.add({ id: 'new', title: 'New plan', updatedAt: '2026-01-02', versions: [
+    { number: 1, createdAt: '2026-01-01' }, { number: 2, createdAt: '2026-01-02' }
+  ] }, ['keep\nold', 'keep\nnew']);
+  const pending = call(fix, 6, 'plans');
+  const plans = await answerLatest(fix, 'New plan — 2 version(s)');
+  assert.equal(plans.params.requestedSchema.properties.selection.enum[0], 'New plan — 2 version(s)');
+  const versions = await answerLatest(fix, 'v2 — 2026-01-02');
+  assert.equal(versions.params.requestedSchema.properties.selection.enum[0], 'v2 — 2026-01-02');
+  await answerLatest(fix, 'View diff');
+  await pending;
+  const result = fix.messages.find((message) => message.id === 6).result;
+  assert.equal(result.structuredContent.displayVerbatim, true);
+  assert.equal(result.structuredContent.format, 'diff');
+  assert.match(result.content[0].text, /```diff\n  keep\n\+ new\n- old\n```/);
 });
 
 test('task and agent selectors use readable task titles while prompts remain opt-in', async () => {

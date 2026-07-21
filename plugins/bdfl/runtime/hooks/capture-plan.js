@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { PlanStore, atomicWrite } = require('../core/plans');
+const { PlanStore, atomicWrite, derivePlanTitle } = require('../core/plans');
 const { hostIsLive } = require('../host/presence');
 
 function gitRoot(cwd, run = execFileSync) {
@@ -71,8 +71,10 @@ function captureCodex(payload, root, store, io = fs) {
   }
   const content = newestProposedPlan(payload.transcript_path, io);
   if (!content) return null;
-  if (!current.active) current.episode += 1;
+  const title = derivePlanTitle(content, root);
+  if (!current.active || current.title && current.title !== title) current.episode += 1;
   current.active = true;
+  current.title = title;
   state.sessions[key] = current;
   writeHookState(root, state, io);
   return store.capture({ content, host: 'codex', session: payload.session_id, episode: `${current.episode}`, sourcePath: payload.transcript_path || null });

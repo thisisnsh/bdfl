@@ -17,7 +17,7 @@ You explicitly ask BDFL
   → you accept the final integration
 ```
 
-Plan approval, task complexity, and an apparently splittable request never start BDFL. “BDFL plan this” authorizes planning only. Execution requires a separate request such as “BDFL execute the approved plan.”
+Task complexity and an apparently splittable request never start BDFL. “BDFL plan this” authorizes planning only until you explicitly approve a captured version in the plan manager; that approval starts the exact selected plan. You can also request execution directly with wording such as “BDFL execute the approved plan.”
 
 ## Install
 
@@ -50,7 +50,7 @@ BDFL status.
 
 The copied request must contain `BDFL` as a standalone term. Naming BDFL authorizes evaluation, not needless delegation: a small single-stream task stays in the parent host. Dispatch requires at least two useful atomic tasks and automatically creates one workflow run.
 
-Plan capture remains automatic while that host’s BDFL MCP is live. Capturing or approving a plan does not authorize execution.
+Plan capture remains automatic while that host’s BDFL MCP is live. Capturing a plan does not authorize execution; explicitly choosing Approve does. Diff and full views are returned verbatim rather than summarized.
 
 ## Safe delegation
 

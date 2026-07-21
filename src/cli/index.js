@@ -2,7 +2,7 @@
 
 const { loadSettings, saveSettings } = require('../core/settings');
 const { validateModelSpec } = require('../core/model-spec');
-const { selectPlanVersion } = require('../core/plans');
+const { PlanStore } = require('../core/plans');
 const { StateStore, recoveryOptions } = require('../state/store');
 const { TuiController } = require('../tui/controller');
 
@@ -45,12 +45,27 @@ function formatModelList(settings) {
   ].join('\n');
 }
 
-function interactiveList(store, settings, io = process, initialTab = 'Runs', persist = saveSettings) {
+function loadPlanRows(plans) {
+  return plans.list().map((plan) => ({
+    ...plan,
+    versions: plan.versions.map((version) => ({ ...version, content: plans.content(plan.id, version.number) }))
+  })).sort((left, right) => `${right.updatedAt || right.createdAt || ''}`.localeCompare(`${left.updatedAt || left.createdAt || ''}`));
+}
+
+function migratePlans(store, plans) {
+  if (!store.exists?.()) return;
+  const state = store.load();
+  const migrated = plans.migrateStatePlans(state);
+  if (migrated.migrated || state.plans?.length) store.save(migrated.state);
+}
+
+function interactiveList(store, settings, io = process, initialTab = 'Runs', persist = saveSettings, plans = null) {
+  const state = store.load();
   const controller = new TuiController({
-    runs: store.load().runs,
-    plans: store.load().plans,
-    tasks: store.load().tasks,
-    agents: store.load().agents,
+    runs: state.runs,
+    plans: plans ? loadPlanRows(plans) : state.plans,
+    tasks: state.tasks,
+    agents: state.agents,
     models: settings.models.map((model) => ({ id: model, selected: model === settings.defaultModel }))
   }, { color: true, width: io.stdout.columns || 80, height: io.stdout.rows || 24, initialTab, focused: true });
   let frame = 0;
@@ -71,14 +86,10 @@ function interactiveList(store, settings, io = process, initialTab = 'Runs', per
       return;
     }
     if (result.action === 'approve' && initialTab === 'Plans' && result.item?.id) {
-      store.update((state) => {
-        const index = state.plans.findIndex((plan) => plan.id === result.item.id);
-        if (index === -1) throw new Error(`Unknown plan: ${result.item.id}`);
-        state.plans[index] = selectPlanVersion(state.plans[index], result.version);
-        return state;
-      });
+      if (!plans) throw new Error('Filesystem-backed plans are unavailable');
+      plans.select(result.item.id, result.version);
       cleanup();
-      io.stdout.write(`Selected plan: ${result.item.id} v${result.version}\n`);
+      io.stdout.write(`Approved plan: ${result.item.id} v${result.version}\n`);
       return;
     }
     draw();
@@ -101,6 +112,8 @@ function main(argv = process.argv.slice(2), io = process, root = process.cwd()) 
   const command = argv[0];
   const settings = loadSettings();
   const store = new StateStore(root);
+  const plans = new PlanStore(root);
+  migratePlans(store, plans);
   if (command === 'help' || command === '--help' || command === '-h') { io.stdout.write(`${HELP}\n`); return 0; }
   if (['models', 'plans', 'tasks', 'agents'].includes(command)) {
     const tab = command[0].toUpperCase() + command.slice(1);
@@ -114,9 +127,13 @@ function main(argv = process.argv.slice(2), io = process, root = process.cwd()) 
         return 1;
       }
     }
-    if (io.stdin.isTTY && io.stdout.isTTY) interactiveList(store, settings, io, tab);
+    if (io.stdin.isTTY && io.stdout.isTTY) interactiveList(store, settings, io, tab, saveSettings, plans);
     else if (command === 'models') io.stdout.write(`${formatModelList(settings)}\n`);
-    else io.stdout.write(`${snapshot(store.load(), settings, { color: false, width: io.stdout.columns || 80, height: io.stdout.rows || 24, focused: true }, tab)}\n`);
+    else {
+      const state = store.load();
+      if (command === 'plans') state.plans = loadPlanRows(plans);
+      io.stdout.write(`${snapshot(state, settings, { color: false, width: io.stdout.columns || 80, height: io.stdout.rows || 24, focused: true }, tab)}\n`);
+    }
     return 0;
   }
   if (command === 'status') {
@@ -132,4 +149,4 @@ function main(argv = process.argv.slice(2), io = process, root = process.cwd()) 
   return 1;
 }
 
-module.exports = { HELP, selectModel, snapshot, formatModelList, interactiveList, main };
+module.exports = { HELP, selectModel, snapshot, formatModelList, loadPlanRows, migratePlans, interactiveList, main };

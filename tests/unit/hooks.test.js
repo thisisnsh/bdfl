@@ -46,6 +46,18 @@ test('Codex captures the newest complete proposed plan and recognizes plan episo
   assert.equal(store.list().length, 2);
 });
 
+test('Codex separates differently titled plans created consecutively in one session', (t) => {
+  const { root, store } = repository(t);
+  const transcript = path.join(root, 'transcript.jsonl');
+  const base = { cwd: root, session_id: 'session', transcript_path: transcript, hook_event_name: 'Stop', permission_mode: 'plan' };
+  const options = { store, hostIsLive: () => true };
+  fs.writeFileSync(transcript, '<proposed_plan># First plan\n\none</proposed_plan>');
+  handleHook('codex', base, options);
+  fs.appendFileSync(transcript, '<proposed_plan># Second plan\n\ntwo</proposed_plan>');
+  handleHook('codex', base, options);
+  assert.deepEqual(store.list().map((plan) => plan.title), ['First plan', 'Second plan']);
+});
+
 test('hooks are silent outside active Git repositories', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-nohook-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

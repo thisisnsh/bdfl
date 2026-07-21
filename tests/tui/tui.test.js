@@ -66,12 +66,18 @@ test('plan detail changes versions and switches diff/full modes', () => {
   ] }] }, { color: true });
   ui.key('\u001b[C');
   ui.key('\r');
-  ui.key('\u001b[B');
   assert.match(ui.render(), /\u001b\[32m\+ new/);
   assert.match(ui.render(), /\u001b\[31m- old/);
   ui.key('\u001b[C');
   assert.match(ui.render(), /v2 · full/);
   assert.equal(ui.key('a').version, 2);
+});
+
+test('plan approval uses the stored version number instead of its array index', () => {
+  const ui = new TuiController({ plans: [{ id: 'p1', versions: [{ number: 4, content: 'old' }, { number: 7, content: 'latest' }] }] }, { color: false, initialTab: 'Plans' });
+  assert.equal(ui.key('a').version, 7);
+  ui.key('\r');
+  assert.equal(ui.key('a').version, 7);
 });
 
 test('resizes, clips, renders bottom keys, and falls back without color', () => {

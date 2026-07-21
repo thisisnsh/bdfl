@@ -49,11 +49,17 @@ class TuiController {
       if (key === 'down') this.row = Math.min(Math.max(0, this.rows().length - 1), this.row + 1);
       if (key === 'enter' && this.rows()[this.row]) {
         if (TABS[this.tab] === 'Models') return { action: 'select', item: this.rows()[this.row] };
-        this.detail = true; this.planVersion = 0;
+        this.detail = true;
+        this.planVersion = TABS[this.tab] === 'Plans' ? Math.max(0, (this.rows()[this.row].versions || []).length - 1) : 0;
       }
     }
     if (key === 'a' && TABS[this.tab] === 'Models') return { action: 'select', item: this.rows()[this.row] };
-    if (ACTIONS[key]) return { action: ACTIONS[key], item: this.rows()[this.row], version: this.planVersion + 1 };
+    if (ACTIONS[key]) {
+      const item = this.rows()[this.row];
+      const planIndex = this.detail ? this.planVersion : Math.max(0, (item?.versions?.length || 1) - 1);
+      const version = TABS[this.tab] === 'Plans' ? item?.versions?.[planIndex]?.number : undefined;
+      return { action: ACTIONS[key], item, version };
+    }
     return { action: 'navigate' };
   }
 

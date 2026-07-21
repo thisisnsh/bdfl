@@ -7,7 +7,7 @@ BDFL means Benevolent Delegator for LLMs. The runtime under `src/` is canonical;
 1. A management or dispatch call copies a verbatim request that explicitly names BDFL.
 2. Dispatch rejects planning-only authorization, fewer than two useful tasks, and unresolved durable work, then creates its run automatically.
 3. State recovery checks `.bdfl/state.json` and pauses for an explicit choice when unfinished records exist.
-4. Host hooks write immutable plan revisions to `.bdfl/plans/` only while that host's MCP process is live. Approval never authorizes execution.
+4. Host hooks write immutable plan revisions to `.bdfl/plans/` only while that host's MCP process is live. Plan views are rendered verbatim, and explicit approval authorizes the current host to execute that exact version.
 5. The compiler validates exact models, permissions, dependency acyclicity, allowed paths, commands, and completion criteria.
 6. The scheduler forms parallel waves while serializing overlapping path ownership.
 7. Each attempt receives a `.bdfl/worktrees/` Git worktree and `bdfl/<task>-<attempt>` branch.

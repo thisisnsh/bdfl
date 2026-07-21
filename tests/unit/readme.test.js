@@ -10,8 +10,9 @@ const readme = fs.readFileSync(path.resolve(__dirname, '..', '..', 'README.md'),
 test('README documents MCP-only explicit invocation and the exact management set', () => {
   for (const command of ['status', 'models', 'plans', 'tasks', 'agents', 'help']) assert.match(readme, new RegExp(`BDFL ${command}`));
   assert.doesNotMatch(readme, /\/bdfl\s|\$bdfl/);
-  assert.match(readme, /Plan approval, task complexity.*never start BDFL/);
-  assert.match(readme, /“BDFL plan this” authorizes planning only/);
+  assert.match(readme, /Task complexity.*never start BDFL/);
+  assert.match(readme, /“BDFL plan this” authorizes planning only until.*approve/);
+  assert.match(readme, /Diff and full views are returned verbatim/);
   assert.match(readme, /at least two useful atomic tasks/);
 });
 

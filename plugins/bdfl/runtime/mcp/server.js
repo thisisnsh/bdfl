@@ -13,7 +13,7 @@ const { ProjectCoordinator, RUNNING } = require('../core/coordinator');
 const { StateStore, recoveryOptions } = require('../state/store');
 
 const COMMANDS = Object.freeze(['status', 'models', 'plans', 'tasks', 'agents', 'help']);
-const INSTRUCTIONS = `BDFL acts only when the user's request explicitly contains BDFL as a standalone term. Copy that request verbatim into the request field for management and dispatch calls. Plan approval, task complexity, and a splittable request are never authorization by themselves. "BDFL plan this" authorizes planning or plan management only, not execution. "BDFL execute…" or an equally explicit request to BDFL authorizes one workflow and remains valid through that workflow's later approval and review turns. Dispatch only when there are at least two useful atomic tasks; keep small single-stream work native. A valid dispatch automatically creates its run and must never be mixed into unfinished work. Use status for unfinished runs and present Continue, Manage tasks, Archive run, and Cancel run without choosing for the user. Once a workflow is explicitly started, use continue for its questions, permissions, reviews, retries, and integration decisions without requiring the user to repeat BDFL. Plan capture is automatic while this host's MCP process is live. Always pass the absolute Git worktree root.`;
+const INSTRUCTIONS = `BDFL acts only when the user's request explicitly contains BDFL as a standalone term. Copy that request verbatim into the request field for management and dispatch calls. "BDFL plan this" authorizes planning or plan management only until the user explicitly approves a captured plan. When a plans result has displayVerbatim, reproduce its text exactly in a fenced diff or Markdown block without summarizing it. When a plans result has executeApprovedPlan, immediately begin executing that exact approved version in the current host without another confirmation. "BDFL execute…" or an equally explicit request to BDFL authorizes one workflow and remains valid through that workflow's later approval and review turns. Dispatch only when there are at least two useful atomic tasks; keep small single-stream work native. A valid dispatch automatically creates its run and must never be mixed into unfinished work. Use status for unfinished runs and present Continue, Manage tasks, Archive run, and Cancel run without choosing for the user. Once a workflow is explicitly started, use continue for its questions, permissions, reviews, retries, and integration decisions without requiring the user to repeat BDFL. Plan capture is automatic while this host's MCP process is live. Always pass the absolute Git worktree root.`;
 const TOOL_TASK = {
   type: 'object',
   properties: {
@@ -37,7 +37,7 @@ const TOOLS = Object.freeze([
   {
     name: 'bdfl',
     title: 'Manage BDFL',
-    description: 'Manage BDFL only after the user explicitly names BDFL. Copy the user request verbatim. Plan approval alone is not authorization. Natural requests such as "BDFL plans" are valid.',
+    description: 'Manage BDFL only after the user explicitly names BDFL. Copy the user request verbatim. An explicit approval in the plan manager authorizes immediate execution of that exact version. Natural requests such as "BDFL plans" are valid.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -57,7 +57,7 @@ const TOOLS = Object.freeze([
   {
     name: 'dispatch',
     title: 'Dispatch BDFL tasks',
-    description: 'Start one explicitly authorized BDFL workflow. Copy the authorizing user request verbatim. Approval or complexity alone never authorizes dispatch. Use at least two useful atomic tasks; small single-stream work stays native. A valid dispatch creates its own run and refuses unfinished work.',
+    description: 'Start one explicitly authorized BDFL workflow. Copy the authorizing user request verbatim. Use at least two useful atomic tasks; small single-stream work stays native. A valid dispatch creates its own run and refuses unfinished work.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -157,7 +157,7 @@ function duplicateLabel(title, id, rows, titleFor) {
 
 function requireExplicitRequest(request) {
   if (typeof request !== 'string' || !/(?:^|[^A-Za-z0-9_])BDFL(?:$|[^A-Za-z0-9_])/i.test(request)) {
-    throw new Error('BDFL must be explicitly named as a standalone term in the verbatim user request. Plan approval or task complexity alone is not authorization.');
+    throw new Error('BDFL must be explicitly named as a standalone term in the verbatim user request.');
   }
   return request;
 }
@@ -282,7 +282,7 @@ class BdflMcpServer {
   }
 
   async managePlans(project, args) {
-    const plans = project.plans.list();
+    const plans = project.plans.list().sort((left, right) => `${right.updatedAt || right.createdAt || ''}`.localeCompare(`${left.updatedAt || left.createdAt || ''}`));
     if (!plans.length) return textResult('No plans.', { plans: [] });
     const planChoices = new Map(plans.map((plan) => {
       const title = duplicateLabel(plan.title || plan.id, plan.id, plans, (row) => row.title || row.id);
@@ -292,8 +292,8 @@ class BdflMcpServer {
     if (planPick.unsupported) return textResult('Plan choices returned.', { plans: [...planChoices.keys()] });
     if (planPick.cancelled) return textResult('Plan selection cancelled.', { action: planPick.action });
     const plan = plans.find((candidate) => candidate.id === planChoices.get(planPick.value));
-    const versions = new Map(plan.versions.map((version) => [`v${version.number} — ${version.createdAt || 'unknown time'}`, version.number]));
-    const versionPick = await this.choose(`Choose a version of ${plan.title}.`, 'Version', [...versions.keys()], [...versions.keys()].at(-1));
+    const versions = new Map([...plan.versions].reverse().map((version) => [`v${version.number} — ${version.createdAt || 'unknown time'}`, version.number]));
+    const versionPick = await this.choose(`Choose a version of ${plan.title}. Latest is listed first.`, 'Version', [...versions.keys()], [...versions.keys()][0]);
     if (versionPick.cancelled) return textResult('Plan selection cancelled.', { action: versionPick.action });
     if (versionPick.unsupported) return textResult('Plan versions returned.', { plan: plan.title, versions: [...versions.keys()] });
     const number = versions.get(versionPick.value);
@@ -302,7 +302,8 @@ class BdflMcpServer {
     if (actionPick.unsupported) return textResult('Plan actions returned.', { actions: actionPick.values });
     if (actionPick.value === 'Approve') {
       project.plans.select(plan.id, number);
-      return textResult(`Approved ${plan.title} v${number}.`, { planId: plan.id, version: number, approved: true });
+      const content = project.plans.content(plan.id, number);
+      return textResult(`Approved ${plan.title} v${number}. Begin executing this exact plan now.\n\n${content}`, { planId: plan.id, version: number, approved: true, executeApprovedPlan: true, plan: content });
     }
     const content = project.plans.content(plan.id, number);
     const before = number > 1 ? project.plans.content(plan.id, number - 1) : '';
@@ -310,8 +311,9 @@ class BdflMcpServer {
       ? content
       : diffLines(before, content).map((line) => `${line.type === 'addition' ? '+' : line.type === 'removal' ? '-' : ' '} ${line.text}`).join('\n');
     const page = pageText(full, args.page, args.pageSize);
-    return textResult(`${plan.title} v${number} (${actionPick.value}, page ${page.page}/${page.pages})\n${page.text}`, {
-      planId: plan.id, version: number, view: actionPick.value, ...page
+    const fence = actionPick.value === 'View diff' ? 'diff' : 'markdown';
+    return textResult(`${plan.title} v${number} (${actionPick.value}, page ${page.page}/${page.pages})\n\`\`\`${fence}\n${page.text}\n\`\`\``, {
+      planId: plan.id, version: number, view: actionPick.value, displayVerbatim: true, format: fence, ...page
     });
   }
 
