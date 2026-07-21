@@ -1,41 +1,146 @@
-# BDFL
+<p align="center">
+  <img src="docs/assets/bdfl-mark.svg" alt="BDFL" width="128" height="128">
+</p>
 
-BDFL is a foreground terminal supervisor for delegator-led Claude Code and Codex workstreams. A read-only delegator creates and revises a dependency-aware plan; isolated interactive workers implement approved chunks; BDFL validates, consolidates, verifies, and presents one final integration commit.
+<h1 align="center">BDFL</h1>
 
-## Install and run
+<p align="center"><strong>One architect. A crew of builders. One clean commit.</strong></p>
 
-Requires Node.js 20+ on macOS or Linux.
+<p align="center">
+  Put Claude Code or Codex in the lead, send approved work to isolated workers,<br>
+  and watch the whole plan move through one terminal.
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/bdfl"><img src="https://img.shields.io/npm/v/bdfl?color=facc15" alt="npm version"></a>
+  <a href="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml"><img src="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/thisisnsh/bdfl"><img src="https://img.shields.io/badge/node-%3E%3D20-42ba75" alt="Node 20+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/thisisnsh/bdfl" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#the-workflow">Workflow</a> ·
+  <a href="#why-bdfl">Why BDFL</a> ·
+  <a href="#inside-the-terminal">Terminal</a> ·
+  <a href="#safety-model">Safety</a> ·
+  <a href="RELEASE.md">Releasing</a>
+</p>
+
+---
+
+BDFL is a foreground terminal supervisor for serious multi-agent coding. The delegator stays read-only: it talks with you, studies the repository, and produces the smallest useful dependency graph. Workers do the writing in isolated Git worktrees. BDFL owns scheduling, validation, review, consolidation, and recovery.
+
+No daemon. No invisible swarm. No model-generated management noise.
+
+```text
+You + read-only delegator
+            │
+            ▼
+     approve clean plan
+            │
+     ┌──────┴──────────┐
+     ▼                 ▼
+ worker: API      worker: UI        capacity is a ceiling,
+     │                 │             never a worker quota
+     └──────┬──────────┘
+            ▼
+   consolidate → verify → review → one commit
+```
+
+## Quick start
+
+Requires macOS or Linux, Node.js 20+, Git, and at least one authenticated CLI: `claude` or `codex`.
 
 ```bash
-npm install -g bdfl
-cd your-git-repository
+npm install --global bdfl
+cd your-repository
 bdfl
 ```
 
-BDFL uses the alternate screen and restores existing scrollback on exit. `Ctrl+]` toggles chrome and provider focus. While provider content is focused, arrows and `Ctrl+C` go to the provider. Each workstream independently chooses its delegator provider/model/effort, worker provider/model/effort/permission mode, and active worker capacity from 1–5 (default 4).
+The first-run wizard asks for a delegator, a worker profile, and worker capacity from 1–5. Claude can lead Codex workers, Codex can lead Claude workers, or either provider can run both roles.
 
-All state lives under ignored `.bdfl/`. The foreground supervisor is the only durable-state writer, and one workspace lock prevents concurrent supervisors. Closing a pane stops its PTY but retains its provider session ID, worktree, branch, profile, and snapshot for interactive resume.
+> [!TIP]
+> Press `Ctrl+]` to move between BDFL chrome and the active provider. While provider content has focus, arrow keys and `Ctrl+C` pass straight through.
 
-## Planning and execution
+Want the build from the latest `main` push?
 
-BDFL injects the packaged `bdfl-plan` skill only into managed delegators. The skill teaches the model to create the fewest useful chunks, with stable owned paths, hard `dependsOn` edges, and concurrency locks. Capacity is a ceiling, not a chunk target.
+```bash
+npm install --global bdfl@staging
+```
 
-Marker-bearing source is retained for debugging. Native Plan views and workers receive clean Markdown. Approvals bind plan/version/section/SHA; unchanged sections retain approval across targeted patches. Shared changes invalidate all dependent approval, and graph metadata changes invalidate affected downstream sections.
+## The workflow
 
-The single local `bdfl_workers` MCP tool offers `status`, `execute`, `wait`, `complete`, and `send`. It never returns plans, diffs, logs, or terminal transcripts. Workers cannot create workers. Root chunks branch from the frozen baseline; dependent chunks branch from accepted predecessor results. Named locks and capacity constrain only active PTYs.
+1. **Choose the lead.** Start a workstream with delegator and worker model profiles.
+2. **Shape the plan.** BDFL injects `bdfl-plan` only into the read-only delegator. It defines shared decisions, owned paths, real dependencies, locks, local checks, and global validation.
+3. **Approve what matters.** Review clean native Markdown section by section. Approvals bind the exact section SHA. Targeted revisions preserve unrelated approvals.
+4. **Run only eligible work.** Roots start first. Dependents wait for accepted predecessor commits. Capacity limits active PTYs; it never invents filler chunks.
+5. **Review real changes.** BDFL checks actual paths and deterministic commands, then shows the chunk, diff, checks, and commit metadata.
+6. **Verify the whole.** A fresh read-only worker sees the consolidated result and runs global validation.
+7. **Integrate once.** If the original target is still clean and unchanged, BDFL creates one workstream commit.
 
-Worker completion is checked against actual changed paths and deterministic local checks. Accepted results consolidate in dependency order. Conflicts go to a worker, never the delegator. A fresh read-only worker performs global verification. Final integration requires a clean unchanged target and creates one workstream commit.
+## Why BDFL
 
-## Custom launch profiles
+| The usual multi-agent failure | BDFL's answer |
+|---|---|
+| The coordinator burns context reprinting plans and logs | Native plan, graph, diff, session, and review panes use zero LLM tokens |
+| Parallel agents overwrite the same files | Owned paths are validated; unsafe concurrent overlap is rejected |
+| “Parallel” tasks secretly need each other's code | `dependsOn` makes accepted commits part of the child's base |
+| A four-worker setting creates four nonsense tasks | Capacity is only a scheduler ceiling |
+| The planner quietly starts coding | Delegators are read-only; workers own every code change and repair |
+| A crash erases the working session | Provider IDs, launch profiles, worktrees, branches, and terminal snapshots persist |
+| Integration turns into an opaque merge | Results apply in dependency order and finish as one reviewable commit |
 
-`Type your own` accepts safely tokenized interactive commands beginning with `claude` or `codex`. Shell operators, substitutions, environment prefixes, arbitrary executables, headless modes, and BDFL-owned resume/MCP/model/effort/permission flags are rejected. Profiles are stored as argv arrays in `.bdfl/config.json`. Profile deletion and reordering can currently be done by editing that file while BDFL is closed.
+## Inside the terminal
 
-## Releases
+```text
+┌─ bdfl 0.1.0 ───────── [New] [Plans] [Sessions] [Review] [Close] [Quit] ┐
+│                                                                       │
+│ [5]V┃              Delegator / Worker / Native pane                   │
+│ [4]W┃                                                                  │
+│ [3]!┃                                                                  │
+│ [2]P┃                                                                  │
+│ [1]D┃                                                                  │
+│                                                                       │
+└─ claude 1 ─────────── codex 2! ─────────── claude 3 ──────────────────┘
+```
 
-Every successful `main` push publishes an npm `staging` prerelease without moving `latest`. Published GitHub Releases pass the protected `production` environment, test Node 20/22/current, and publish `latest` with npm OIDC provenance. Release assets include the tarball, SHA-256, CycloneDX SBOM, and [support policy](SUPPORT.md). BDFL checks npm nonblockingly on launch; offline startup is unaffected.
+- `D` delegator, `W` coding/repair/integration worker, `V` verifier, `P` plan, `R` review.
+- Pane numbers are stable and never reused.
+- `!` persists until the workstream receives attention.
+- Closing a provider stops its PTY without deleting its durable session.
+- The alternate screen restores your previous terminal scrollback on exit.
+
+## Safety model
+
+- `.bdfl/` is local, ignored, and may contain sensitive prompts, plans, snapshots, and diffs.
+- BDFL never launches a shell for custom profiles. It stores validated argv arrays beginning with `claude` or `codex`.
+- Shell operators, environment prefixes, arbitrary executables, headless flags, and BDFL-owned launch flags are rejected.
+- A single workspace lock prevents two supervisors from writing durable state concurrently.
+- Worker results outside approved ownership fail mechanical validation.
+- Conflicts go to an isolated integration worker—not the delegator and not the target branch.
+- Final integration stops if the original branch, HEAD, or worktree changed.
+
+Read [Permissions](docs/PERMISSIONS.md), [Recovery](docs/RECOVERY.md), [Architecture](docs/ARCHITECTURE.md), and the [Security policy](SECURITY.md) for the deeper contract.
+
+## Commands and channels
+
+```bash
+bdfl                 # open the foreground supervisor
+bdfl status          # summarize local workstreams and active sessions
+bdfl --version       # print the installed version
+bdfl help            # terminal controls and usage
+```
+
+`latest` is the stable npm channel. Every successful `main` push publishes an immutable prerelease to `staging` without moving `latest`. See [RELEASE.md](RELEASE.md) for complete maintainer setup and release steps.
 
 ## Coming soon
 
-Ollama/local models, native Windows, Aider, OpenCode, Goose, Gemini CLI, Qwen Code, remote peers and sessions, session renaming, launch-profile deletion/reordering UI, and tiled worker monitoring.
+Ollama and local models · native Windows · Aider · OpenCode · Goose · Gemini CLI · Qwen Code · remote peers and sessions · session renaming · profile management UI · tiled worker monitoring.
 
-See [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [LICENSE](LICENSE).
+---
+
+<p align="center">
+  <strong>Keep the plan thoughtful. Keep the workers accountable.</strong><br>
+  <a href="CONTRIBUTING.md">Contribute</a> · <a href="SUPPORT.md">Support policy</a> · <a href="CODE_OF_CONDUCT.md">Code of conduct</a> · <a href="LICENSE">MIT</a>
+</p>

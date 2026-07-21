@@ -1,9 +1,17 @@
 # Permissions
 
-BDFL preserves the parent permission mode. Native parent plan mode maps to the host's ordinary default execution mode because agents execute only after planning is complete.
+Delegators are always read-only. Planning, conversation, plan revision, and worker coordination never authorize code writes.
 
-Read-only remains read-only, workspace/default access remains scoped to the isolated task worktree, and full access remains explicit. A request to change modes pauses that agent and surfaces an automatic Approve/Deny event. The agent cannot infer approval, answer its own request, or widen allowed paths.
+Workers use the permission mode selected for their workstream:
 
-Non-interactive provider runs can fail before producing a structured permission event. BDFL records that failure visibly rather than retrying with broader access.
+| BDFL mode | Intent |
+|---|---|
+| `read-only` | Inspect and verify without changing repository files |
+| `workspace-write` | Write inside the isolated worker worktree |
+| `full-access` | Use the provider's explicitly authorized broad mode |
 
-Dirty main worktrees block dispatch. BDFL asks the user to clean the tree, authorize a recoverable snapshot, or cancel; it never stashes or commits user work automatically.
+Provider adapters translate these modes to the provider's native controls. A session retains its launch mode until explicitly restarted. Changing the workstream default does not silently widen a running worker.
+
+Permission is only one boundary. BDFL also verifies actual changed paths against the approved chunk, reruns deterministic argv-based checks, keeps conflicts inside integration worktrees, and refuses final integration when the target branch, HEAD, or cleanliness changed.
+
+Custom profile commands never pass through a shell. BDFL owns provider resume, MCP, model, effort, permission, hook, and role flags.

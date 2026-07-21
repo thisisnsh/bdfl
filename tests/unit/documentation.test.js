@@ -1,0 +1,4 @@
+'use strict';
+const test = require('node:test'); const assert = require('node:assert/strict'); const fs = require('node:fs'); const path = require('node:path');
+const root = path.resolve(__dirname, '../..');
+test('README leads with identity and workflow while release docs cover trusted publishing', () => { const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8'); const release = fs.readFileSync(path.join(root, 'RELEASE.md'), 'utf8'); assert.match(readme, /One architect\. A crew of builders\. One clean commit\./); assert.match(readme, /npm install --global bdfl/); assert.match(readme, /consolidate → verify → review/); for (const phrase of ['Trusted Publisher', 'production', 'npm publish --access public', 'Post-release verification', 'Failure and rollback']) assert.match(release, new RegExp(phrase)); });

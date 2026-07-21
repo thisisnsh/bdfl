@@ -1,25 +1,17 @@
-# Model providers
+# Claude and Codex profiles
 
-Model values use `provider:exact-model`. The parser splits at the first colon, preserving model names that contain colons. Reasoning effort is a runtime policy and is currently always `medium`; it is not configurable in settings or model selectors.
+Each workstream has two independent profiles:
 
-## Discovery
+```text
+delegatorProfile: provider, model, effort
+workerProfile:    provider, model, effort, permissionMode
+workerCapacity:   1–5, default 4
+```
 
-BDFL detects only installed hosts. Codex discovery parses visible models from `codex debug models`. Claude honors configured `availableModels`; otherwise it uses built-in aliases. The native selector asks only for a model.
+Claude may lead Codex workers, Codex may lead Claude workers, or one provider may fill both roles. A running session keeps the profile with which it launched. Profile changes affect future workers unless a selected session is explicitly restarted.
 
-Settings version 3 keeps runtime-discovered specifications separate from user-added custom specifications. Version 2 settings migrate by removing stored effort suffixes and unavailable-provider entries. A current selection is preserved while it remains available. Otherwise BDFL selects the invoking host's first discovered model. Discovery failures add no invented models.
+BDFL launches interactive provider CLIs and preserves their native authentication and session stores. Delegators receive read-only permissions, the short BDFL role instruction, and the session-only `bdfl-plan` skill. Workers receive only the approved clean shared contract, their chunk, dependency results, and execution metadata.
 
-## Claude
+`Type your own` accepts commands beginning with `claude` or `codex`, tokenizes them without a shell, and stores the remaining arguments as an argv array. BDFL rejects pipes, redirection, substitutions, environment prefixes, arbitrary executables, headless modes, and flags it owns for model, effort, permissions, resume, MCP, hooks, and role injection.
 
-Claude tasks run through the installed headless `claude` CLI with streaming JSON, the exact model, medium effort, and inherited permission mapping. Authentication and saved sessions remain in the host CLI. Deferred answers resume with `claude --resume <session>`.
-
-## Codex
-
-Codex tasks run through `codex exec --json` with the exact model, medium reasoning effort, and mapped sandbox. Deferred answers resume with `codex exec resume <session>`. JSONL sessions, questions, completions, and errors normalize into durable BDFL events.
-
-## Ollama
-
-Ollama support is coming soon. Provider implementation code remains available for continued development, but Ollama models are not exposed in settings or selectors.
-
-## Failure behavior
-
-Before dispatch, BDFL checks the harness executable, authentication surface, exact allowlisted model, and endpoint. A failure becomes a recoverable workflow event. No alias, model, provider, or endpoint fallback is automatic.
+Ollama, local models, and additional provider CLIs are Coming Soon.
