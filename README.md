@@ -1,4 +1,4 @@
-<h1 align="center">BDFL — Benevolent Dictator For Life</h1>
+<h1 align="center">BDFL - Benevolent Dictator For Life</h1>
 <p align="center">Protect your main context while managed agents work in isolated branches, return questions to you, and integrate only after review and validation.</p>
 
 <p align="center">
@@ -8,8 +8,6 @@
   <a href="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml"><img alt="tests" src="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="last commit" src="https://img.shields.io/github/last-commit/thisisnsh/bdfl">
 </p>
-
-<p align="center"><img src="docs/assets/terminal-demo.gif" alt="BDFL plan, agent, inbox, and integration workflow" width="760"></p>
 
 <p align="center">
   <a href="#install">Install</a> ·
