@@ -5,7 +5,7 @@ description: Manage Git-backed BDFL orchestration, models, plans, tasks, and age
 
 # BDFL
 
-Require the absolute active Git worktree. Parse the argument as exactly one of `on`, `off`, `models`, `plans`, `tasks`, `agents`, or `help`; no argument means `on`. Call MCP `bdfl` exactly once with that command and project root. `workflow`, `inbox`, and `capture-plan` are not commands. Relay invalid-command help from the tool rather than inventing commands.
+Require the absolute active Git worktree. Parse the argument as exactly one of `on`, `off`, `models`, `plans`, `tasks`, `agents`, or `help`; no argument means `on`. Call MCP `bdfl` exactly once with that command, project root, and `codex` as the invoking host. `workflow`, `inbox`, and `capture-plan` are not commands. Relay invalid-command help from the tool rather than inventing commands.
 
 Plans are captured silently by installed host hooks. `$bdfl plans` reads the plan store; do not search chat or send plan Markdown to MCP. When it returns `No plans.`, return exactly that text.
 

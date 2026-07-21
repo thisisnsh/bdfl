@@ -42,6 +42,7 @@ const TOOLS = Object.freeze([
       properties: {
         projectRoot: { type: 'string', description: 'Absolute path to the active Git project.' },
         command: { type: 'string', enum: COMMANDS },
+        host: { type: 'string', enum: ['claude', 'codex'], description: 'Invoking host for default model selection.' },
         runId: { type: 'string' },
         page: { type: 'integer', minimum: 1 },
         pageSize: { type: 'integer', minimum: 10, maximum: 200 }
@@ -218,17 +219,31 @@ class BdflMcpServer {
     return { value: response.content.selection };
   }
 
-  async manageModel() {
-    const settings = this.settingsLoader();
-    const picked = await this.choose(`Current model: ${settings.defaultModel}. Choose the exact model for future BDFL runs.`, 'Model', settings.models, settings.defaultModel);
-    if (picked.unsupported) return textResult('Model choices returned.', { current: settings.defaultModel, models: settings.models });
+  async manageModel(host) {
+    const settings = this.settingsLoader(undefined, { invokingHost: host });
+    if (!settings.models.length) return textResult('No supported models discovered. Install or configure Claude Code or Codex.', { current: null, models: [] });
+    const byModel = new Map();
+    for (const entry of settings.modelCatalog || []) byModel.set(`${entry.provider}:${entry.model}`, entry);
+    for (const specification of settings.customModels || []) {
+      const parsed = validateModelSpec(specification, settings.models);
+      const key = `${parsed.provider}:${parsed.model}`;
+      if (!byModel.has(key)) byModel.set(key, { provider: parsed.provider, model: parsed.model, efforts: [parsed.effort], defaultEffort: parsed.effort, custom: true });
+    }
+    const current = settings.defaultModel ? settings.defaultModel.slice(0, settings.defaultModel.lastIndexOf(':')) : null;
+    const picked = await this.choose(`Current model: ${settings.defaultModel || 'none'}. Choose a model for future BDFL runs.`, 'Model', [...byModel.keys()], current);
+    if (picked.unsupported) return textResult('Model choices returned.', { current: settings.defaultModel, models: [...byModel.keys()] });
     if (picked.cancelled) return textResult('Model selection cancelled.', { action: picked.action });
-    validateModelSpec(picked.value, settings.models);
-    const selected = this.settingsSaver({ ...settings, models: [...settings.models], defaultModel: picked.value });
+    const entry = byModel.get(picked.value);
+    const effort = await this.choose(`Choose the supported effort for ${picked.value}.`, 'Effort', entry.efforts, entry.defaultEffort);
+    if (effort.unsupported) return textResult('Effort choices returned.', { model: picked.value, efforts: entry.efforts });
+    if (effort.cancelled) return textResult('Model selection cancelled.', { action: effort.action });
+    const specification = `${picked.value}:${effort.value}`;
+    validateModelSpec(specification, settings.models);
+    const selected = this.settingsSaver({ ...settings, models: [...settings.models], discoveredModels: [...settings.discoveredModels], customModels: [...settings.customModels], modelCatalog: settings.modelCatalog.map((item) => ({ ...item, efforts: [...item.efforts] })), defaultModel: specification });
     return textResult(`Selected model: ${selected.defaultModel}`, { selectedModel: selected.defaultModel });
   }
 
-  async turnOn(project) {
+  async turnOn(project, host) {
     this.gitExcluder(project.root);
     const state = project.store.load();
     const recovery = recoveryOptions(state);
@@ -251,7 +266,8 @@ class BdflMcpServer {
       });
       return textResult(`BDFL recovery: ${picked.value}.`, { active: status === 'running', action: picked.value });
     }
-    const settings = this.settingsLoader();
+    const settings = this.settingsLoader(undefined, { invokingHost: host });
+    if (!settings.defaultModel) throw new Error('No supported models discovered. Install or configure Claude Code or Codex first.');
     const run = { id: `run-${this.id()}`, title: path.basename(project.root), status: 'pending', model: settings.defaultModel, createdAt: this.now().toISOString() };
     project.store.update((value) => { value.runs.push(run); return value; });
     return textResult(`BDFL is active for ${run.title}.`, { active: true, runId: run.id, model: run.model });
@@ -440,9 +456,9 @@ class BdflMcpServer {
 
   async manage(args) {
     const project = this.project(args.projectRoot);
-    if (args.command === 'on') return this.turnOn(project);
+    if (args.command === 'on') return this.turnOn(project, args.host);
     if (args.command === 'off') return this.turnOff(project);
-    if (args.command === 'models') return this.manageModel();
+    if (args.command === 'models') return this.manageModel(args.host);
     if (args.command === 'plans') return this.managePlans(project, args);
     if (args.command === 'tasks') return this.manageTasks(project, args);
     if (args.command === 'agents') return this.manageAgents(project, args);

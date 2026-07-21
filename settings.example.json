@@ -1,13 +1,10 @@
 {
-  "version": 1,
-  "defaultModel": "claude:sonnet:medium",
-  "models": [
-    "claude:sonnet:medium",
-    "claude:opus:medium",
-    "claude:haiku:medium",
-    "codex:gpt-5.6-sol:medium",
-    "ollama:qwen3.5:medium"
-  ],
+  "version": 2,
+  "defaultModel": null,
+  "models": [],
+  "discoveredModels": [],
+  "customModels": [],
+  "modelCatalog": [],
   "maxAgents": 4,
   "ollamaBaseUrl": "http://localhost:11434"
 }

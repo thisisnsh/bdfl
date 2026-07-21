@@ -18,8 +18,17 @@ class Store {
 function fixture(state = initialState(), { elicitation = true, attention = [] } = {}) {
   const messages = [];
   const settings = {
+    version: 2,
     defaultModel: 'claude:sonnet:medium',
     models: ['claude:sonnet:medium', 'claude:opus:medium', 'claude:haiku:medium', 'codex:gpt-5.6-sol:medium', 'ollama:qwen3.5:medium'],
+    discoveredModels: ['claude:sonnet:medium', 'claude:opus:medium', 'claude:haiku:medium', 'codex:gpt-5.6-sol:medium'],
+    customModels: ['ollama:qwen3.5:medium'],
+    modelCatalog: [
+      { provider: 'claude', model: 'sonnet', efforts: ['medium'], defaultEffort: 'medium' },
+      { provider: 'claude', model: 'opus', efforts: ['medium'], defaultEffort: 'medium' },
+      { provider: 'claude', model: 'haiku', efforts: ['medium'], defaultEffort: 'medium' },
+      { provider: 'codex', model: 'gpt-5.6-sol', efforts: ['medium'], defaultEffort: 'medium' }
+    ],
     maxAgents: 4,
     ollamaBaseUrl: 'http://localhost:11434'
   };
@@ -118,8 +127,9 @@ test('model management elicits all configured options without a four-option limi
   const fix = fixture();
   await initialize(fix);
   const pending = call(fix, 2, 'models');
-  const request = await answerLatest(fix, 'codex:gpt-5.6-sol:medium');
+  const request = await answerLatest(fix, 'codex:gpt-5.6-sol');
   assert.equal(request.params.requestedSchema.properties.selection.enum.length, 5);
+  await answerLatest(fix, 'medium');
   await pending;
   assert.equal(fix.settings().defaultModel, 'codex:gpt-5.6-sol:medium');
 });
