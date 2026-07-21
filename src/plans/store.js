@@ -49,6 +49,14 @@ class LineageStore {
     return this.io.readFileSync(path.join(base, file), 'utf8');
   }
 
+  assertSafeOwnership(parsed) {
+    for (const owned of parsed.chunks.flatMap((chunk) => chunk.paths)) {
+      const fixed = owned.split('/').filter((part) => !part.includes('*'));
+      let current = this.root;
+      for (const part of fixed) { current = path.join(current, part); if (!this.io.existsSync(current)) break; if (this.io.lstatSync(current).isSymbolicLink()) throw new Error(`Unsafe symlink ownership: ${owned}`); }
+    }
+  }
+
   writeVersion(id, number, parsed, lineage, approvals = {}) {
     const directory = this.versionDirectory(id, number);
     const manifest = { schema: 1, planId: id, version: number, title: parsed.title, skillVersion: lineage.skillVersion, shared: { id: 'shared', sha: parsed.shared.sha }, chunks: parsed.chunks.map(({ body: _body, ...chunk }, order) => ({ ...chunk, order })), globalValidation: { id: 'global-validation', sha: parsed.globalValidation.sha }, approvals };
@@ -62,7 +70,7 @@ class LineageStore {
   }
 
   create(source, options = {}) {
-    const parsed = parsePlan(source); const id = options.planId || this.id(); const createdAt = this.now().toISOString();
+    const parsed = parsePlan(source); this.assertSafeOwnership(parsed); const id = options.planId || this.id(); const createdAt = this.now().toISOString();
     if (this.io.existsSync(this.lineageFile(id))) throw new Error(`Plan already exists: ${id}`);
     const lineage = { schema: 1, planId: id, title: parsed.title, skillVersion: options.skillVersion || this.skillVersion, currentVersion: 1, createdAt, updatedAt: createdAt };
     this.writeVersion(id, 1, parsed, lineage);
@@ -106,15 +114,18 @@ class LineageStore {
       }
     }
     validateGraph(chunks);
-    const source = renderSource(lineage.title, shared, chunks, globalValidation); const parsed = parsePlan(source);
+    const source = renderSource(lineage.title, shared, chunks, globalValidation); const parsed = parsePlan(source); this.assertSafeOwnership(parsed);
     const sharedChanged = parsed.shared.sha !== previous.shared.sha;
     const changedChunks = new Set(parsed.chunks.filter((chunk) => chunk.sha !== previous.chunks.find((old) => old.id === chunk.id)?.sha).map((chunk) => chunk.id));
-    const affected = new Set(changedChunks); let changed = true;
+    const metadataChanged = new Set(parsed.chunks.filter((chunk) => { const old = previous.chunks.find((item) => item.id === chunk.id); return old && JSON.stringify([chunk.paths, chunk.dependsOn, chunk.locks]) !== JSON.stringify([old.paths, old.dependsOn, old.locks]); }).map((chunk) => chunk.id));
+    const affected = new Set(metadataChanged); let changed = true;
     while (changed) { changed = false; for (const chunk of parsed.chunks) if (!affected.has(chunk.id) && chunk.dependsOn.some((dependency) => affected.has(dependency))) { affected.add(chunk.id); changed = true; } }
+    const lockedChanges = [...changedChunks, ...(sharedChanged ? ['shared'] : []), ...(parsed.globalValidation.sha !== previous.globalValidation.sha ? ['global-validation'] : [])].filter((sectionId) => previous.approvals[sectionId]);
+    if (lockedChanges.length) throw new Error(`Approved sections must receive feedback or be unlocked before revision: ${lockedChanges.join(', ')}`);
     const approvals = {};
     if (!sharedChanged && previous.approvals.shared) approvals.shared = { ...previous.approvals.shared, version: lineage.currentVersion + 1 };
-    if (!sharedChanged) for (const chunk of parsed.chunks) if (!affected.has(chunk.id) && previous.approvals[chunk.id]) approvals[chunk.id] = { ...previous.approvals[chunk.id], version: lineage.currentVersion + 1 };
-    if (!sharedChanged && !affected.size && parsed.globalValidation.sha === previous.globalValidation.sha && previous.approvals['global-validation']) approvals['global-validation'] = { ...previous.approvals['global-validation'], version: lineage.currentVersion + 1 };
+    if (!sharedChanged) for (const chunk of parsed.chunks) if (!changedChunks.has(chunk.id) && !affected.has(chunk.id) && previous.approvals[chunk.id]) approvals[chunk.id] = { ...previous.approvals[chunk.id], version: lineage.currentVersion + 1 };
+    if (!sharedChanged && parsed.globalValidation.sha === previous.globalValidation.sha && previous.approvals['global-validation']) approvals['global-validation'] = { ...previous.approvals['global-validation'], version: lineage.currentVersion + 1 };
     lineage.currentVersion += 1; lineage.updatedAt = this.now().toISOString();
     const manifest = this.writeVersion(id, lineage.currentVersion, parsed, lineage, approvals);
     atomicWrite(this.lineageFile(id), `${JSON.stringify(lineage, null, 2)}\n`, this.io);
@@ -122,7 +133,8 @@ class LineageStore {
   }
 
   feedback(id, version, sectionId, value) {
-    const file = path.join(this.planDirectory(id), 'feedback', `${version}-${sectionId}-${Date.now()}.md`); atomicWrite(file, `${value.trim()}\n`, this.io); return file;
+    if (!value?.trim()) throw new Error('Plan feedback is required');
+    const file = path.join(this.planDirectory(id), 'feedback', `${version}-${sectionId}-${Date.now()}.md`); atomicWrite(file, `${value.trim()}\n`, this.io); this.unlock(id, version, sectionId); return file;
   }
 
   diff(id, before, after, sectionId) { return diffLines(this.readSection(id, before, sectionId), this.readSection(id, after, sectionId)); }
