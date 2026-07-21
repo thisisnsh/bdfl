@@ -1,0 +1,2 @@
+'use strict'; const test = require('node:test'); const assert = require('node:assert/strict'); const { WorkstreamWizard, STEPS } = require('../../src/tui/wizard');
+test('collects the required workstream wizard in order with capacity four by default', () => { const wizard = new WorkstreamWizard(); let result; for (let index = 0; index < STEPS.length; index += 1) result = wizard.choose(); assert.equal(result.workerCapacity, 4); assert.equal(result.delegatorProfile.provider, 'claude'); assert.equal(result.workerProfile.permissionMode, 'workspace-write'); });

@@ -2,6 +2,7 @@
 
 const fs = require('node:fs'); const path = require('node:path');
 const { WorkspaceStore } = require('../state/workspace'); const { SessionManager } = require('../sessions/manager');
+const { WorkstreamWizard } = require('./wizard');
 
 const ESC = '\u001b['; const COLORS = { yellow: `${ESC}38;5;220m`, gray: `${ESC}38;5;245m`, reset: `${ESC}0m`, inverse: `${ESC}7m`, dim: `${ESC}2m` };
 function width(value) { return [...`${value}`.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '')].reduce((sum, character) => sum + (/\p{Extended_Pictographic}|\p{Script=Han}/u.test(character) ? 2 : 1), 0); }
@@ -28,8 +29,26 @@ class TerminalSupervisor {
   constructor(root, { input = process.stdin, output = process.stdout, store = new WorkspaceStore(root), sessions, version = '0.1.0' } = {}) { this.root = path.resolve(root); this.input = input; this.output = output; this.store = store; this.sessions = sessions || new SessionManager(root, store); this.renderer = new TerminalRenderer({ version, reducedMotion: process.env.NO_COLOR === '1' }); this.lockFile = path.join(root, '.bdfl', 'run', 'supervisor.lock'); this.frame = 0; }
   acquire() { fs.mkdirSync(path.dirname(this.lockFile), { recursive: true }); try { this.lock = fs.openSync(this.lockFile, 'wx', 0o600); fs.writeFileSync(this.lock, `${process.pid}\n`); } catch (error) { if (error.code === 'EEXIST') throw new Error('Another BDFL supervisor owns this workspace'); throw error; } }
   release() { if (this.lock !== undefined) fs.closeSync(this.lock); try { fs.unlinkSync(this.lockFile); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
-  draw() { this.workspace = this.store.load(); this.navigation ||= new Navigation(this.workspace); this.navigation.workspace = this.workspace; this.output.write(`${ESC}H${this.renderer.render(this.workspace, this.navigation, { columns: this.output.columns || 100, rows: this.output.rows || 28, frame: this.frame++ })}`); }
-  start() { this.acquire(); this.output.write(`${ESC}?1049h${ESC}?25l`); this.input.setRawMode?.(true); this.input.resume(); const keys = { '\u001b[A': 'up', '\u001b[B': 'down', '\u001b[C': 'right', '\u001b[D': 'left' }; this.onData = (data) => { const value = `${data}`; if (value === '\u0003' || value === 'q') return this.stop(); if (value === '\u001d') { this.navigation.rail = this.navigation.rail === 'content' ? 'panes' : 'content'; return this.draw(); } if (keys[value] && this.navigation.rail !== 'content') { this.navigation.key(keys[value]); return this.draw(); } const pane = this.navigation.panes()[this.navigation.pane]; if (this.navigation.rail === 'content' && pane) this.sessions.write(pane.id, value); }; this.input.on('data', this.onData); this.draw(); return this; }
+  draw() { this.workspace = this.store.load(); this.navigation ||= new Navigation(this.workspace); this.navigation.workspace = this.workspace; const content = this.wizard ? this.wizard.render().split('\n') : []; this.output.write(`${ESC}H${this.renderer.render(this.workspace, this.navigation, { columns: this.output.columns || 100, rows: this.output.rows || 28, frame: this.frame++, content })}`); }
+  start() {
+    this.acquire(); this.workspace = this.store.load();
+    if (!this.workspace.workstreams.length) this.wizard = new WorkstreamWizard();
+    this.output.write(`${ESC}?1049h${ESC}?25l`); this.input.setRawMode?.(true); this.input.resume();
+    const keys = { '\u001b[A': 'up', '\u001b[B': 'down', '\u001b[C': 'right', '\u001b[D': 'left' };
+    this.onData = (data) => {
+      const value = `${data}`; if (value === '\u0003' || value === 'q') return this.stop();
+      if (this.wizard) {
+        if (value === '\u001b[A') this.wizard.move(-1); else if (value === '\u001b[B') this.wizard.move(1);
+        else if (value === '\r') { const config = this.wizard.choose(); if (config) { const stream = this.store.createWorkstream(config); const session = this.store.createSession(stream.id, 'delegator', config.delegatorProfile); this.wizard = null; this.navigation = null; this.sessions.open(session.id, { columns: this.output.columns || 100, rows: Math.max(8, (this.output.rows || 28) - 3) }); } }
+        return this.draw();
+      }
+      if (value === '\u001d') { this.navigation.rail = this.navigation.rail === 'content' ? 'panes' : 'content'; return this.draw(); }
+      if (value === '\r' && this.navigation.rail === 'panes') { const selected = this.navigation.panes()[this.navigation.pane]; if (selected) { this.sessions.open(selected.id); this.navigation.rail = 'content'; } return this.draw(); }
+      if (keys[value] && this.navigation.rail !== 'content') { this.navigation.key(keys[value]); return this.draw(); }
+      const pane = this.navigation.panes()[this.navigation.pane]; if (this.navigation.rail === 'content' && pane) this.sessions.write(pane.id, value);
+    };
+    this.input.on('data', this.onData); this.draw(); return this;
+  }
   stop() { this.input.off('data', this.onData); this.input.setRawMode?.(false); this.input.pause(); this.output.write(`${ESC}?25h${ESC}?1049l`); this.release(); }
 }
 
