@@ -103,6 +103,16 @@ test('advertises only the compact management, dispatch, and continue tools', asy
   assert.ok(fix.messages[0].result.instructions.length < 512);
 });
 
+test('invalid workflow command returns authoritative help instead of an empty object', async () => {
+  const fix = fixture();
+  await initialize(fix);
+  await call(fix, 7, 'workflow');
+  const result = fix.messages.find((message) => message.id === 7).result;
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /Invalid BDFL command: workflow/);
+  assert.match(result.content[0].text, /on, off, models, plans, tasks, agents, help/);
+});
+
 test('continue renders simultaneous native decisions and keeps viewed reviews open', async () => {
   const attention = [
     { id: 'q1', type: 'question', taskId: 't1', title: 'API', message: 'Which?', choices: ['v1', 'v2'] },

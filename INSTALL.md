@@ -14,7 +14,7 @@ Windows installation is coming soon.
 
 The bootstrap downloads the latest release archive and `checksums.txt`, verifies SHA-256 before extraction, and runs `bin/install.js` from the verified archive. Set `BDFL_VERSION` (without the leading `v`) to pin a specific release.
 
-The installer displays detected hosts, installation scope, and every planned path before writing. Global installation is the default. It installs one standalone BDFL skill per detected host and registers one shared MCP server directly. Restart each installed host before invoking `/bdfl` in Claude Code or `$bdfl` in Codex.
+The installer displays detected hosts, installation scope, and every planned path before writing. Global installation is the default. It installs one standalone BDFL skill per detected host, registers one shared MCP server directly, and surgically merges BDFL plan-completion hooks. Restart each installed host before invoking `/bdfl` in Claude Code or `$bdfl` in Codex. Codex presents a one-time hook trust review after installation.
 
 To install only for the current project:
 
@@ -54,9 +54,9 @@ The installer prints all paths before use. Defaults are:
 | Host | Files |
 |---|---|
 | Claude Code, global | `~/.claude/skills/bdfl`, `~/.claude/settings.json` |
-| Codex, global | `~/.codex/skills/bdfl` |
+| Codex, global | `~/.codex/skills/bdfl`, `~/.codex/hooks.json` |
 | Claude Code, local | `<project>/.claude/skills/bdfl`, `<project>/.claude/settings.local.json` |
-| Codex, local | `<project>/.agents/skills/bdfl` |
+| Codex, local | `<project>/.agents/skills/bdfl`, `<project>/.codex/hooks.json` |
 | BDFL | Platform config directory `runtime/`, `install.json` receipt, and `settings.json` |
 
 Environment overrides: `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `AGENTS_HOME`, and `BDFL_CONFIG_HOME`.
@@ -95,7 +95,7 @@ The original installer remains usable directly:
 node bin/install.js --uninstall
 ```
 
-The uninstaller removes exact receipt-owned skills, runtime files, and MCP registrations, cleans verified legacy plugin entries, and restores replaced paths and settings. Project `.bdfl/` directories contain recoverable state and remain by default. Add `--purge` only when that state and recovery data should be permanently deleted.
+The uninstaller removes exact receipt-owned skills, runtime files, MCP registrations, and BDFL hook entries, cleans verified legacy plugin entries, and restores recorded settings without removing unrelated hooks. Project `.bdfl/` directories contain recoverable state and remain by default. Add `--purge` only when that state and recovery data should be permanently deleted.
 
 ## Troubleshooting
 
@@ -103,5 +103,6 @@ The uninstaller removes exact receipt-owned skills, runtime files, and MCP regis
 - “Existing unmanaged path requires --force”: inspect the printed target; rerun with `--force` only if BDFL may replace it.
 - “Checksum verification failed”: stop. Redownload from the release page; do not bypass verification.
 - BDFL command is missing: confirm the installed `skills/bdfl/SKILL.md` path printed by the installer, restart the host, then invoke `/bdfl` or `$bdfl`.
+- Codex hook trust prompt: review the displayed BDFL hook command once; the hook remains disabled until trusted.
 - Model preflight failures: check host authentication, exact allowlisted model, and effort support.
 - Unfinished state prompt: choose Continue, Manage tasks, Archive run, or Cancel run. Removing files manually can destroy recovery information.

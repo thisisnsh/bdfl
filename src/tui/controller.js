@@ -3,7 +3,7 @@
 const { diffLines } = require('../core/plans');
 const { bannerFrame, verbForState } = require('./banner');
 
-const TABS = Object.freeze(['Runs', 'Plans', 'Tasks', 'Agents', 'Inbox', 'Models']);
+const TABS = Object.freeze(['Runs', 'Plans', 'Tasks', 'Agents', 'Models']);
 const ACTIONS = Object.freeze({ x: 'stop', r: 'rewind', f: 'follow-up', a: 'approve', i: 'integrate', o: 'open', '?': 'help' });
 const ANSI = Object.freeze({ yellow: '\u001b[38;5;220m', green: '\u001b[32m', red: '\u001b[31m', white: '\u001b[37m', dim: '\u001b[2m', bold: '\u001b[1m', reset: '\u001b[0m' });
 

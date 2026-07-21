@@ -65,7 +65,6 @@ function snapshot(state, settings, options, initialTab = 'Runs') {
     plans: state.plans,
     tasks: state.tasks,
     agents: state.agents,
-    inbox: state.inbox,
     models: settings.models.map((model) => ({ id: model, selected: model === settings.defaultModel }))
   }, { ...options, initialTab });
   return controller.render(0);
@@ -88,7 +87,6 @@ function interactiveList(store, settings, io = process, initialTab = 'Runs', per
     plans: store.load().plans,
     tasks: store.load().tasks,
     agents: store.load().agents,
-    inbox: store.load().inbox,
     models: settings.models.map((model) => ({ id: model, selected: model === settings.defaultModel }))
   }, { color: true, width: io.stdout.columns || 80, height: io.stdout.rows || 24, initialTab, focused: true });
   let frame = 0;

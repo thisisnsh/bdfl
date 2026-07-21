@@ -36,6 +36,7 @@ class ProjectCoordinator {
   }
 
   recoverStaleProcesses() {
+    this.runner.interruptAll?.();
     return this.store.update((state) => {
       for (const agent of state.agents) {
         if (['running', 'waiting'].includes(agent.status)) {

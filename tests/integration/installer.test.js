@@ -107,6 +107,21 @@ test('hook merging is idempotent and removal preserves unrelated lifecycle hooks
   assert.equal(Object.hasOwn(twice.hooks, 'SessionStart'), false);
 });
 
+test('uninstall preserves host settings added after installation', (t) => {
+  const { source, paths, run } = fixture(t);
+  const installer = new Installer({ sourceRoot: source, paths, run });
+  installer.install({ force: false }, { claude: true, codex: false, ollama: false });
+  const settings = JSON.parse(fs.readFileSync(paths.claudeSettings));
+  settings.newAfterInstall = true;
+  settings.hooks.Stop = [{ hooks: [{ type: 'command', command: 'keep-after-install' }] }];
+  fs.writeFileSync(paths.claudeSettings, `${JSON.stringify(settings)}\n`);
+  installer.uninstall({ dryRun: false });
+  const restored = JSON.parse(fs.readFileSync(paths.claudeSettings));
+  assert.equal(restored.newAfterInstall, true);
+  assert.equal(restored.hooks.Stop[0].hooks[0].command, 'keep-after-install');
+  assert.equal(JSON.stringify(restored).includes('bdfl-hook.js'), false);
+});
+
 test('legacy plugins migrate without force and no longer remain registered', (t) => {
   const { source, paths, calls, mcps, run } = fixture(t);
   fs.mkdirSync(path.join(paths.claudePlugin, '.claude-plugin'), { recursive: true });

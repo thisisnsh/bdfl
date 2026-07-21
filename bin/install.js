@@ -489,7 +489,12 @@ class Installer {
       if (receiptless && hosts.includes('claude')) {
         const current = readJson(this.paths.claudeSettings, {});
         writeJson(this.paths.claudeSettings, removeBdflStatusLine(current));
-      } else if (receipt.previous.claudeSettings) writeJson(this.paths.claudeSettings, receipt.previous.claudeSettings);
+      } else if (receipt.previous.claudeSettings) {
+        const current = readJson(this.paths.claudeSettings, {});
+        const next = removeBdflStatusLine(current, receipt.previous.claudeSettings);
+        if (Object.hasOwn(receipt.previous.claudeSettings, 'statusLine')) next.statusLine = structuredClone(receipt.previous.claudeSettings.statusLine);
+        writeJson(this.paths.claudeSettings, next);
+      }
       if (receiptless && hosts.includes('codex')) {
         const current = readJson(this.paths.codexMarketplace, { name: 'personal', interface: { displayName: 'Personal' }, plugins: [] });
         writeJson(this.paths.codexMarketplace, removeBdflMarketplaceEntry(current, this.paths.codexPlugin, this.paths.codexMarketplaceRoot));

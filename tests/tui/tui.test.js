@@ -28,7 +28,7 @@ test('navigates all tabs, details, Esc, and every contextual action', () => {
   const rows = Object.fromEntries(TABS.map((tab) => [tab.toLowerCase(), [{ id: tab }]]));
   const ui = new TuiController(rows, { color: false });
   for (let index = 1; index < TABS.length - 1; index += 1) ui.key('\u001b[C');
-  assert.equal(TABS[ui.tab], 'Inbox');
+  assert.equal(TABS[ui.tab], 'Agents');
   ui.key('\r');
   assert.equal(ui.detail, true);
   assert.equal(ui.key('\u001b').action, 'back');

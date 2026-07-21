@@ -74,6 +74,11 @@ class AgentRunner {
     if (child) child.kill('SIGTERM');
     this.broker.cancel(agentId);
   }
+
+  interruptAll() {
+    for (const child of this.processes.values()) child.kill('SIGTERM');
+    this.processes.clear();
+  }
 }
 
 module.exports = { AgentRunner };
