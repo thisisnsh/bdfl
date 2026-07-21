@@ -98,4 +98,27 @@ function runProvider(specification, options) {
   return child;
 }
 
-module.exports = { EXECUTABLES, buildInvocation, preflight, normalizeEvent, runProvider };
+function buildResumeInvocation(specification, options) {
+  const { provider, model, effort } = parseModelSpec(specification);
+  if (!options.sessionId) throw new Error('A provider session ID is required to resume an agent');
+  if (!options.prompt) throw new Error('A resume prompt is required');
+  const permissionMode = mapPermissionMode(options.host, options.permissionMode);
+  if (provider === 'codex') return {
+    command: 'codex',
+    args: ['exec', 'resume', '--json', '-m', model, '-c', `model_reasoning_effort="${effort}"`, options.sessionId, options.prompt],
+    env: {}
+  };
+  if (provider === 'claude') return {
+    command: 'claude',
+    args: ['--resume', options.sessionId, '--print', '--output-format', 'stream-json', '--verbose', '--model', model, '--effort', effort, '--permission-mode', permissionMode, options.prompt],
+    env: {}
+  };
+  return buildInvocation(specification, options);
+}
+
+function resumeProvider(specification, options) {
+  const invocation = buildResumeInvocation(specification, options);
+  return spawn(invocation.command, invocation.args, { cwd: options.cwd, env: { ...process.env, ...invocation.env }, signal: options.signal, stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+module.exports = { EXECUTABLES, buildInvocation, buildResumeInvocation, preflight, normalizeEvent, runProvider, resumeProvider };

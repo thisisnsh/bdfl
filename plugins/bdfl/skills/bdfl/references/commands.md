@@ -1,9 +1,7 @@
-# Commands and keys
+# Commands and protocol
 
-Claude Code uses `/bdfl [on|off|models|plans|tasks|agents|help]`. Codex uses `$bdfl` with the same optional arguments. The single skill defaults to `on` and routes every management view through MCP.
+Claude Code uses `/bdfl [on|off|models|plans|tasks|agents|help]`. Codex uses `$bdfl` with the same optional arguments. The single skill defaults to `on` and routes management through MCP `bdfl`.
 
-The list UI has `Runs | Plans | Tasks | Agents | Inbox | Models`. Left/right selects a tab, up/down selects a row, Enter opens details, and Esc returns. Always render contextual keys on the bottom row.
+`dispatch` starts a validated manifest and waits for attention. `continue` renders and resolves question, permission, failure, task-review, and integration-review events. They are protocol tools, not public commands. `workflow`, `inbox`, and `capture-plan` are invalid commands.
 
-Actions: `x` stop agent, `r` rewind attempt, `f` start corrective follow-up, `a` approve plan version or task, `i` integrate a validated batch, `o` open full diff/log, and `?` open contextual help.
-
-In plan detail, up/down selects a version and left/right switches diff/full. Diff uses green additions and red removals. Full mode uses white. `a` selects the highlighted version for execution.
+Plans offer plan/version selection followed by Diff, Full, or Approve. Tasks and agents are on-demand inspection and cancellation views; they are not polling mechanisms. Prompts, logs, plan bodies, and diffs stay hidden unless their view is explicitly selected.

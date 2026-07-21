@@ -1,15 +1,16 @@
 'use strict';
 
 const readline = require('node:readline');
-const { normalizeEvent, preflight, runProvider } = require('../providers');
+const { normalizeEvent, preflight, runProvider, resumeProvider } = require('../providers');
 
 class AgentRunner {
-  constructor(store, broker, { preflightProvider = preflight, spawnProvider = runProvider, platform = process.platform } = {}) {
+  constructor(store, broker, { preflightProvider = preflight, spawnProvider = runProvider, resumeProviderSession = resumeProvider, onCompletion = null } = {}) {
     this.store = store;
     this.broker = broker;
     this.preflightProvider = preflightProvider;
     this.spawnProvider = spawnProvider;
-    this.platform = platform;
+    this.resumeProviderSession = resumeProviderSession;
+    this.onCompletion = onCompletion;
     this.processes = new Map();
   }
 
@@ -26,14 +27,20 @@ class AgentRunner {
       return state;
     });
     const child = this.spawnProvider(specification, options);
+    this.attach(agent, child);
+    return { started: true, child };
+  }
+
+  attach(agent, child) {
     this.processes.set(agent.id, child);
     const lines = readline.createInterface({ input: child.stdout });
     lines.on('line', (line) => {
       if (!line.trim()) return;
       try {
         const event = normalizeEvent(agent.provider, line);
-        this.broker.publish(agent.id, event);
-        if (['question', 'permission'].includes(event.type) && this.platform !== 'win32') child.kill('SIGSTOP');
+        if (event.type === 'completion' && this.onCompletion) this.onCompletion(agent, event);
+        else this.broker.publish(agent.id, event);
+        if (['question', 'permission'].includes(event.type)) child.kill('SIGTERM');
       } catch (error) {
         this.broker.publish(agent.id, { type: 'error', message: `Invalid provider event: ${error.message}` });
       }
@@ -44,21 +51,22 @@ class AgentRunner {
       this.processes.delete(agent.id);
       const state = this.store.load();
       const current = state.agents.find((item) => item.id === agent.id);
-      if (current && !['review', 'failed', 'cancelled'].includes(current.status)) {
+      if (current && !['waiting', 'review', 'failed', 'cancelled'].includes(current.status)) {
         this.broker.publish(agent.id, code === 0
           ? { type: 'completion', result: { code, signal } }
           : { type: 'error', message: `Provider exited with code ${code}${signal ? ` (${signal})` : ''}` });
       }
     });
-    return { started: true, child };
   }
 
-  answer(agentId, inboxId, answer) {
+  answer(agentId, inboxId, answer, specification, options) {
+    const state = this.store.load();
+    const agent = state.agents.find((candidate) => candidate.id === agentId);
+    if (!agent?.sessionId) throw new Error(`Agent session is unavailable for resume: ${agentId}`);
+    const child = this.resumeProviderSession(specification, { ...options, sessionId: agent.sessionId, prompt: answer });
     this.broker.answer(inboxId, answer);
-    const child = this.processes.get(agentId);
-    if (!child) throw new Error(`Agent process is not running: ${agentId}`);
-    child.stdin.write(`${JSON.stringify({ type: 'answer', answer })}\n`);
-    if (this.platform !== 'win32') child.kill('SIGCONT');
+    this.attach(agent, child);
+    return child;
   }
 
   stop(agentId) {
@@ -69,4 +77,3 @@ class AgentRunner {
 }
 
 module.exports = { AgentRunner };
-

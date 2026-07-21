@@ -29,13 +29,15 @@ test('stages approved files on a temporary branch and offers only validated work
   const commit = git(root, ['rev-parse', 'HEAD']);
   git(root, ['switch', '-q', main]);
   const batch = new IntegrationBatch(root, 'run-1');
-  batch.start();
+  const started = batch.start();
   assert.deepEqual(batch.integrationOffer(), { ready: false, reason: 'Batch validation has not succeeded' });
   batch.apply(commit, ['value.txt']);
-  assert.equal(git(root, ['diff', '--cached', '--name-only']), 'value.txt');
+  assert.equal(git(started.worktree, ['diff', '--name-only', `${started.base}..HEAD`]), 'value.txt');
   assert.equal(batch.validate([['node', '-e', 'process.exit(0)']])[0].ok, true);
-  assert.deepEqual(batch.integrationOffer(), { ready: true, branch: 'bdfl/integration-run-1', action: 'i' });
-  assert.equal(main === git(root, ['branch', '--show-current']), false);
+  assert.deepEqual(batch.integrationOffer(), { ready: true, branch: 'bdfl/integration-run-1', worktree: started.worktree });
+  assert.equal(git(root, ['branch', '--show-current']), main);
+  batch.accept();
+  assert.equal(fs.readFileSync(path.join(root, 'value.txt'), 'utf8'), 'agent\n');
 });
 
 test('keeps integration conflicts away from the main branch', (t) => {
@@ -48,8 +50,8 @@ test('keeps integration conflicts away from the main branch', (t) => {
   fs.writeFileSync(path.join(root, 'value.txt'), 'parent\n');
   git(root, ['add', 'value.txt']); git(root, ['commit', '-qm', 'parent']);
   const batch = new IntegrationBatch(root, 'run-conflict');
-  batch.start();
+  const started = batch.start();
   assert.throws(() => batch.apply(commit, ['value.txt']));
-  assert.equal(git(root, ['branch', '--show-current']), 'bdfl/integration-run-conflict');
-  assert.match(fs.readFileSync(path.join(root, 'value.txt'), 'utf8'), /<<<<<<<|>>>>>>>/);
+  assert.equal(git(root, ['branch', '--show-current']), main);
+  assert.match(fs.readFileSync(path.join(started.worktree, 'value.txt'), 'utf8'), /<<<<<<<|>>>>>>>/);
 });

@@ -3,6 +3,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { execFileSync } = require('node:child_process');
+const { execSync } = require('node:child_process');
 
 class WorktreeManager {
   constructor(root, { git = execFileSync, io = fs } = {}) {
@@ -30,12 +31,25 @@ class WorktreeManager {
     const branch = `bdfl/${safe}`;
     const worktree = path.join(this.directory, safe);
     this.io.mkdirSync(this.directory, { recursive: true });
-    this.git(['worktree', 'add', '-b', branch, worktree, base]);
-    return { branch, worktree, taskId, attempt };
+    const baseCommit = this.git(['rev-parse', base]);
+    this.git(['worktree', 'add', '-b', branch, worktree, baseCommit]);
+    return { branch, worktree, taskId, attempt, base: baseCommit };
   }
 
   checkpoint(worktree, message) {
+    execFileSync('git', ['add', '-A'], { cwd: worktree, stdio: ['ignore', 'pipe', 'pipe'] });
+    const staged = `${execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: worktree, encoding: 'utf8' })}`.trim();
+    if (staged) execFileSync('git', ['commit', '-m', message], { cwd: worktree, stdio: ['ignore', 'pipe', 'pipe'] });
     return `${execFileSync('git', ['rev-parse', 'HEAD'], { cwd: worktree, encoding: 'utf8' })}`.trim();
+  }
+
+  validate(worktree, commands) {
+    const results = [];
+    for (const command of commands || []) {
+      try { results.push({ command, ok: true, output: `${execSync(command, { cwd: worktree, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })}` }); }
+      catch (error) { results.push({ command, ok: false, output: `${error.stderr || error.message}` }); break; }
+    }
+    return results;
   }
 
   changedFiles(base, head) {
@@ -53,4 +67,3 @@ class WorktreeManager {
 }
 
 module.exports = { WorktreeManager };
-

@@ -1,16 +1,16 @@
 ---
 name: bdfl
-description: Manage BDFL orchestration, models, plans, tasks, and agents through native host controls. Use only when the user explicitly invokes $bdfl, optionally with on, off, models, plans, tasks, agents, or help.
+description: Manage Git-backed BDFL orchestration, models, plans, tasks, and agents through native host controls. Use only when the user explicitly invokes $bdfl, optionally with on, off, models, plans, tasks, agents, or help.
 ---
 
 # BDFL
 
-Parse the argument as one of `on`, `off`, `models`, `plans`, `tasks`, `agents`, or `help`; no argument means `on`. Call the BDFL MCP `bdfl` tool exactly once with that command and the absolute active Git project root. Do not call a similarly described tool or construct a choice list yourself.
+Require the absolute active Git worktree. Parse the argument as exactly one of `on`, `off`, `models`, `plans`, `tasks`, `agents`, or `help`; no argument means `on`. Call MCP `bdfl` exactly once with that command and project root. `workflow`, `inbox`, and `capture-plan` are not commands. Relay invalid-command help from the tool rather than inventing commands.
 
-If `plans` returns `needsPlanBackfill: true`, find the most recent `<proposed_plan>` in the current conversation, call `bdfl` with `capture-plan` and that exact Markdown, then immediately call `bdfl` with `plans` again. If no proposed plan exists, report `No plans.`
+Plans are captured silently by installed host hooks. `$bdfl plans` reads the plan store; do not search chat or send plan Markdown to MCP. When it returns `No plans.`, return exactly that text.
 
-While BDFL is active, call `capture-plan` with the exact Markdown whenever you create or revise a `<proposed_plan>`, before returning it to the user. One run owns one versioned plan.
+For execution, read [references/orchestration.md](references/orchestration.md), then call MCP `dispatch` with readable titles, exact provider prompts, atomic allowed paths, dependencies, exact models, inherited permission mode, validation commands, and completion criteria. `dispatch` waits until one or more tasks need attention.
 
-For execution, call MCP `dispatch` with readable task titles, the exact prompt each provider must receive, atomic allowed paths, dependencies, exact model, inherited permission mode, validation commands, and completion criteria. Use at least two independent tasks unless the user explicitly requests an agent. Route waiting questions through `bdfl` command `inbox`.
+Questions, permissions, failures, and reviews arrive automatically in the returned event bundle. Call MCP `continue` to render native decisions, deliver independent answers, resume affected provider sessions, and wait for the next event. Never poll. A `View` result is informational and leaves review open; call `continue` again after the user explicitly accepts or declines. Never infer recovery, permission, task review, or final integration choices.
 
-Never infer recovery, approval, permission, or integration choices. Never merge an agent branch directly into `main`. Read [references/orchestration.md](references/orchestration.md) before dispatch or integration.
+Keep tool traffic compact. Do not return prompts, logs, plan bodies, or diffs unless the user explicitly selects their corresponding view. Never merge an agent branch directly into the main branch.

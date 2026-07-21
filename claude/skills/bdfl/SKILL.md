@@ -1,14 +1,16 @@
 ---
 name: bdfl
-description: Manage BDFL orchestration, models, plans, tasks, and agents only when explicitly invoked.
-disable-model-invocation: true
-argument-hint: "[on|off|models|plans|tasks|agents|help]"
+description: Manage Git-backed BDFL orchestration, models, plans, tasks, and agents through native host controls. Use only when the user explicitly invokes /bdfl, optionally with on, off, models, plans, tasks, agents, or help.
 ---
 
 # BDFL
 
-Parse the argument as `on`, `off`, `models`, `plans`, `tasks`, `agents`, or `help`; no argument means `on`. Call the BDFL MCP `bdfl` tool with that command and the absolute active Git project root. Never call Bash or construct a choice list.
+Require the absolute active Git worktree. Parse the argument as exactly one of `on`, `off`, `models`, `plans`, `tasks`, `agents`, or `help`; no argument means `on`. Call MCP `bdfl` exactly once with that command and project root. `workflow`, `inbox`, and `capture-plan` are not commands. Relay invalid-command help from the tool rather than inventing commands.
 
-If `plans` returns `needsPlanBackfill: true`, capture the most recent `<proposed_plan>` from this conversation with MCP command `capture-plan`, preserving its exact Markdown, then call `plans` again. If none exists, report `No plans.` While BDFL is active, capture each new or revised proposed plan before returning it.
+Plans are captured silently by installed host hooks. `/bdfl plans` reads the plan store; do not search chat or send plan Markdown to MCP. When it returns `No plans.`, return exactly that text.
 
-Use MCP `dispatch` for validated tasks. Each task must have a readable title and the exact provider prompt. Route waiting questions with command `inbox`. Never infer recovery, approval, permission, or integration choices.
+For execution, read [references/orchestration.md](references/orchestration.md), then call MCP `dispatch` with readable titles, exact provider prompts, atomic allowed paths, dependencies, exact models, inherited permission mode, validation commands, and completion criteria. `dispatch` waits until one or more tasks need attention.
+
+Questions, permissions, failures, and reviews arrive automatically in the returned event bundle. Call MCP `continue` to render native decisions, deliver independent answers, resume affected provider sessions, and wait for the next event. Never poll. A `View` result is informational and leaves review open; call `continue` again after the user explicitly accepts or declines. Never infer recovery, permission, task review, or final integration choices.
+
+Keep tool traffic compact. Do not return prompts, logs, plan bodies, or diffs unless the user explicitly selects their corresponding view. Never merge an agent branch directly into the main branch.

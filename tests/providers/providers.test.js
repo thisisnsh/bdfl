@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildInvocation, preflight, normalizeEvent } = require('../../src/providers');
+const { buildInvocation, buildResumeInvocation, preflight, normalizeEvent } = require('../../src/providers');
 
 test('builds exact Codex JSONL invocation with model and effort', () => {
   const invocation = buildInvocation('codex:gpt-5.6-sol:high', {
@@ -21,6 +21,15 @@ test('uses the parent host Ollama harness without losing tag colons', () => {
   assert.equal(invocation.command, 'codex');
   assert.equal(invocation.args[invocation.args.indexOf('-m') + 1], 'qwen3.5:9b');
   assert.ok(invocation.args.includes('--oss'));
+});
+
+test('resumes exact provider sessions instead of writing answers to stdin', () => {
+  const codex = buildResumeInvocation('codex:gpt-5.6-sol:high', { host: 'codex', permissionMode: 'default', sessionId: 'thread-1', prompt: 'v2' });
+  assert.deepEqual(codex.args.slice(0, 3), ['exec', 'resume', '--json']);
+  assert.deepEqual(codex.args.slice(-2), ['thread-1', 'v2']);
+  const claude = buildResumeInvocation('claude:sonnet:medium', { host: 'claude', permissionMode: 'default', sessionId: 'session-1', prompt: 'Approve' });
+  assert.deepEqual(claude.args.slice(0, 2), ['--resume', 'session-1']);
+  assert.equal(claude.args.at(-1), 'Approve');
 });
 
 test('preflight exposes missing executables and models as visible states', () => {

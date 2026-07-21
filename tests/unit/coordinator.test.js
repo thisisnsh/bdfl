@@ -105,3 +105,22 @@ test('stale persisted processes become interrupted without deleting their record
   assert.equal(store.load().agents[0].status, 'interrupted');
   assert.equal(store.load().agents[0].branch, 'preserved');
 });
+
+test('declining review preserves the old attempt and starts a fresh attempt with feedback', () => {
+  const state = initialState();
+  state.runs.push({ id: 'run-1', status: 'running' });
+  state.tasks.push({ ...task('src'), id: 'task-1', runId: 'run-1', host: 'codex', status: 'review', attempts: [{ number: 1, agentId: 'old', branch: 'old', worktree: '/old' }] });
+  const store = new Store(state);
+  const starts = [];
+  const coordinator = new ProjectCoordinator('/repo', {
+    store, settingsLoader: () => settings, id: () => 'new-agent',
+    worktrees: { create: (_id, attempt) => ({ branch: `attempt-${attempt}`, worktree: `/attempt-${attempt}`, base: 'base' }) },
+    runner: { start: (agent, _model, options) => { starts.push({ agent, options }); store.update((value) => { value.agents.push({ ...agent, status: 'running' }); return value; }); return { started: true }; } }
+  });
+  coordinator.declineTask('task-1', 'Use the safer API');
+  const saved = store.load().tasks[0];
+  assert.equal(saved.attempts[0].status, 'declined');
+  assert.equal(saved.attempts[0].feedback, 'Use the safer API');
+  assert.equal(saved.attempts[1].number, 2);
+  assert.match(starts[0].options.prompt, /Use the safer API/);
+});

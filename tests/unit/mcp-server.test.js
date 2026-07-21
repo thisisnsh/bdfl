@@ -15,7 +15,7 @@ class Store {
   update(mutator) { this.state = mutator(structuredClone(this.state)); return this.load(); }
 }
 
-function fixture(state = initialState(), { elicitation = true } = {}) {
+function fixture(state = initialState(), { elicitation = true, attention = [] } = {}) {
   const messages = [];
   const settings = {
     defaultModel: 'claude:sonnet:medium',
@@ -38,8 +38,14 @@ function fixture(state = initialState(), { elicitation = true } = {}) {
   };
   const calls = [];
   const coordinator = {
+    broker: { attention: () => structuredClone(attention) },
+    activeRun: () => ({ id: 'run-1' }),
+    waitForAttention: async () => structuredClone(attention),
     recoverStaleProcesses: () => calls.push('recover'),
     approveTask: (id) => calls.push(['approve', id]),
+    answerEvent: (id, answer) => calls.push(['answer', id, answer]),
+    declineTask: (id, feedback) => calls.push(['decline', id, feedback]),
+    reviewTask: (id) => ({ taskId: id, title: 'Review task', fileList: ['src/a.js'], diffstat: '1 file changed', patch: 'line 1\nline 2' }),
     cancelTask: (id) => calls.push(['cancel', id]),
     dispatch: (args) => { calls.push(['dispatch', args]); return { runId: 'run-1', tasks: [], waves: [] }; }
   };
@@ -80,12 +86,32 @@ function call(fix, id, command, extra = {}) {
   });
 }
 
-test('advertises only the compact management router and dispatch tools', async () => {
+test('advertises only the compact management, dispatch, and continue tools', async () => {
   const fix = fixture();
   await initialize(fix);
   await fix.server.handleMessage({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
-  assert.deepEqual(fix.messages.at(-1).result.tools.map((tool) => tool.name), ['bdfl', 'dispatch']);
+  assert.deepEqual(fix.messages.at(-1).result.tools.map((tool) => tool.name), ['bdfl', 'dispatch', 'continue']);
   assert.ok(fix.messages[0].result.instructions.length < 512);
+});
+
+test('continue renders simultaneous native decisions and keeps viewed reviews open', async () => {
+  const attention = [
+    { id: 'q1', type: 'question', taskId: 't1', title: 'API', message: 'Which?', choices: ['v1', 'v2'] },
+    { id: 'task:t2', type: 'completion', taskId: 't2', title: 'Tests' }
+  ];
+  const fix = fixture(initialState(), { attention });
+  await initialize(fix);
+  const pending = fix.server.handleMessage({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'continue', arguments: { projectRoot: '/repo', runId: 'run-1' } } });
+  await new Promise((resolve) => setImmediate(resolve));
+  const request = [...fix.messages].reverse().find((message) => message.method === 'elicitation/create');
+  assert.deepEqual(request.params.requestedSchema.properties.event_1.enum, ['v1', 'v2']);
+  assert.deepEqual(request.params.requestedSchema.properties.event_2.enum, ['View', 'Accept', 'Decline']);
+  await fix.server.handleMessage({ jsonrpc: '2.0', id: request.id, result: { action: 'accept', content: { event_1: 'v2', event_2: 'View' } } });
+  await pending;
+  assert.deepEqual(fix.calls.find((call) => call[0] === 'answer'), ['answer', 'q1', 'v2']);
+  const result = fix.messages.find((message) => message.id === 9).result;
+  assert.equal(result.structuredContent.reviews[0].taskId, 't2');
+  assert.equal(result.structuredContent.events.length, 2);
 });
 
 test('model management elicits all configured options without a four-option limit', async () => {

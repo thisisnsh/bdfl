@@ -66,6 +66,32 @@ const TOOLS = Object.freeze([
       additionalProperties: false
     },
     annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
+  },
+  {
+    name: 'continue',
+    title: 'Continue BDFL workflow',
+    description: 'Resolve current workflow events and wait for the next attention state.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectRoot: { type: 'string', description: 'Absolute path to the active Git project.' },
+        runId: { type: 'string' },
+        decisions: {
+          type: 'array', items: {
+            type: 'object',
+            properties: {
+              eventId: { type: 'string' }, action: { type: 'string' }, answer: { type: 'string' }, feedback: { type: 'string' }
+            },
+            required: ['eventId', 'action'], additionalProperties: false
+          }
+        },
+        page: { type: 'integer', minimum: 1 },
+        pageSize: { type: 'integer', minimum: 10, maximum: 200 }
+      },
+      required: ['projectRoot'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false }
   }
 ]);
 
@@ -154,6 +180,7 @@ class BdflMcpServer {
     this.clientCapabilities = {};
     this.nextRequestId = 1;
     this.pending = new Map();
+    this.activeCalls = new Map();
   }
 
   send(message) { this.output.write(`${JSON.stringify(message)}\n`); }
@@ -333,39 +360,82 @@ class BdflMcpServer {
     return textResult(`${titleFor(agent)} — ${agent.status || 'unknown'}`, { agentId: agent.id, taskId: agent.taskId, status: agent.status });
   }
 
-  async manageInbox(project) {
-    const state = project.store.load();
-    const open = state.inbox.filter((item) => item.status === 'open');
-    if (!open.length) return textResult('No agent questions.', { inbox: [] });
-    const labels = new Map(open.map((item) => {
-      const task = state.tasks.find((candidate) => candidate.id === state.agents.find((agent) => agent.id === item.agentId)?.taskId);
-      const message = typeof item.payload === 'string' ? item.payload : item.payload?.message || item.payload?.question || item.kind;
-      return [`${task?.title || 'Agent'} — ${message}`, item.id];
-    }));
-    let item = open[0];
-    if (open.length > 1) {
-      const selected = await this.choose('Choose the waiting agent question.', 'Question', [...labels.keys()]);
-      if (selected.unsupported) return textResult('Agent questions returned.', { inbox: [...labels.keys()] });
-      if (selected.cancelled) return textResult('Inbox selection cancelled.', { action: selected.action });
-      item = open.find((candidate) => candidate.id === labels.get(selected.value));
-    }
-    const payload = item.payload;
-    const message = typeof payload === 'string' ? payload : payload?.message || payload?.question || JSON.stringify(payload);
-    const raw = typeof payload === 'object' && payload ? payload.options || payload.choices : null;
-    const options = item.kind === 'permission' ? ['Approve', 'Deny'] : Array.isArray(raw) ? raw.map((option) => typeof option === 'string' ? option : option.label || option.title || option.value).filter(Boolean) : [];
-    const response = options.length
-      ? await this.choose(message, item.kind === 'permission' ? 'Decision' : 'Answer', options)
-      : await this.elicit(message, { type: 'object', properties: { selection: { type: 'string', title: 'Answer', minLength: 1 } }, required: ['selection'] });
-    if (response.unsupported || response.action === 'unsupported') return textResult('Agent question returned.', { item });
-    if (response.cancelled || response.action !== undefined && response.action !== 'accept') return textResult('Agent remains suspended.', { inboxId: item.id });
-    const answer = response.value || response.content?.selection;
-    if (!answer) throw new Error('An explicit Inbox answer is required');
-    project.store.update((value) => {
-      const current = value.inbox.find((candidate) => candidate.id === item.id && candidate.status === 'open');
-      current.status = 'answered'; current.answer = answer; current.resolvedAt = this.now().toISOString(); current.deliveryStatus = 'pending';
-      return value;
+  eventForm(events) {
+    const properties = {};
+    const required = [];
+    events.forEach((event, index) => {
+      const key = `event_${index + 1}`;
+      required.push(key);
+      if (event.type === 'permission') properties[key] = { type: 'string', title: `${event.title}: permission`, description: event.message, enum: ['Approve', 'Deny'] };
+      else if (event.type === 'question' && event.choices?.length) properties[key] = { type: 'string', title: event.title, description: event.message, enum: event.choices };
+      else if (event.type === 'question') properties[key] = { type: 'string', title: event.title, description: event.message, minLength: 1 };
+      else if (['completion', 'integration'].includes(event.type)) properties[key] = { type: 'string', title: `${event.title}: review`, enum: ['View', 'Accept', 'Decline'] };
+      else properties[key] = { type: 'string', title: `${event.title}: recovery`, description: event.message, enum: ['Retry', 'Cancel'] };
     });
-    return textResult('Recorded agent answer.', { inboxId: item.id, answer, deliveryStatus: 'pending' });
+    return { type: 'object', properties, required };
+  }
+
+  async collectDecisions(events) {
+    const response = await this.elicit(`${events.length} BDFL event(s) need attention.`, this.eventForm(events));
+    if (response.action === 'unsupported') return null;
+    if (response.action !== 'accept') return [];
+    return events.map((event, index) => {
+      const value = response.content?.[`event_${index + 1}`];
+      return event.type === 'question'
+        ? { eventId: event.id, action: 'Answer', answer: value }
+        : { eventId: event.id, action: value };
+    });
+  }
+
+  async continueWorkflow(project, args, signal) {
+    const runId = args.runId || project.coordinator.activeRun()?.id;
+    let events = project.broker?.attention?.(runId) || project.coordinator.broker?.attention(runId) || [];
+    if (!events.length) events = await project.coordinator.waitForAttention(runId, signal);
+    const decisions = args.decisions || await this.collectDecisions(events);
+    if (decisions === null) return textResult(`${events.length} workflow event(s) need attention.`, { runId, events });
+    if (!decisions.length) return textResult('BDFL workflow remains paused for explicit decisions.', { runId, events });
+    const byId = new Map(events.map((event) => [event.id, event]));
+    const views = [];
+    for (const decision of decisions) {
+      const event = byId.get(decision.eventId);
+      if (!event) throw new Error(`Unknown workflow event: ${decision.eventId}`);
+      if (event.type === 'question') project.coordinator.answerEvent(event.id, decision.answer || decision.action);
+      else if (event.type === 'permission') project.coordinator.answerEvent(event.id, decision.action === 'Approve' ? 'Approve' : 'Deny');
+      else if (event.type === 'completion' && decision.action === 'Accept') project.coordinator.approveTask(event.taskId);
+      else if (event.type === 'completion' && decision.action === 'View') views.push(project.coordinator.reviewTask(event.taskId));
+      else if (event.type === 'completion' && decision.action === 'Decline') {
+        let feedback = decision.feedback;
+        if (!feedback) {
+          const response = await this.elicit(`Feedback for ${event.title}`, { type: 'object', properties: { feedback: { type: 'string', title: 'Feedback', minLength: 1 } }, required: ['feedback'] });
+          if (response.action !== 'accept') return textResult('Decline cancelled; review remains open.', { runId, events });
+          feedback = response.content?.feedback;
+        }
+        project.coordinator.declineTask(event.taskId, feedback);
+      } else if (event.type === 'integration' && decision.action === 'View') views.push(project.coordinator.reviewIntegration(event.integrationId));
+      else if (event.type === 'integration' && decision.action === 'Accept') project.coordinator.acceptIntegration(event.integrationId);
+      else if (event.type === 'integration' && decision.action === 'Decline') {
+        let feedback = decision.feedback;
+        if (!feedback) {
+          const response = await this.elicit('Feedback for integrated workflow', { type: 'object', properties: { feedback: { type: 'string', title: 'Feedback', minLength: 1 } }, required: ['feedback'] });
+          if (response.action !== 'accept') return textResult('Decline cancelled; integration review remains open.', { runId, events });
+          feedback = response.content?.feedback;
+        }
+        project.coordinator.declineIntegration(event.integrationId, feedback);
+      } else if (event.type === 'failure' && decision.action === 'Cancel' && event.taskId) project.coordinator.cancelTask(event.taskId);
+      else if (event.type === 'failure' && decision.action === 'Retry' && event.taskId) project.coordinator.retryTask(event.taskId);
+      else throw new Error(`Invalid ${event.type} action: ${decision.action}`);
+    }
+    if (views.length) {
+      const rendered = views.map((review) => {
+        const page = pageText(review.patch, args.page, args.pageSize);
+        return { ...review, patch: page.text, page: page.page, pages: page.pages, pageSize: page.pageSize };
+      });
+      return textResult(`Showing ${views.length} task diff(s). Review remains open.`, { runId, reviews: rendered, events: project.coordinator.broker.attention(runId) });
+    }
+    const run = project.store.load().runs.find((candidate) => candidate.id === runId);
+    if (run?.status === 'completed') return textResult('BDFL workflow completed and integration was accepted.', { runId, completed: true, integrationCommit: run.integrationCommit });
+    const next = await project.coordinator.waitForAttention(runId, signal);
+    return textResult(`${next.length} workflow event(s) need attention.`, { runId, events: next });
   }
 
   async manage(args) {
@@ -376,17 +446,20 @@ class BdflMcpServer {
     if (args.command === 'plans') return this.managePlans(project, args);
     if (args.command === 'tasks') return this.manageTasks(project, args);
     if (args.command === 'agents') return this.manageAgents(project, args);
-    if (args.command === 'help') return textResult('BDFL commands: on, off, models, plans, tasks, agents, help.');
-    throw new Error(`Unknown BDFL command: ${args.command}`);
+    if (args.command === 'help') return textResult('BDFL commands: on, off, models, plans, tasks, agents, help.', { commands: [...COMMANDS], protocolTools: ['dispatch', 'continue'] });
+    throw new Error(`Invalid BDFL command: ${args.command}. Commands: ${COMMANDS.join(', ')}.`);
   }
 
-  async callTool(name, args = {}) {
+  async callTool(name, args = {}, signal) {
     if (name === 'bdfl') return this.manage(args);
     if (name === 'dispatch') {
       const project = this.project(args.projectRoot);
-      const result = project.coordinator.dispatch(args);
-      return textResult(`Dispatched ${result.tasks.length} task(s).`, result);
+      const result = project.coordinator.dispatchAndWait
+        ? await project.coordinator.dispatchAndWait(args, signal)
+        : project.coordinator.dispatch(args);
+      return textResult(`${result.events?.length || 0} workflow event(s) need attention.`, result);
     }
+    if (name === 'continue') return this.continueWorkflow(this.project(args.projectRoot), args, signal);
     throw new Error(`Unknown tool: ${name}`);
   }
 
@@ -406,16 +479,26 @@ class BdflMcpServer {
         protocolVersion: message.params?.protocolVersion || '2025-11-25',
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'bdfl', version: '1.0.0' },
-        instructions: 'Use bdfl for guided management and plan capture; use dispatch only for validated task manifests. Always pass the active Git project root.'
+        instructions: 'Use bdfl for guided management, dispatch to start and wait, and continue for event decisions. Always pass the absolute Git worktree root.'
       });
       return;
     }
-    if (message.method === 'notifications/initialized' || message.method === 'notifications/cancelled') return;
+    if (message.method === 'notifications/initialized') return;
+    if (message.method === 'notifications/cancelled') {
+      const id = message.params?.requestId;
+      this.activeCalls.get(id)?.abort();
+      this.activeCalls.delete(id);
+      for (const project of this.projects.values()) project.coordinator.recoverStaleProcesses();
+      return;
+    }
     if (message.method === 'ping') { this.respond(message.id, {}); return; }
     if (message.method === 'tools/list') { this.respond(message.id, { tools: TOOLS }); return; }
     if (message.method === 'tools/call') {
-      try { this.respond(message.id, await this.callTool(message.params?.name, message.params?.arguments || {})); }
-      catch (error) { this.respond(message.id, { ...textResult(error.message), isError: true }); }
+      const controller = new AbortController();
+      this.activeCalls.set(message.id, controller);
+      try { this.respond(message.id, await this.callTool(message.params?.name, message.params?.arguments || {}, controller.signal)); }
+      catch (error) { if (error.name !== 'AbortError') this.respond(message.id, { ...textResult(error.message), isError: true }); }
+      finally { this.activeCalls.delete(message.id); }
       return;
     }
     if (message.id !== undefined) this.fail(message.id, -32601, `Method not found: ${message.method}`);
@@ -428,6 +511,7 @@ class BdflMcpServer {
       try { void this.handleMessage(JSON.parse(line)); }
       catch (error) { this.send({ jsonrpc: '2.0', error: { code: -32700, message: error.message } }); }
     });
+    lines.on('close', () => { for (const project of this.projects.values()) project.coordinator.recoverStaleProcesses(); });
     return lines;
   }
 }

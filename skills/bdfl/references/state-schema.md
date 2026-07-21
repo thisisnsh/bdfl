@@ -1,19 +1,7 @@
 # State schema
 
-State is JSON under `.bdfl/state.json` with `version: 1` and arrays for `runs`, `plans`, `tasks`, `agents`, `inbox`, and `events`. Writes are atomic through a sibling temporary file and rename.
+Runtime state is atomic JSON under `.bdfl/state.json` with `version: 1` and durable arrays for runs, tasks, agents, unanswered events, append-only provider events, and integration attempts. Plan bodies do not live in runtime state.
 
-Every record has an internal ID and timestamps. Plans belong to a run, contain immutable numbered versions, and have one optional selected version. Tasks contain a readable title, exact dispatched prompt, path ownership, dependencies, attempts, validations, and approval state. Agents link to tasks by `taskId`; user-facing labels use the task title. Inbox items reference an agent and event and remain open until explicitly answered or dismissed.
+Plans use `.bdfl/plans/index.json`, one readable plan directory with `plan.json`, and immutable Markdown files under `versions/`. Metadata records title, host, session, plan episode, native source path, timestamps, hashes, and the selected version.
 
-Global settings live in the platform config directory and use:
-
-```json
-{
-  "version": 1,
-  "defaultModel": "claude:sonnet:medium",
-  "models": ["claude:sonnet:medium"],
-  "maxAgents": 4,
-  "ollamaBaseUrl": "http://localhost:11434"
-}
-```
-
-Parse model specs at the first and final colon so `ollama:qwen3.5:9b:medium` preserves `qwen3.5:9b` as the model.
+Tasks contain readable titles, exact dispatched prompts, path ownership, dependencies, attempts, checkpoint commits, validations, and approval state. Agents link to tasks by `taskId` and retain provider session IDs for continuation. Durable unanswered records remain available for recovery but have no polling UI.

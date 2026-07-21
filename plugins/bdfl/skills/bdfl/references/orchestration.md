@@ -1,11 +1,9 @@
-# Orchestration contract
+# Event-driven orchestration contract
 
-Compile a manifest only after plan approval/version selection or, outside plan mode, after every material question is resolved. Every task must declare a readable title, exact provider prompt, objective, context, allowed paths, dependencies, exact model, permission mode, validation commands, and completion criteria.
+Compile a manifest only after plan approval/version selection or, outside plan mode, after material questions are resolved. Reject dependency cycles. Treat paths as overlapping when they are equal or one contains the other; schedule independent non-overlapping tasks up to `maxAgents`.
 
-Reject dependency cycles. Treat paths as overlapping when they are equal or one path contains the other. Schedule independent tasks up to `maxAgents`; serialize overlapping ownership.
+`dispatch` validates the manifest, creates a fresh branch and `.bdfl/worktrees/` worktree per attempt, starts eligible tasks, and waits for durable attention events. A question or permission pauses only its agent. Multiple simultaneous events belong in one bundle and require independent answers.
 
-Create a fresh branch and worktree under `.bdfl/worktrees/` for each attempt. Normalize provider output into events and persist each event before presenting it. A question or permission event moves the agent to `waiting` and creates an Inbox item.
+Use `continue` for all event decisions. Question choices may be generated options or free text. Permission choices are exactly Approve/Deny. Completion choices are View/Accept/Decline: View returns paginated file names, diffstat, and patch without resolving review; Accept approves the task and starts newly unblocked dependencies; Decline requires feedback and creates a fresh attempt while preserving prior branches, commits, logs, and events.
 
-Review each completion. Apply approved changes by explicit path to a temporary integration branch. Run all task and batch validations. Present conflicts and failures; do not integrate until the user requests `i` after successful validation.
-
-Rewind creates a new attempt from the last safe checkpoint. Preserve previous branches, worktrees when useful for inspection, logs, and events.
+After all tasks are accepted, BDFL combines approved commits in a separate integration worktree and runs batch validation. Final integration uses the same View/Accept/Decline protocol and never proceeds without explicit acceptance. Cancellation and host shutdown preserve durable state; recovery choices must remain explicit.

@@ -5,7 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 function initialState() {
-  return { version: 1, runs: [], plans: [], tasks: [], agents: [], inbox: [], events: [] };
+  return { version: 1, runs: [], plans: [], tasks: [], agents: [], inbox: [], events: [], integrations: [] };
 }
 
 class StateStore {
@@ -21,6 +21,7 @@ class StateStore {
     if (!this.exists()) return initialState();
     const state = JSON.parse(this.io.readFileSync(this.file, 'utf8'));
     if (state.version !== 1) throw new Error(`Unsupported state version: ${state.version}`);
+    state.integrations ||= [];
     return state;
   }
 
