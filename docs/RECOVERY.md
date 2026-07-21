@@ -1,6 +1,6 @@
 # Recovery
 
-On activation, BDFL inspects durable `.bdfl/state.json` records. Active runs, unfinished tasks or agents, and unanswered events require one explicit choice:
+`BDFL status` inspects durable `.bdfl/state.json` records. Active runs, unfinished tasks or agents, and unanswered events require one explicit choice:
 
 - Continue marks stale live processes interrupted and resumes only after explicit event decisions.
 - Manage tasks opens readable task titles and safe inspection/cancellation actions.

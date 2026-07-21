@@ -103,7 +103,7 @@ The workflow must complete all of these stages:
 
 1. Read and validate the SemVer tag.
 2. Stamp package and plugin manifest versions.
-3. Rebuild the packaged plugin and skill.
+3. Rebuild the packaged plugin runtime.
 4. Run tests and repository validation.
 5. Build archives and SHA-256 checksums.
 6. Publish the GitHub release and assets.

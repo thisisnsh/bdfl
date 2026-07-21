@@ -45,7 +45,7 @@ function unfinishedState(state) {
   const active = new Set(['pending', 'running', 'waiting', 'review', 'approved', 'validating']);
   const hasWork = state.plans.length || state.tasks.length || state.agents.length || state.inbox.length || state.events.length;
   return {
-    // A newly activated run with no durable work is idle, not recoverable work.
+    // A legacy idle run with no durable work is not recoverable work.
     runs: hasWork ? state.runs.filter((item) => active.has(item.status)) : [],
     tasks: state.tasks.filter((item) => active.has(item.status)),
     agents: state.agents.filter((item) => active.has(item.status)),

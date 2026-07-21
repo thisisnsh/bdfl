@@ -166,7 +166,9 @@ function requireDispatchAuthorization(request) {
   requireExplicitRequest(request);
   const planningOnly = /\bBDFL\s+(?:please\s+)?plan(?:s|ning)?\b/i.test(request)
     && !/\b(?:execute|implement|build|fix|change|update|run|dispatch|delegate|split|do)\b/i.test(request);
-  if (planningOnly) throw new Error('"BDFL plan this" authorizes planning only, not execution. Ask BDFL to execute or delegate when ready.');
+  const managementOnly = /\bBDFL\s+(?:please\s+)?(?:status|models|tasks|agents|help)\b/i.test(request)
+    && !/\b(?:execute|implement|build|fix|change|update|run|dispatch|delegate|split|do)\b/i.test(request);
+  if (planningOnly || managementOnly) throw new Error('This BDFL request authorizes planning or management only, not execution. Ask BDFL to execute or delegate when ready.');
   return request;
 }
 

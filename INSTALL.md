@@ -1,6 +1,6 @@
 # Installation
 
-BDFL requires Node.js 20+ and at least one supported host: Claude Code or Codex. Ollama support is coming soon.
+BDFL — Benevolent Delegator for LLMs — requires Node.js 20+ and at least one supported host: Claude Code or Codex. Ollama support is coming soon.
 
 ## Bootstrap
 
@@ -14,7 +14,9 @@ Windows installation is coming soon.
 
 The bootstrap downloads the latest release archive and `checksums.txt`, verifies SHA-256 before extraction, and runs `bin/install.js` from the verified archive. Set `BDFL_VERSION` (without the leading `v`) to pin a specific release.
 
-The installer displays detected hosts, installation scope, and every planned path before writing. Global installation is the default. It installs one standalone BDFL skill per detected host, registers one shared MCP server directly, and surgically merges BDFL plan-completion hooks. Restart each installed host before invoking `/bdfl` in Claude Code or `$bdfl` in Codex. Codex presents a one-time hook trust review after installation.
+The installer displays detected hosts, installation scope, and every planned path before writing. Global installation is the default. It registers one shared MCP server directly and surgically merges startup and plan-completion hooks. Claude's existing command-backed status line is composed with BDFL and restored exactly on uninstall; Codex's footer is unchanged. Restart each installed host, then ask “BDFL status.” Codex presents a one-time hook trust review after installation.
+
+Enable or disable BDFL persistently through the host's MCP settings for the `bdfl` server. BDFL has no `on` or `off` commands. When the host's MCP is disabled, startup notices and plan capture are silent.
 
 To install only for the current project:
 

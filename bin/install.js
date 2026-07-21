@@ -536,7 +536,7 @@ function formatPlan(plan, { color = false, dryRun = false } = {}) {
   const c = theme(color);
   const lines = [
     ...LOGO.map((line) => c.yellow(line)),
-    c.bold('Benevolent Dictator For Life'),
+    c.bold('Benevolent Delegator for LLMs'),
     c.dim('Managed agents. Isolated work. Explicit integration.'),
     '',
     c.yellow(`${plan.scope} INSTALLATION`),
@@ -556,8 +556,8 @@ function formatCompletion(plan, { color = false, uninstall = false } = {}) {
   if (uninstall && plan.receiptless) return `${c.green('✓')} Legacy BDFL installation removed.`;
   if (uninstall) return `${c.green('✓')} BDFL removed. Recorded host settings were restored.`;
   const lines = ['', c.yellow('READY'), `  ${c.green('✓')} BDFL installed for ${plan.hosts.map((host) => host === 'claude' ? 'Claude Code' : 'Codex').join(' and ')}`];
-  if (plan.hosts.includes('claude')) lines.push(`  ${c.yellow('!')} Restart Claude Code, then run ${c.bold('/bdfl')}`);
-  if (plan.hosts.includes('codex')) lines.push(`  ${c.yellow('!')} Restart Codex, review the one-time hook trust prompt, then run ${c.bold('$bdfl')}`);
+  if (plan.hosts.includes('claude')) lines.push(`  ${c.yellow('!')} Restart Claude Code, then ask ${c.bold('BDFL status')}`);
+  if (plan.hosts.includes('codex')) lines.push(`  ${c.yellow('!')} Restart Codex, review the one-time hook trust prompt, then ask ${c.bold('BDFL status')}`);
   lines.push(`  ${c.dim('Uninstall:')} node bin/install.js --uninstall`);
   return lines.join('\n');
 }

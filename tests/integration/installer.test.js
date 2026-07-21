@@ -203,6 +203,8 @@ test('formats MCP-only installation without ANSI', (t) => {
   const { source, paths, run } = fixture(t);
   const output = formatPlan(new Installer({ sourceRoot: source, paths, run }).plan({}, { claude: true, codex: false, ollama: false }));
   assert.match(output, /██████╗/);
+  assert.match(output, /Benevolent Delegator for LLMs/);
+  assert.equal(output.includes(['Dict', 'ator'].join('')), false);
   assert.match(output, /Ollama \(coming soon\)/);
   assert.doesNotMatch(output, /skill/);
   assert.match(output, /Claude MCP registration/);

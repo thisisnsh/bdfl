@@ -237,7 +237,9 @@ test('dispatch requires explicit invocation, two tasks, and no unfinished recove
   await fix.server.handleMessage({ jsonrpc: '2.0', id: 23, method: 'tools/call', params: { name: 'dispatch', arguments: { ...base, request: 'BDFL do this work' } } });
   assert.match(fix.messages.find((message) => message.id === 23).result.content[0].text, /at least two/);
   await fix.server.handleMessage({ jsonrpc: '2.0', id: 25, method: 'tools/call', params: { name: 'dispatch', arguments: { ...base, request: 'BDFL plan this', tasks: [{}, {}] } } });
-  assert.match(fix.messages.find((message) => message.id === 25).result.content[0].text, /planning only/);
+  assert.match(fix.messages.find((message) => message.id === 25).result.content[0].text, /planning or management only/);
+  await fix.server.handleMessage({ jsonrpc: '2.0', id: 26, method: 'tools/call', params: { name: 'dispatch', arguments: { ...base, request: 'BDFL status', tasks: [{}, {}] } } });
+  assert.match(fix.messages.find((message) => message.id === 26).result.content[0].text, /management only/);
 
   fix.store.state.runs.push({ id: 'old', status: 'running' });
   fix.store.state.tasks.push({ id: 'old-task', status: 'running' });

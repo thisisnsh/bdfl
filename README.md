@@ -1,173 +1,150 @@
+# BDFL
+
+**Benevolent Delegator for LLMs** — explicit, reviewable delegation for Claude Code and Codex.
+
+[![latest release](https://img.shields.io/github/v/release/thisisnsh/bdfl)](https://github.com/thisisnsh/bdfl/releases)
+[![tests](https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml/badge.svg)](https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+
+BDFL turns one explicit delegation request into isolated agent work, native decisions, validated integration, and a final review:
+
 ```text
-██████╗ ██████╗ ███████╗██╗
-██╔══██╗██╔══██╗██╔════╝██║
-██████╔╝██║  ██║█████╗  ██║
-██╔══██╗██║  ██║██╔══╝  ██║
-██████╔╝██████╔╝██║     ███████╗
-╚═════╝ ╚═════╝ ╚═╝     ╚══════╝
+You explicitly ask BDFL
+  → BDFL validates two or more atomic tasks
+  → agents work in isolated Git worktrees
+  → you answer questions and review each result
+  → BDFL validates an integration worktree
+  → you accept the final integration
 ```
 
-<h1 align="center"><a href="https://en.wikipedia.org/wiki/Benevolent_dictator_for_life">Benevolent Dictator For Life</a></h1>
-<p align="center">The coordinator that strengthens plans and directs isolated agents through explicit review.</p>
-
-<p align="center">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-facc15"></a>
-  <a href="https://github.com/thisisnsh/bdfl/releases"><img alt="latest release" src="https://img.shields.io/github/v/release/thisisnsh/bdfl"></a>
-  <img alt="Claude Code and Codex" src="https://img.shields.io/badge/hosts-Claude_Code_%7C_Codex-25262b">
-  <a href="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml"><img alt="tests" src="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml/badge.svg"></a>
-</p>
-
-## Explanation
-
-BDFL turns an approved plan or a clear request into a dependency-aware task manifest. Each task gets an isolated Git branch and worktree, an exact model and permission mode, owned paths, validation commands, and completion criteria. Agents can run concurrently when their paths and dependencies allow it.
-
-Questions do not wait in an Inbox. They appear automatically through the host's native controls as soon as an agent needs attention. The same event-driven flow handles permission requests, recoverable failures, task review, and final integration review. Only the affected agent pauses; unrelated work continues.
-
-Git is mandatory. Every BDFL command requires an absolute existing Git worktree. BDFL never runs `git init` for you. Activation adds `.bdfl/` to `.git/info/exclude`, keeping local state, captured plans, attempt worktrees, and recovery records out of commits.
+Plan approval, task complexity, and an apparently splittable request never start BDFL. “BDFL plan this” authorizes planning only. Execution requires a separate request such as “BDFL execute the approved plan.”
 
 ## Install
 
-Global installation for macOS, Linux, WSL, or Git Bash:
+BDFL requires Node.js 20+, Git, and Claude Code or Codex. On macOS, Linux, or WSL:
 
 ```bash
 curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh | bash
 ```
 
-Project-local installation:
+The installer verifies the release checksum, registers the BDFL MCP server with each detected host, and adds host hooks for startup visibility and automatic plan capture. Restart the host after installation. Codex may ask you to trust the installed hooks once.
+
+BDFL availability follows the host’s persistent MCP setting. Use the host’s MCP settings to enable or disable the `bdfl` server; there are no BDFL `on` or `off` commands. When enabled, a new session says:
+
+```text
+BDFL — Benevolent Delegator for LLMs — is enabled and ready. It acts only when you explicitly ask BDFL.
+```
+
+When disabled or unavailable, BDFL emits no startup notice and captures no plans. Claude Code also shows a composed [`BDFL · ready` status-line segment](https://code.claude.com/docs/en/statusline) while its MCP is live and workflow verbs while work is active. The installer preserves the existing Claude status-line command and options. [Codex’s fixed footer is not modified](https://github.com/openai/codex/issues/20244).
+
+## Ask naturally
+
+No slash command or dollar-prefixed skill is installed. Address BDFL in ordinary language:
+
+```text
+BDFL execute the approved plan.
+BDFL do this and split it safely between agents.
+BDFL plans.
+BDFL status.
+```
+
+The copied request must contain `BDFL` as a standalone term. Naming BDFL authorizes evaluation, not needless delegation: a small single-stream task stays in the parent host. Dispatch requires at least two useful atomic tasks and automatically creates one workflow run.
+
+Plan capture remains automatic while that host’s BDFL MCP is live. Capturing or approving a plan does not authorize execution.
+
+## Safe delegation
+
+Each task declares an exact prompt, model, permission mode, owned paths, dependencies, validation commands, and completion criteria. Independent tasks may run together; overlapping paths and dependencies are serialized.
+
+Agents never work in the parent worktree. Every attempt gets a dedicated branch and `.bdfl/worktrees/` worktree. Completion is checkpointed, restricted to declared paths, validated, and presented for View, Accept, or Decline. Accepted task commits are combined and validated in a separate integration worktree. Nothing changes the main worktree until you explicitly accept the final integration.
+
+Git is mandatory. BDFL requires an existing absolute Git worktree and never runs `git init` for you.
+
+<details>
+<summary>Management requests</summary>
+
+Use natural requests such as:
+
+| Request | Result |
+|---|---|
+| `BDFL status` | Inspect unfinished work and choose recovery when needed |
+| `BDFL models` | Choose an exact discovered model and effort |
+| `BDFL plans` | Review captured plans, versions, diffs, and approval |
+| `BDFL tasks` | Inspect or cancel tasks |
+| `BDFL agents` | Inspect or cancel agents |
+| `BDFL help` | Show the authoritative management set |
+
+The MCP management commands are `status`, `models`, `plans`, `tasks`, `agents`, and `help`. The unadvertised `bdfl` executable supports compatible inspection and help only.
+
+</details>
+
+<details>
+<summary>Recovery</summary>
+
+If a run is unfinished, `BDFL status` offers Continue, Manage tasks, Archive run, and Cancel run. BDFL never chooses for you and never mixes new dispatch into unresolved work.
+
+Once you explicitly start a workflow, that authorization remains valid through its later questions, permissions, retries, task reviews, and final integration review. You do not need to repeat “BDFL” in every answer. Durable prompts, attempts, events, branches, commits, and worktrees remain available after cancellation or host shutdown.
+
+</details>
+
+<details>
+<summary>Models</summary>
+
+BDFL discovers models from installed Claude Code and Codex hosts. Specifications use `provider:exact-model:exact-effort`; no provider, model, endpoint, or effort fallback is invented after discovery or preflight failure.
+
+Ollama provider code exists in the repository, but user-facing Ollama setup remains coming soon.
+
+</details>
+
+<details>
+<summary>Local data</summary>
+
+Project state lives under `.bdfl/` and is excluded through `.git/info/exclude`. It includes workflow state, captured Markdown plan versions, provider events, attempt worktrees, and recovery records. Never commit it.
+
+Global runtime, settings, process-presence records, and the installation receipt live in the platform BDFL config directory. Override it with `BDFL_CONFIG_HOME`.
+
+</details>
+
+<details>
+<summary>Advanced install options</summary>
+
+Install only for the current project:
 
 ```bash
 curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh | bash -s -- --local
 ```
 
-The installer verifies the release checksum, detects installed Claude Code and Codex hosts, installs one command skill per host, registers the three-tool MCP server, and merges silent plan-completion hooks with existing host configuration. It installs no status line and no `SessionStart` hook. Codex asks for a one-time trust review when it first sees the hook.
-
-Use `--dry-run`, `--only claude`, or `--only codex` to preview or narrow installation. See [Installation](INSTALL.md) for paths and all options. Windows installation is coming soon.
-
-## Quick start
-
-Open an existing repository, or initialize one yourself:
+Preview changes or restrict host detection:
 
 ```bash
-git init
+curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/install.sh | bash -s -- --dry-run --only codex
 ```
 
-Then activate BDFL and describe the outcome.
+Supported options include `--dry-run`, `--list`, `--only claude`, `--only codex`, `--force`, `--local`, `--no-color`, and `--non-interactive`. Set `BDFL_VERSION` without a leading `v` to pin a release. Windows installation is coming soon.
 
-Claude Code:
+See [INSTALL.md](INSTALL.md) for paths and troubleshooting.
 
-```text
-/bdfl on
-Build the API and CLI as independent tasks, then validate them together.
-```
+</details>
 
-Codex:
-
-```text
-$bdfl on
-Split the provider implementation, tests, and documentation into safe tasks.
-```
-
-Native host planning stays native. When a plan is completed, BDFL's silent hook captures it under `.bdfl/plans/`. Rejected proposals and later revisions remain available; leaving and re-entering plan mode starts another plan episode.
-
-## Scheduling lifecycle
-
-```text
-request → manifest → isolated task attempts → automatic attention events
-        → View / Accept / Decline → newly unblocked dependencies
-        → isolated batch integration → View / Accept / Decline → main
-```
-
-`dispatch` validates the manifest, starts eligible agents, and waits until one or more need attention. `continue` presents all current events in one native form with independent answers and then resumes only the affected sessions.
-
-- Questions use generated choices when available, otherwise free text.
-- Permission requests use explicit Approve/Deny choices.
-- Completion reviews use View/Accept/Decline.
-- View returns file names, diffstat, and a paginated patch without resolving review.
-- Accept approves the task and schedules newly unblocked dependencies immediately.
-- Decline requires feedback, preserves the old attempt, and starts a fresh attempt.
-
-After every task is accepted, BDFL combines approved checkpoint commits in a separate integration worktree and runs batch validation. Nothing reaches the main worktree until the final integration review is explicitly accepted.
-
-## Commands
-
-There is one public command skill. No argument means `on`.
-
-| Purpose | Claude Code | Codex |
-|---|---|---|
-| Activate | `/bdfl on` | `$bdfl on` |
-| Deactivate after active work resolves | `/bdfl off` | `$bdfl off` |
-| Choose a discovered model and effort | `/bdfl models` | `$bdfl models` |
-| Review captured plans and versions | `/bdfl plans` | `$bdfl plans` |
-| Inspect or cancel tasks | `/bdfl tasks` | `$bdfl tasks` |
-| Inspect or cancel agents | `/bdfl agents` | `$bdfl agents` |
-| Show authoritative help | `/bdfl help` | `$bdfl help` |
-
-Runnable Claude Code examples:
-
-```text
-/bdfl on
-/bdfl off
-/bdfl models
-/bdfl plans
-/bdfl tasks
-/bdfl agents
-/bdfl help
-```
-
-Runnable Codex examples:
-
-```text
-$bdfl on
-$bdfl off
-$bdfl models
-$bdfl plans
-$bdfl tasks
-$bdfl agents
-$bdfl help
-```
-
-`tasks` and `agents` are on-demand inspection and cancellation views, not polling commands. Agent questions appear automatically. `workflow`, `inbox`, and `capture-plan` are not commands; help returns the real command list if one is attempted.
-
-## Models
-
-Model selection is runtime-discovered and two-step: choose the model first, then one of its supported effort levels.
-
-- Codex models and efforts come from visible entries in `codex debug models`.
-- Claude honors configured `availableModels`; otherwise it uses documented built-in aliases and effort levels exposed by the installed CLI.
-- Claude-only installations show Claude models, Codex-only installations show Codex models, and dual installations show both.
-- Discovery failure invents no fallback. An existing selection is retained only while available; otherwise the invoking host's discovered default is selected.
-- User-added model specifications remain in settings separately from discovered entries.
-
-Model specifications use `provider:exact-model:exact-effort`. Provider implementations for Ollama remain in the repository, but Ollama support and setup are coming soon; fresh settings contain no Ollama model.
-
-## Safety and recovery
-
-- Each attempt checkpoints only its allowed paths and runs its task validation before review.
-- Main-worktree dirt blocks dispatch instead of being silently captured or overwritten.
-- Provider session IDs are retained, and answers resume through supported Claude/Codex continuation commands rather than signals or stdin protocols.
-- MCP cancellation or host shutdown marks live processes interrupted and preserves state.
-- The next activation offers Continue, Manage tasks, Archive run, or Cancel run. BDFL never chooses recovery for you.
-- Prompts, logs, plan bodies, and patches stay out of compact tool results unless their view is explicitly requested.
-- Agent branches never merge directly into `main`; accepted work goes through isolated batch integration and validation.
-
-Read [Permissions](docs/PERMISSIONS.md), [Recovery](docs/RECOVERY.md), and [Architecture](docs/ARCHITECTURE.md) for the detailed contracts.
-
-## Uninstall
-
-Global uninstall:
+<details>
+<summary>Uninstall</summary>
 
 ```bash
 curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.sh | sh
 ```
 
-Project-local uninstall:
+For a project-local installation, add `-s -- --local`. The uninstaller removes MCP registrations, runtime files, BDFL hook entries, and receipt-owned legacy skills. It restores the exact prior Claude status-line configuration and preserves unrelated host settings. Project `.bdfl/` recovery data remains unless you explicitly add `--purge`.
+
+</details>
+
+## Development
+
+`src/` is the canonical runtime. `plugins/bdfl/runtime/` is generated:
 
 ```bash
-curl -fsSL https://github.com/thisisnsh/bdfl/releases/latest/download/uninstall.sh | sh -s -- --local
+npm run package
+npm test
+npm run validate
 ```
 
-The uninstaller removes receipt-owned skills, runtime files, MCP registrations, and only BDFL's hook entries, restoring recorded host configuration while preserving unrelated hooks. `.bdfl/` recovery data remains by default. Add `--purge` only when you intend to permanently delete it.
-
-Windows uninstallation is coming soon.
-
-[Contributing](CONTRIBUTING.md) · [Release guide](RELEASE.md) · [Security](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [MIT license](LICENSE)
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PERMISSIONS.md](docs/PERMISSIONS.md), [RECOVERY.md](docs/RECOVERY.md), and [CONTRIBUTING.md](CONTRIBUTING.md).
