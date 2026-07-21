@@ -19,6 +19,8 @@ function fixture(t) {
   }
   fs.writeFileSync(path.join(source, 'src', 'mcp', 'server.js'), 'module.exports = {};\n');
   fs.writeFileSync(path.join(source, 'bin', 'bdfl-mcp.js'), '#!/usr/bin/env node\n');
+  fs.writeFileSync(path.join(source, 'bin', 'bdfl-hook.js'), '#!/usr/bin/env node\n');
+  fs.writeFileSync(path.join(source, 'bin', 'bdfl-statusline.js'), '#!/usr/bin/env node\n');
   fs.writeFileSync(path.join(source, 'bin', 'bdfl.js'), '#!/usr/bin/env node\n');
   fs.writeFileSync(path.join(source, 'bin', 'bdfl'), '#!/bin/sh\n');
   fs.writeFileSync(path.join(source, 'package.json'), '{}\n');
@@ -69,7 +71,8 @@ test('dry-run installs no skills and one direct MCP registration per host', (t) 
 test('installation is repeatable and uninstall removes runtime and MCP registrations', (t) => {
   const { source, paths, calls, mcps, run } = fixture(t);
   fs.mkdirSync(path.dirname(paths.claudeSettings), { recursive: true });
-  fs.writeFileSync(paths.claudeSettings, '{"theme":"dark"}\n');
+  const originalStatusLine = { type: 'command', command: 'printf original', padding: 2 };
+  fs.writeFileSync(paths.claudeSettings, `${JSON.stringify({ theme: 'dark', statusLine: originalStatusLine })}\n`);
   const installer = new Installer({ sourceRoot: source, paths, run });
   installer.install({ force: false }, { claude: true, codex: true, ollama: false });
   installer.install({ force: false }, { claude: true, codex: true, ollama: false });
@@ -77,17 +80,21 @@ test('installation is repeatable and uninstall removes runtime and MCP registrat
   assert.equal(fs.existsSync(paths.codexSkill), false);
   assert.equal(fs.existsSync(path.join(paths.runtime, 'bin', 'bdfl-mcp.js')), true);
   assert.deepEqual(Object.keys(mcps).sort(), ['claude', 'codex']);
-  assert.equal(JSON.parse(fs.readFileSync(paths.claudeSettings)).statusLine, undefined);
-  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(paths.claudeSettings)).hooks).sort(), ['PostToolUse', 'PreToolUse']);
-  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(paths.codexHooks)).hooks), ['Stop']);
+  const installedSettings = JSON.parse(fs.readFileSync(paths.claudeSettings));
+  assert.match(installedSettings.statusLine.command, /bdfl-statusline\.js/);
+  assert.equal(installedSettings.statusLine.padding, 2);
+  assert.deepEqual(Object.keys(installedSettings.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart']);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(paths.codexHooks)).hooks).sort(), ['SessionStart', 'Stop']);
   assert.equal(fs.lstatSync(paths.launcher).isSymbolicLink(), true);
   assert.ok(calls.some(([, args]) => args.join(' ').includes('mcp add --scope user bdfl --')));
   assert.ok(calls.some(([, args]) => args.join(' ').includes('mcp add bdfl --')));
   const claudeMcp = calls.find(([command, args]) => command === 'claude' && args.join(' ').includes('mcp add --scope user bdfl --'));
   assert.equal(claudeMcp[2].cwd, paths.projectRoot);
   assert.equal(claudeMcp[2].env.CLAUDE_CONFIG_DIR, undefined);
+  assert.deepEqual(mcps.claude.args.slice(-4), ['--host', 'claude', '--registry', path.join(path.dirname(paths.receipt), 'processes.json')]);
+  assert.deepEqual(mcps.codex.args.slice(-4), ['--host', 'codex', '--registry', path.join(path.dirname(paths.receipt), 'processes.json')]);
   installer.uninstall({ dryRun: false });
-  assert.deepEqual(JSON.parse(fs.readFileSync(paths.claudeSettings)), { theme: 'dark' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(paths.claudeSettings)), { theme: 'dark', statusLine: originalStatusLine });
   assert.equal(fs.existsSync(paths.claudeSkill), false);
   assert.equal(fs.existsSync(paths.codexSkill), false);
   assert.equal(fs.existsSync(paths.runtime), false);
@@ -199,7 +206,7 @@ test('formats MCP-only installation without ANSI', (t) => {
   assert.match(output, /Ollama \(coming soon\)/);
   assert.doesNotMatch(output, /skill/);
   assert.match(output, /Claude MCP registration/);
-  assert.match(output, /Claude plan capture hook/);
+  assert.match(output, /Claude startup and plan hooks/);
   assert.doesNotMatch(output, /marketplace registration|plugin install/);
   assert.doesNotMatch(output, /\u001b\[/);
 });

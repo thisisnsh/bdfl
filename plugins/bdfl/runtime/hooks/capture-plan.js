@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { PlanStore, atomicWrite } = require('../core/plans');
+const { hostIsLive } = require('../host/presence');
 
 function gitRoot(cwd, run = execFileSync) {
   if (!cwd || !path.isAbsolute(cwd)) return null;
@@ -28,11 +29,7 @@ function writeHookState(root, state, io = fs) { atomicWrite(stateFile(root), `${
 
 function activeRepository(payload, run = execFileSync, io = fs) {
   const root = gitRoot(payload.cwd, run);
-  if (!root || !io.existsSync(path.join(root, '.bdfl', 'state.json'))) return null;
-  try {
-    const state = JSON.parse(io.readFileSync(path.join(root, '.bdfl', 'state.json'), 'utf8'));
-    return state.runs?.some((item) => ['pending', 'running', 'waiting', 'review', 'approved', 'validating'].includes(item.status)) ? root : null;
-  } catch { return null; }
+  return root || null;
 }
 
 function captureClaude(payload, root, store, io = fs) {
@@ -83,6 +80,8 @@ function captureCodex(payload, root, store, io = fs) {
 
 function handleHook(host, payload, options = {}) {
   const io = options.io || fs;
+  const live = options.hostIsLive || hostIsLive;
+  if (!live(host, options.registryFile, { io })) return null;
   const root = activeRepository(payload, options.run || execFileSync, io);
   if (!root) return null;
   const store = options.store || new PlanStore(root, { io });

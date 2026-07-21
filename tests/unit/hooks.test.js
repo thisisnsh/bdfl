@@ -22,12 +22,13 @@ function repository(t) {
 test('Claude captures rejected revisions in one episode and separates a later episode', (t) => {
   const { root, store } = repository(t);
   const base = { cwd: root, session_id: 'session', hook_event_name: 'PreToolUse', tool_name: 'ExitPlanMode' };
-  handleHook('claude', { ...base, tool_input: { plan: '# Initial', planFilePath: '/plans/one.md' } }, { store });
-  handleHook('claude', { ...base, tool_input: { plan: '# Revised', planFilePath: '/plans/one.md' } }, { store });
+  const options = { store, hostIsLive: () => true };
+  handleHook('claude', { ...base, tool_input: { plan: '# Initial', planFilePath: '/plans/one.md' } }, options);
+  handleHook('claude', { ...base, tool_input: { plan: '# Revised', planFilePath: '/plans/one.md' } }, options);
   assert.equal(store.list().length, 1);
   assert.equal(store.list()[0].versions.length, 2);
-  handleHook('claude', { ...base, hook_event_name: 'PostToolUse', tool_input: {} }, { store });
-  handleHook('claude', { ...base, tool_input: { plan: '# Later', planFilePath: '/plans/two.md' } }, { store });
+  handleHook('claude', { ...base, hook_event_name: 'PostToolUse', tool_input: {} }, options);
+  handleHook('claude', { ...base, tool_input: { plan: '# Later', planFilePath: '/plans/two.md' } }, options);
   assert.equal(store.list().length, 2);
 });
 
@@ -37,15 +38,25 @@ test('Codex captures the newest complete proposed plan and recognizes plan episo
   fs.writeFileSync(transcript, 'old <proposed_plan># One</proposed_plan> newer <proposed_plan># Two</proposed_plan>');
   assert.equal(newestProposedPlan(transcript), '# Two');
   const base = { cwd: root, session_id: 'session', transcript_path: transcript, hook_event_name: 'Stop' };
-  handleHook('codex', { ...base, permission_mode: 'plan' }, { store });
-  handleHook('codex', { ...base, permission_mode: 'default' }, { store });
+  const options = { store, hostIsLive: () => true };
+  handleHook('codex', { ...base, permission_mode: 'plan' }, options);
+  handleHook('codex', { ...base, permission_mode: 'default' }, options);
   fs.appendFileSync(transcript, '<proposed_plan># Three</proposed_plan>');
-  handleHook('codex', { ...base, permission_mode: 'plan' }, { store });
+  handleHook('codex', { ...base, permission_mode: 'plan' }, options);
   assert.equal(store.list().length, 2);
 });
 
 test('hooks are silent outside active Git repositories', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-nohook-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  assert.equal(handleHook('codex', { cwd: root, hook_event_name: 'Stop', permission_mode: 'plan' }), null);
+  assert.equal(handleHook('codex', { cwd: root, hook_event_name: 'Stop', permission_mode: 'plan' }, { hostIsLive: () => true }), null);
+});
+
+test('plan capture is gated by matching host MCP presence, not an activation record', (t) => {
+  const { root, store } = repository(t);
+  fs.rmSync(path.join(root, '.bdfl', 'state.json'));
+  const payload = { cwd: root, session_id: 'session', hook_event_name: 'PreToolUse', tool_name: 'ExitPlanMode', tool_input: { plan: '# Captured' } };
+  assert.equal(handleHook('claude', payload, { store, hostIsLive: () => false }), null);
+  handleHook('claude', payload, { store, hostIsLive: (host) => host === 'claude' });
+  assert.equal(store.list().length, 1);
 });

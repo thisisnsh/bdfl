@@ -311,9 +311,10 @@ class Installer {
       receipt.previous.mcp[host] = existing;
     }
     if (existing) this.removeMcp(host);
-    this.addMcp(host, process.execPath, [runtime]);
+    const args = [runtime, '--host', host, '--registry', path.join(path.dirname(this.paths.receipt), 'processes.json')];
+    this.addMcp(host, process.execPath, args);
     receipt.managed.mcp ||= {};
-    receipt.managed.mcp[host] = { command: process.execPath, args: [runtime] };
+    receipt.managed.mcp[host] = { command: process.execPath, args };
   }
 
   cleanLegacy(host, receipt) {
@@ -399,13 +400,18 @@ class Installer {
         this.cleanLegacy(operation.host, receipt);
       } else if (operation.type === 'settings-cleanup') {
         const current = readJson(operation.path, {});
-        writeJson(operation.path, removeBdflStatusLine(current, receipt.previous.claudeSettings));
+        const executable = path.join(this.paths.runtime, 'bin', 'bdfl-statusline.js');
+        const command = `"${process.execPath}" "${executable}" "${this.paths.receipt}"`;
+        writeJson(operation.path, { ...current, statusLine: { ...(current.statusLine || {}), type: 'command', command } });
+        receipt.managed.statusLine = { path: operation.path, command };
       } else if (operation.type === 'hooks') {
         const current = readJson(operation.path, {});
         receipt.previous.hooks[operation.host] ||= structuredClone(current.hooks || {});
         const executable = path.join(this.paths.runtime, 'bin', 'bdfl-hook.js');
-        const command = `"${process.execPath}" "${executable}" ${operation.host}`;
+        const registry = path.join(path.dirname(this.paths.receipt), 'processes.json');
+        const command = `"${process.execPath}" "${executable}" ${operation.host} "${registry}"`;
         let next = current;
+        next = mergeCommandHook(next, 'SessionStart', command);
         if (operation.host === 'claude') {
           next = mergeCommandHook(next, 'PreToolUse', command, 'ExitPlanMode');
           next = mergeCommandHook(next, 'PostToolUse', command, 'ExitPlanMode');
@@ -520,8 +526,8 @@ function operationLabel(operation) {
   if (operation.type === 'runtime') return `Shared BDFL runtime      ${operation.to}`;
   if (operation.type === 'mcp') return `${operation.host === 'claude' ? 'Claude' : 'Codex'} MCP registration   bdfl`;
   if (operation.type === 'legacy-cleanup') return `${operation.host === 'claude' ? 'Claude' : 'Codex'} legacy plugin cleanup`;
-  if (operation.type === 'settings-cleanup') return `Remove legacy status UI ${operation.path}`;
-  if (operation.type === 'hooks') return `${operation.host === 'claude' ? 'Claude' : 'Codex'} plan capture hook`;
+  if (operation.type === 'settings-cleanup') return `Claude composed status line ${operation.path}`;
+  if (operation.type === 'hooks') return `${operation.host === 'claude' ? 'Claude' : 'Codex'} startup and plan hooks`;
   if (operation.type === 'launcher') return `Compatibility launcher  ${operation.path}`;
   return `Installation receipt    ${operation.path}`;
 }

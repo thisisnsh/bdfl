@@ -182,7 +182,8 @@ class BdflMcpServer {
     id = () => crypto.randomUUID(),
     now = () => new Date(),
     planStoreFactory = (root) => new PlanStore(root, { id, now }),
-    coordinatorFactory
+    coordinatorFactory,
+    onInitialize = () => {}
   } = {}) {
     this.input = input;
     this.output = output;
@@ -195,6 +196,8 @@ class BdflMcpServer {
     this.coordinatorFactory = coordinatorFactory || ((root, store) => new ProjectCoordinator(root, { store, settingsLoader, id, now }));
     this.id = id;
     this.now = now;
+    this.onInitialize = onInitialize;
+    this.initialized = false;
     this.projects = new Map();
     this.clientCapabilities = {};
     this.nextRequestId = 1;
@@ -507,6 +510,10 @@ class BdflMcpServer {
         serverInfo: { name: 'bdfl', version: '1.0.0' },
         instructions: INSTRUCTIONS
       });
+      if (!this.initialized) {
+        this.initialized = true;
+        this.onInitialize();
+      }
       return;
     }
     if (message.method === 'notifications/initialized') return;
@@ -537,9 +544,11 @@ class BdflMcpServer {
       try { void this.handleMessage(JSON.parse(line)); }
       catch (error) { this.send({ jsonrpc: '2.0', error: { code: -32700, message: error.message } }); }
     });
-    lines.on('close', () => { for (const project of this.projects.values()) project.coordinator.recoverStaleProcesses(); });
+    lines.on('close', () => this.shutdown());
     return lines;
   }
+
+  shutdown() { for (const project of this.projects.values()) project.coordinator.recoverStaleProcesses(); }
 }
 
 if (require.main === module) new BdflMcpServer().start();

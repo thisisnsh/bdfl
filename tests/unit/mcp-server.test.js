@@ -105,6 +105,16 @@ test('advertises only the compact management, dispatch, and continue tools', asy
   assert.match(fix.messages[0].result.instructions, /remains valid.*later approval/i);
 });
 
+test('marks host presence only after one successful initialization', async () => {
+  const fix = fixture();
+  let initialized = 0;
+  fix.server.onInitialize = () => { initialized += 1; };
+  assert.equal(initialized, 0);
+  await initialize(fix);
+  await initialize(fix);
+  assert.equal(initialized, 1);
+});
+
 test('invalid workflow command returns authoritative help instead of an empty object', async () => {
   const fix = fixture();
   await initialize(fix);
@@ -250,4 +260,11 @@ test('activation exclusion adds .bdfl once to Git local metadata', (t) => {
   ensureGitExclude(root);
   const exclude = fs.readFileSync(path.join(root, '.git', 'info', 'exclude'), 'utf8');
   assert.equal(exclude.split('\n').filter((line) => line === '.bdfl/').length, 1);
+});
+
+test('shutdown recovery interrupts provider processes', () => {
+  const fix = fixture();
+  fix.server.project('/repo');
+  fix.server.shutdown();
+  assert.equal(fix.calls.filter((entry) => entry === 'recover').length, 1);
 });
