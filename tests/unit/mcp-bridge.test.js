@@ -49,6 +49,13 @@ test('authenticates loopback bridge requests and exposes only role tools', async
   await assert.rejects(controlRequest(issued.url, 'wrong-token', { method: 'tools' }, { retries: 0 }), /Unauthorized/);
 });
 
+test('capability rotation removes stale proxies without losing a healthy replacement', () => {
+  const lost = []; const server = new ControlServer({ planService: {}, workerService: {}, heartbeatTimeout: 100, onProxyLost: (...args) => lost.push(args) }); const capability = { sessionId: 'session', workstreamId: 'workstream' };
+  server.proxies.set('old', { capability, lastSeen: 0, registeredAt: 0 }); server.issue(capability); assert.equal(server.proxies.size, 0);
+  server.proxies.set('stale', { capability, lastSeen: 0, registeredAt: 0 }); server.proxies.set('healthy', { capability, lastSeen: 150, registeredAt: 100 }); server.checkHeartbeats(200); assert.deepEqual([...server.proxies.keys()], ['healthy']); assert.deepEqual(lost, []);
+  server.checkHeartbeats(251); assert.equal(server.proxies.size, 0); assert.equal(lost.length, 1); assert.equal(lost[0][0], 'session');
+});
+
 function responses(stream) { const values = []; let buffer = ''; stream.on('data', (chunk) => { buffer += chunk; let newline; while ((newline = buffer.indexOf('\n')) >= 0) { values.push(JSON.parse(buffer.slice(0, newline))); buffer = buffer.slice(newline + 1); } }); return values; }
 async function next(values, count) { for (let attempt = 0; attempt < 100 && values.length < count; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5)); return values[count - 1]; }
 
