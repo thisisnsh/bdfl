@@ -1,8 +1,25 @@
 'use strict';
-const test = require('node:test'); const assert = require('node:assert/strict'); const { claudeAliases, claudeCatalog, codexCatalog, discoverProviderCatalogs } = require('../../src/providers/models');
+const test = require('node:test'); const assert = require('node:assert/strict'); const { claudeCatalog, claudeModels, codexCatalog, codexModels, discoverProviderCatalogs } = require('../../src/providers/models');
 
-test('reads live models and effort levels from provider-owned catalogs', () => { const io = { readFileSync() { return JSON.stringify({ additionalModelOptionsCache: [{ value: 'claude-new[1m]', label: 'Claude New' }] }); } }; const run = (command) => command === 'codex' ? { status: 0, stdout: JSON.stringify({ models: [{ slug: 'gpt-new', display_name: 'GPT New', visibility: 'list', priority: 1, default_reasoning_level: 'high', supported_reasoning_levels: [{ effort: 'low' }, { effort: 'high' }] }, { slug: 'hidden', visibility: 'hide' }] }) } : { status: 0, stdout: "  --effort <level>  Effort (low, medium, high, xhigh, max)\n  --model <model>  Provide an alias (e.g. 'future', 'opus', or 'sonnet') or a model's full name (e.g. 'claude-future-6').\n  --permission-mode <mode>" }; const codex = codexCatalog({ run }); const claude = claudeCatalog({ io, home: '/tmp', run }); assert.deepEqual(codex, [{ id: 'gpt-new', label: 'GPT New', efforts: ['low', 'high'], defaultEffort: 'high' }]); assert.deepEqual(claude.map((model) => model.id), ['future', 'opus', 'sonnet', 'claude-new[1m]']); assert.deepEqual(claude[0].efforts, ['low', 'medium', 'high', 'xhigh', 'max']); });
+const efforts = ['low', 'medium', 'high'];
+const entry = (id) => ({ id, label: id, efforts, defaultEffort: 'medium' });
 
-test('derives Claude aliases from the installed CLI instead of a product-owned list', () => { const first = "  --model <model>  Alias (e.g. 'alpha', or 'beta') or a\n                       model's full name (e.g. 'claude-alpha-1').\n  --permission-mode <mode>"; const next = "  --model <model>  Alias (e.g. 'gamma') or a model's full name.\n  --permission-mode <mode>"; assert.deepEqual(claudeAliases(first), ['alpha', 'beta']); assert.deepEqual(claudeAliases(next), ['gamma']); });
+test('returns the exact ordered built-in catalogs', () => {
+  assert.deepEqual(claudeModels(), ['fable', 'opus', 'sonnet', 'haiku']);
+  assert.deepEqual(codexModels(), ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']);
+  assert.deepEqual(claudeCatalog(), ['fable', 'opus', 'sonnet', 'haiku'].map(entry));
+  assert.deepEqual(codexCatalog(), ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'].map(entry));
+});
 
-test('discovers only provider executables installed on PATH', () => { const io = { accessSync(file) { if (!file.endsWith('codex')) throw Object.assign(new Error('missing'), { code: 'ENOENT' }); }, readFileSync() { return '{}'; } }; const run = () => ({ status: 0, stdout: JSON.stringify({ models: [] }) }); assert.deepEqual(Object.keys(discoverProviderCatalogs({ io, env: { PATH: '/tools' }, run, home: '/tmp' })), ['codex']); });
+test('discovers only provider executables on PATH without querying provider state', () => {
+  const probes = [];
+  const io = {
+    accessSync(file) { probes.push(file); if (!file.endsWith('codex')) throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+    readFileSync() { throw new Error('account files must not be read'); }
+  };
+  const run = () => { throw new Error('provider CLIs must not be invoked'); };
+  const catalogs = discoverProviderCatalogs({ io, env: { PATH: '/tools' }, run, home: '/tmp' });
+  assert.deepEqual(Object.keys(catalogs), ['codex']);
+  assert.deepEqual(catalogs.codex, codexCatalog());
+  assert.deepEqual(probes, ['/tools/claude', '/tools/codex']);
+});

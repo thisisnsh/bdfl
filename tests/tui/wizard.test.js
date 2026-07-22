@@ -16,19 +16,33 @@ test('expands each setup section directly beneath its heading', () => {
   assert.doesNotMatch(first, /delegatorProvider/);
   wizard.handle('\r');
   assert.equal(wizard.key(), 'delegatorModel');
-  assert.match(wizard.render(), /2\. Delegator model[^\n]*\n[^\n]*Models are read[^\n]*\n[^\n]*opus[^\n]*\n[^\n]*sonnet/);
+  assert.match(wizard.render(), /2\. Delegator model[^\n]*\n[^\n]*built-in model[^\n]*\n[^\n]*opus[^\n]*\n[^\n]*sonnet/);
 });
 
-test('shows only installed tools and model-specific effort levels under the model section', () => {
-  const wizard = new WorkstreamWizard({ catalogs: { codex: [{ id: 'gpt-live', label: 'GPT Live', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], defaultEffort: 'high' }] } });
+test('renders fixed model IDs once and offers every effort level', () => {
+  const ids = ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'];
+  const wizard = new WorkstreamWizard({ catalogs: { codex: ids.map((id) => ({ id, label: id, efforts: ['max'], defaultEffort: 'max' })) } });
   assert.deepEqual(wizard.options(), ['codex']);
   wizard.handle('\r');
-  assert.deepEqual(wizard.options(), ['gpt-live', 'Type a model ID…']);
+  assert.deepEqual(wizard.options(), [...ids, 'Type a model ID…']);
+  const modelScreen = wizard.render().replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+  assert.equal(modelScreen.match(/gpt-5\.6-sol/g)?.length, 1);
   wizard.handle('\r');
   assert.equal(wizard.key(), 'delegatorEffort');
   assert.deepEqual(wizard.options(), ['low', 'medium', 'high']);
-  assert.match(wizard.render(), /2\. Delegator model[^\n]*gpt-live[^\n]*\n[^\n]*How much reasoning[^\n]*\n[^\n]*Low[^\n]*\n[^\n]*Medium[^\n]*\n[^\n]*High/);
+  assert.match(wizard.render(), /2\. Delegator model[^\n]*gpt-5\.6-sol[^\n]*\n[^\n]*How much reasoning[^\n]*\n[^\n]*Low[^\n]*\n[^\n]*Medium[^\n]*\n[^\n]*High/);
   assert.doesNotMatch(wizard.render(), /Extra high|Maximum/);
+});
+
+test('accepts a custom planning model and offers all effort levels', () => {
+  const wizard = new WorkstreamWizard({ models: { claude: ['opus'] } });
+  wizard.handle('\r');
+  wizard.handle('\u001b[B');
+  wizard.handle('\r');
+  enter(wizard, 'vendor/custom-planner');
+  assert.equal(wizard.values.delegatorModel, 'vendor/custom-planner');
+  assert.equal(wizard.key(), 'delegatorEffort');
+  assert.deepEqual(wizard.options(), ['low', 'medium', 'high']);
 });
 
 test('accepts delegator and worker options, custom worker models, and defaults capacity to five', () => {

@@ -6,11 +6,11 @@ const STEPS = ['preset', 'delegatorProvider', 'delegatorModel', 'delegatorEffort
 const COPY = {
   preset: ['Create a new session', 'Reuse your previous setup or customize a fresh session.'],
   delegatorProvider: ['Choose your planning agent', 'This is the main agent you talk with. It stays read-only and coordinates the work.'],
-  delegatorModel: ['Choose the planning model', 'Models are read from the selected provider on this machine.'],
+  delegatorModel: ['Choose the planning model', 'Choose a built-in model or enter a model ID manually.'],
   delegatorArgs: ['Planning agent options', 'Optional CLI arguments, such as --search. BDFL adds model, permissions, and session flags.'],
   delegatorEffort: ['Planning effort', 'How much reasoning the planning agent should use.'],
   workerProvider: ['Choose the worker tool', 'Workers connect through BDFL’s MCP workflow and implement approved chunks.'],
-  workerModel: ['Choose the worker model', 'Models are read live from the selected worker tool.'],
+  workerModel: ['Choose the worker model', 'Choose a built-in model or enter a model ID manually.'],
   workerEffort: ['Worker effort', 'How much reasoning each worker should use.'],
   workerArgs: ['Worker agent options', 'Optional CLI arguments, such as --search. BDFL adds model, permissions, and session flags.'],
   workerCapacity: ['Parallel worker capacity', 'Maximum active workers. Five is the default; dependencies still run in order.'],
@@ -34,7 +34,7 @@ function display(value) { return LABELS[value] || `${value}`; }
 function profileSummary(profile) { return `${display(profile.provider)} · ${profile.model} · ${display(profile.effort)}${profile.argv?.length ? ` · ${profile.argv.join(' ')}` : ''}`; }
 
 class WorkstreamWizard {
-  constructor({ catalogs, models, lastUsed = null } = {}) { this.catalogs = catalogs || (models ? Object.fromEntries(Object.entries(models).map(([provider, values]) => [provider, values.map((id) => ({ id, label: id, efforts: ['medium', 'low', 'high'], defaultEffort: 'medium' }))])) : discoverProviderCatalogs()); this.models = Object.fromEntries(Object.entries(this.catalogs).map(([provider, values]) => [provider, values.map((model) => model.id)])); const available = (profile) => Array.isArray(this.models[profile?.provider]) && typeof profile.model === 'string' && Boolean(profile.model) && typeof profile.effort === 'string' && Boolean(profile.effort); this.lastUsed = lastUsed && available(lastUsed.delegatorProfile) && available(lastUsed.workerProfile) ? structuredClone(lastUsed) : null; if (this.lastUsed) this.lastUsed.workerProfile.permissionMode = 'workspace-write'; this.step = this.lastUsed ? 0 : 1; this.selection = 0; this.values = { workerCapacity: 5 }; this.input = ''; this.message = ''; this.history = []; }
+  constructor({ catalogs, models, lastUsed = null } = {}) { this.catalogs = catalogs || (models ? Object.fromEntries(Object.entries(models).map(([provider, values]) => [provider, values.map((id) => ({ id, label: id, efforts: [...REASONING_EFFORTS], defaultEffort: 'medium' }))])) : discoverProviderCatalogs()); this.models = Object.fromEntries(Object.entries(this.catalogs).map(([provider, values]) => [provider, values.map((model) => model.id)])); const available = (profile) => Array.isArray(this.models[profile?.provider]) && typeof profile.model === 'string' && Boolean(profile.model) && typeof profile.effort === 'string' && Boolean(profile.effort); this.lastUsed = lastUsed && available(lastUsed.delegatorProfile) && available(lastUsed.workerProfile) ? structuredClone(lastUsed) : null; if (this.lastUsed) this.lastUsed.workerProfile.permissionMode = 'workspace-write'; this.step = this.lastUsed ? 0 : 1; this.selection = 0; this.values = { workerCapacity: 5 }; this.input = ''; this.message = ''; this.history = []; }
   key() { return STEPS[this.step]; }
   modelOptions(provider) { return this.models[provider] || []; }
   model(provider, id) { return (this.catalogs[provider] || []).find((model) => model.id === id); }
@@ -45,7 +45,7 @@ class WorkstreamWizard {
     if (key === 'delegatorProvider' || key === 'workerProvider') return Object.keys(this.catalogs);
     if (key === 'delegatorModel') return [...this.modelOptions(this.values.delegatorProvider), 'Type a model ID…'];
     if (key === 'workerModel') return [...this.modelOptions(this.values.workerProvider), 'Type a model ID…'];
-    if (key === 'delegatorEffort' || key === 'workerEffort') { const prefix = key.startsWith('delegator') ? 'delegator' : 'worker'; const model = this.model(this.values[`${prefix}Provider`], this.values[`${prefix}Model`]); const supported = new Set(model?.efforts?.length ? model.efforts : REASONING_EFFORTS); const efforts = REASONING_EFFORTS.filter((effort) => supported.has(effort)); return efforts.length ? efforts : ['medium']; }
+    if (key === 'delegatorEffort' || key === 'workerEffort') return [...REASONING_EFFORTS];
     if (key === 'confirmation') return ['Create session', 'Go back'];
     return [];
   }
@@ -114,7 +114,7 @@ class WorkstreamWizard {
       } else if (key === 'confirmation') {
         lines.push(...this.visibleOptions().map(({ option, index }) => optionLine(option, index)));
       } else if (!this.options().length) {
-        lines.push(`${COLOR.error}${COLOR.bold}! No installed agent with an available model catalog was found.${COLOR.reset}`);
+        lines.push(`${COLOR.error}${COLOR.bold}! No supported agent executable was found on PATH.${COLOR.reset}`);
       } else {
         lines.push(...this.visibleOptions().map(({ option, index }) => optionLine(option, index)));
       }
