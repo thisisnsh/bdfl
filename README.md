@@ -71,13 +71,13 @@ npm install --global @thisisnsh/bdfl@staging
 
 ## The workflow
 
-1. **Choose the lead.** Start a workstream with delegator and worker model profiles.
+1. **Choose the lead.** Start a session with planning-agent and worker model profiles.
 2. **Shape the plan.** BDFL injects `bdfl-plan` only into the read-only delegator. It defines shared decisions, owned paths, real dependencies, locks, local checks, and global validation.
 3. **Approve what matters.** Review clean native Markdown section by section. Approvals bind the exact section SHA. Targeted revisions preserve unrelated approvals.
 4. **Run only eligible work.** Roots start first. Dependents wait for accepted predecessor commits. Capacity limits active PTYs; it never invents filler chunks.
 5. **Review real changes.** BDFL checks actual paths and deterministic commands, then shows the chunk, diff, checks, and commit metadata.
 6. **Verify the whole.** A fresh read-only worker sees the consolidated result and runs global validation.
-7. **Integrate once.** If the original target is still clean and unchanged, BDFL creates one workstream commit.
+7. **Integrate once.** If the original target is still clean and unchanged, BDFL creates one integration commit.
 
 ## Why BDFL
 
@@ -96,19 +96,25 @@ npm install --global @thisisnsh/bdfl@staging
 ```text
 ┌─ bdfl 0.1.0 ───────── [New] [Plans] [Sessions] [Review] [Close] [Quit] ┐
 │                                                                       │
-│ [5]V┃              Delegator / Worker / Native pane                   │
-│ [4]W┃                                                                  │
-│ [3]!┃                                                                  │
-│ [2]P┃                                                                  │
-│ [1]D┃                                                                  │
+│                Delegator / Worker / Native pane                       │
 │                                                                       │
-└─ claude 1 ─────────── codex 2! ─────────── claude 3 ──────────────────┘
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+└─[Claude Code 1]──[Codex 1!]──[Claude Code 2]──────────────────────────┘
+  Press [1] [2] to change agents · Toggle Focus: Ctrl+]   Star on GitHub thisisnsh/bdfl
 ```
 
-- `D` delegator, `W` coding/repair/integration worker, `V` verifier, `P` plan, `R` review.
-- Pane numbers are stable and never reused.
-- `!` persists until the workstream receives attention.
-- Closing a provider stops its PTY without deleting its durable session.
+- Single-agent sessions need no agent selector. In multi-agent sessions, number shortcuts start at 1 independently and appear in the status line.
+- `!` persists until the session receives attention.
+- The active bottom session remains highlighted while focus is inside its agent.
+- Pressing Enter on a highlighted bottom session opens its primary agent directly.
+- **Close** gracefully stops every provider PTY in the active session and hides it without deleting provider resume IDs, models, effort, custom args, or history.
+- **Sessions** lists open and closed sessions. Selecting a closed entry restores every agent through its provider's resume command.
+- **Quit** gracefully stops all provider PTYs but leaves open sessions eligible for automatic restoration the next time `bdfl` starts.
+- The footer keeps the `Ctrl+]` agent/BDFL focus shortcut on the left and a clickable GitHub link on the right.
 - The alternate screen restores your previous terminal scrollback on exit.
 
 ## Safety model
@@ -127,7 +133,7 @@ Read [Permissions](docs/PERMISSIONS.md), [Recovery](docs/RECOVERY.md), [Architec
 
 ```bash
 bdfl                 # open the foreground supervisor
-bdfl status          # summarize local workstreams and active sessions
+bdfl status          # summarize saved sessions and active agents
 bdfl --version       # print the installed version
 bdfl help            # terminal controls and usage
 ```

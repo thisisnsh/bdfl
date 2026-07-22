@@ -1,10 +1,10 @@
 # Recovery and durable sessions
 
-BDFL runs in the foreground, but its work survives a closed pane or supervisor restart. `.bdfl/workspace.json` records workstreams and sessions; plan lineages, executions, worker contexts, worktrees, events, and terminal snapshots live in their dedicated `.bdfl/` directories.
+BDFL runs in the foreground, but its work survives a closed pane or supervisor restart. `.bdfl/workspace.json` records sessions and their agents; plan lineages, executions, worker contexts, worktrees, events, and terminal snapshots live in their dedicated `.bdfl/` directories.
 
-- Closing a provider stops its PTY and marks it explicitly closed. Its provider session ID, role, profile, branch, worktree, plan relationship, and snapshot remain.
-- Reopening uses the provider's interactive resume command with no synthetic prompt.
-- Sessions that were open when BDFL exited are eligible for restoration. Explicitly closed sessions stay closed.
+- **Close** stops a session's PTYs and hides it. Its provider session IDs, roles, profiles, custom argv, branches, worktrees, plan relationships, and snapshots remain; **Sessions** can reopen it later.
+- Reopening uses the provider's exact interactive resume command with no synthetic prompt: `claude --resume <id>` or `codex resume <id>` alongside the saved model, effort, permission, and custom arguments.
+- **Quit** stops all PTYs without marking their sessions closed. Every agent in those sessions launches automatically when BDFL starts again.
 - Native Plan and Review panes reconstruct themselves from files, not model context.
 - One workspace lock prevents concurrent supervisors from mutating state.
 - Unsupported old prerelease state receives a reset/export path instead of a guessed migration.

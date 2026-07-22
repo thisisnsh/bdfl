@@ -4,20 +4,22 @@ const path = require('node:path');
 const { validateProfile } = require('../core/profiles');
 
 const ROLE = "You are this workstream's read-only delegator. Use bdfl-plan whenever creating or revising an implementation plan. Define the smallest useful dependency graph; do not create work merely to fill worker capacity. All implementation must run through approved BDFL workers.";
+const TERMINAL_ENV = { TERM: 'xterm-256color', COLORTERM: 'truecolor' };
 
 function codexSandbox(mode) { return mode === 'full-access' ? 'danger-full-access' : mode === 'workspace-write' ? 'workspace-write' : 'read-only'; }
 
 function buildCodex(profile, options) {
   const common = [...(profile.argv || []), '-m', profile.model, '-c', `model_reasoning_effort="${profile.effort}"`, '--sandbox', codexSandbox(options.permissionMode || 'read-only')];
-  if (options.resume) return { command: 'codex', args: [...common, 'resume', options.sessionId], env: {} };
-  return { command: 'codex', args: common, env: {} };
+  if (options.resume) return { command: 'codex', args: [...common, 'resume', options.sessionId], env: TERMINAL_ENV };
+  return { command: 'codex', args: common, env: TERMINAL_ENV };
 }
 
 function buildClaude(profile, options) {
-  const common = [...(profile.argv || []), '--model', profile.model, '--effort', profile.effort, '--permission-mode', options.permissionMode === 'full-access' ? 'bypassPermissions' : options.permissionMode === 'workspace-write' ? 'acceptEdits' : 'plan'];
+  const common = [...(profile.argv || []), ...(profile.model === 'default' ? [] : ['--model', profile.model]), '--effort', profile.effort, '--permission-mode', options.permissionMode === 'full-access' ? 'bypassPermissions' : options.permissionMode === 'workspace-write' ? 'acceptEdits' : 'plan'];
   if (options.skillDirectory) common.push('--add-dir', options.skillDirectory);
   if (options.resume) common.push('--resume', options.sessionId);
-  return { command: 'claude', args: common, env: {} };
+  else if (options.sessionId) common.push('--session-id', options.sessionId);
+  return { command: 'claude', args: common, env: TERMINAL_ENV };
 }
 
 function buildLaunch(profileValue, options = {}) {
