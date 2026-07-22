@@ -2,15 +2,7 @@
 
 Delegators are always read-only. Planning, conversation, plan revision, and worker coordination never authorize code writes.
 
-Workers use the permission mode selected for their workstream:
-
-| BDFL mode | Intent |
-|---|---|
-| `read-only` | Inspect and verify without changing repository files |
-| `workspace-write` | Write inside the isolated worker worktree |
-| `full-access` | Use the provider's explicitly authorized broad mode |
-
-Provider adapters translate these modes to the provider's native controls. A session retains its launch mode until explicitly restarted. Changing the workstream default does not silently widen a running worker.
+Workers always use BDFL's accept-edits policy inside their isolated worktree. The durable profile records this as `workspace-write`; provider adapters translate it to Claude's `acceptEdits` mode or Codex's workspace-write sandbox. Onboarding states this policy but does not ask users to choose a permission mode.
 
 Permission is only one boundary. BDFL also verifies actual changed paths against the approved chunk, reruns deterministic argv-based checks, keeps conflicts inside integration worktrees, and refuses final integration when the target branch, HEAD, or cleanliness changed.
 
