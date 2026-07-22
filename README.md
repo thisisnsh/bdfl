@@ -110,12 +110,12 @@ npm install --global @thisisnsh/bdfl@staging
 - Planning agents and workers share one bottom navigation rail. Use Left/Right to wrap across every badge; Enter or `Ctrl+]` focuses the selected agent.
 - `*` marks the exact agent that needs attention. Selection preserves it; only giving that provider focus clears it.
 - Planning agents are named `Claude 1`, `Codex 1`, and so on. Workers are numbered independently within their workstream as `W 1`, `W 2`, and so on. **Sessions** can rename either kind of agent.
-- The footer shows the selected agent's latest task without repeating its name, and keeps it visible across BDFL/provider focus changes. It stays empty until a task exists. Its right side alternates between the focus shortcut and the GitHub star reminder.
+- The header actions, agent rail, task status, and footer remain visible across focus changes. A blank row separates a live provider terminal from the bottom agent rail; gray chrome indicates provider focus and yellow chrome indicates BDFL focus.
 - The terminal tab title follows the selected planning workstream, or the active native New, Plans, Sessions, or Review page. A selected worker keeps its parent planning name in the title.
-- **Close** gracefully stops every provider PTY in the active session and hides it without deleting provider resume IDs, models, effort, custom args, or history.
+- **Close** appears only on a live agent session. It gracefully stops every provider PTY in that workstream and hides it without deleting provider resume IDs, models, effort, custom args, or history.
 - **Sessions** keeps workstreams grouped and lists every planning and worker agent with its provider, status, and attention marker. A saved task appears only when one exists. Selecting a closed row restores its parent workstream through each provider's resume command.
 - **Quit** gracefully stops all provider PTYs but leaves open sessions eligible for automatic restoration the next time `bdfl` starts.
-- Wheel and trackpad scrolling works over the visible agent pane even while BDFL owns keyboard focus. Codex uses inline terminal scrollback; mouse-aware Claude Code panes retain their native scrolling behavior and configured speed.
+- Mouse-wheel input is captured so the outer BDFL screen stays fixed. It scrolls an embedded provider only while that provider owns focus. Hold your terminal's mouse-bypass modifier (usually Shift) while dragging to select text.
 - Startup and fatal failures restore the terminal and show a stable error code, readable message, environment versions, and the GitHub issue link instead of a raw JavaScript stack.
 - The alternate screen restores your previous terminal scrollback on exit.
 

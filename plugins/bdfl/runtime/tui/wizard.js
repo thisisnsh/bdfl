@@ -104,7 +104,7 @@ class WorkstreamWizard {
   }
   visibleOptions() { const options = this.options(); if (options.length <= 5) return options.map((option, index) => ({ option, index })); const start = Math.max(0, Math.min(this.selection - 2, options.length - 5)); return options.slice(start, start + 5).map((option, offset) => ({ option, index: start + offset })); }
   render() {
-    const key = this.key(); const [title, description] = COPY[key]; const lines = [`${COLOR.bold}${COLOR.accent}New session${COLOR.reset}`, `${COLOR.dim}Choose the agents and defaults BDFL should restore with this session.${COLOR.reset}`, ''];
+    const key = this.key(); const [title, description] = COPY[key]; const lines = [`${COLOR.selected}New session${COLOR.reset}`, `${COLOR.dim}Choose the agents and defaults BDFL should restore with this session.${COLOR.reset}`, ''];
     const optionLine = (option, index) => index === this.selection ? `${COLOR.bgYellow}${COLOR.black}${COLOR.bold} › ${this.optionLabel(option)} ${COLOR.reset}` : `   ${COLOR.white}${COLOR.bold}${this.optionLabel(option)}${COLOR.reset}`;
     const activeDetails = () => {
       lines.push(`${COLOR.dim}  ${description}${COLOR.reset}`);
@@ -134,7 +134,7 @@ class WorkstreamWizard {
       }
     }
     if (this.message && !this.message.startsWith('Type the model')) lines.push(`${COLOR.error}${COLOR.bold}! ${this.message}${COLOR.reset}`);
-    lines.push('', `${COLOR.dim}↑/↓ choose  •  ← edit previous  •  Enter continue  •  Esc/Ctrl+] back${COLOR.reset}`); return lines.join('\n');
+    lines.push('', `${COLOR.accent}↑/↓ choose  •  ← edit previous  •  Enter continue  •  Esc/Ctrl+] back${COLOR.reset}`); return lines.join('\n');
   }
 }
 
