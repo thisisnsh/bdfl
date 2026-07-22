@@ -103,12 +103,13 @@ npm install --global @thisisnsh/bdfl@staging
 │                                                                       │
 │                                                                       │
 │                                                                       │
-└─[Claude Code 1]──[Codex 1!]──[Claude Code 2]──────────────────────────┘
-  Press [1] [2] to change agents · Toggle Focus: Ctrl+]   Star on GitHub thisisnsh/bdfl
+└─[Claude Code 1]──[Codex 1*]──[Claude Code 2]──────────────────────────┘
+  Press [1] [2*] to change agents · Toggle Focus: Ctrl+]  Star on GitHub thisisnsh/bdfl
 ```
 
 - Single-agent sessions need no agent selector. In multi-agent sessions, number shortcuts start at 1 independently and appear in the status line.
-- `!` persists until the session receives attention.
+- `*` marks a completed or blocked agent and persists on its agent shortcut, grouped session, and terminal-tab title until that exact agent receives focus.
+- Selecting a session or agent shortcut preserves its marker; Enter, `Ctrl+]`, and native plan/review pane activation clear only the agent that actually receives focus.
 - The active bottom session remains highlighted while focus is inside its agent.
 - Pressing Enter on a highlighted bottom session opens its primary agent directly.
 - **Close** gracefully stops every provider PTY in the active session and hides it without deleting provider resume IDs, models, effort, custom args, or history.

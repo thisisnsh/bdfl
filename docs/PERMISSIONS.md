@@ -6,4 +6,4 @@ Workers always use BDFL's accept-edits policy inside their isolated worktree. Th
 
 Permission is only one boundary. BDFL also verifies actual changed paths against the approved chunk, reruns deterministic argv-based checks, keeps conflicts inside integration worktrees, and refuses final integration when the target branch, HEAD, or cleanliness changed.
 
-Custom profile commands never pass through a shell. BDFL owns provider resume, MCP, model, effort, permission, hook, and role flags.
+Custom profile commands never pass through a shell. BDFL owns provider resume, MCP, model, effort, permission, hook/settings, notification, and role flags.

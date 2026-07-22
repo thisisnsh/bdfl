@@ -10,7 +10,9 @@ workerCapacity:   1–5, default 5
 
 Claude may lead Codex workers, Codex may lead Claude workers, or one provider may fill both roles. A running session keeps the profile with which it launched. Profile changes affect future workers unless a selected session is explicitly restarted.
 
-BDFL launches interactive provider CLIs and preserves their native authentication and session stores. Delegators receive read-only permissions, the short BDFL role instruction, and the session-only `bdfl-plan` skill. Workers receive only the approved clean shared contract, their chunk, dependency results, and execution metadata.
+BDFL launches interactive provider CLIs and preserves their native authentication, settings inheritance, and session stores. Delegators receive read-only permissions, the short BDFL role instruction, and the session-only `bdfl-plan` skill. Workers receive only the approved clean shared contract, their chunk, dependency results, and execution metadata.
+
+Provider-native lifecycle notifications feed BDFL's persistent attention markers. Claude receives session-level `Stop` and input-waiting `Notification` hooks through an additional `--settings` value; a packaged Node helper returns an internal BEL through Claude's `terminalSequence` field. Codex receives TUI notifications for completed turns, approval requests, and plan-mode prompts with the BEL method enabled regardless of terminal focus. BDFL consumes those BEL events internally: it does not add audible or desktop notifications.
 
 The onboarding screen shows only provider CLIs found on `PATH`. Codex choices come from `codex debug models`, including each model's supported reasoning-effort levels. Claude choices are rebuilt for each new session from the aliases advertised by the installed CLI and Claude's account-scoped model-option cache; the provider default is not shown as a model choice. Account-scoped IDs retain context-window suffixes such as `[1m]`. A model ID can still be entered directly when a custom MCP configuration requires it.
 

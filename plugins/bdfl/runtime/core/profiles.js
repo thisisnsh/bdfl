@@ -22,8 +22,8 @@ function tokenizeCommand(command) {
   if (token) argv.push(token);
   if (!PROVIDERS.has(argv[0])) throw new Error('Custom commands must begin with claude or codex');
   if (argv.slice(1).some((argument) => argument.includes('=') && !argument.startsWith('-'))) throw new Error('Environment prefixes are not allowed');
-  const forbidden = new Set(['exec', '--print', '-p', '--output-format', '--resume', 'resume', '--model', '-m', '--effort', '--sandbox', '--permission-mode', '--mcp-config', '--add-dir']);
-  if (argv.slice(1).some((argument) => forbidden.has(argument))) throw new Error('BDFL owns headless, resume, model, effort, permission, MCP, and role flags');
+  const forbidden = new Set(['exec', '--print', '-p', '--output-format', '--resume', 'resume', '--model', '-m', '--effort', '--sandbox', '--permission-mode', '--mcp-config', '--add-dir', '--settings']);
+  if (argv.slice(1).some((argument) => forbidden.has(argument) || argument.startsWith('--settings='))) throw new Error('BDFL owns headless, resume, model, effort, permission, MCP, settings, and role flags');
   return { provider: argv[0], argv: argv.slice(1) };
 }
 
