@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/bdfl-logo.png" alt="BDFL logo" width="240">
+</p>
+
 # BDFL - Benevolent Delegator for LLMs
 
 **Plan deliberately. Build in parallel. Stay in control.**
