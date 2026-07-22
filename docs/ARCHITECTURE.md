@@ -25,7 +25,7 @@ The scheduler freezes a completely approved manifest into `.bdfl/executions/`. C
 
 Every coding worker receives one isolated branch/worktree and only its clean context. Root chunks use the frozen target baseline. Dependents use every accepted ancestor in plan order to construct their base. BDFL verifies actual paths and deterministic argv checks before offering native review.
 
-Accepted commits apply to an integration worktree in dependency order. Conflicts create worker work; the delegator never edits code. A fresh read-only verifier reviews the consolidated diff and global checks. Final integration verifies the original target branch, HEAD, identity, and cleanliness, then creates one workstream commit rather than exposing checkpoint history.
+Accepted commits apply to an integration worktree in dependency order. Conflicts create worker work; the delegator never edits code. A fresh verifier reviews the consolidated diff and global checks without implementing changes. Final integration verifies the original target branch, HEAD, identity, and cleanliness, then creates one workstream commit rather than exposing checkpoint history.
 
 ## Persistence
 

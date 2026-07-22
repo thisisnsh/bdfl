@@ -95,14 +95,14 @@ Each worker receives an isolated, and focused context.
 Inspect each worker’s summary, diff, changed paths, checks, and commit metadata.
 
 - Accept the result or send feedback to the same worker for revision.
-- Review the consolidated result after global checks and a fresh read-only verification pass.
+- Review the consolidated result after global checks and a fresh verification pass.
 
 #### **Constrained roles with skills and MCP**
 
 BDFL gives each session role-specific `bdfl` MCP tools, while planning sessions also receive the `bdfl-plan` skill.
 
 - A session-scoped MCP bridge exposes only the tools permitted for each role.
-- Planning and verification remain read-only.
+- Planning and verification agents are instructed not to edit; Claude defaults to `manual`, while Codex and Ollama default to a read-only sandbox.
 - Workers can edit only their isolated worktrees.
 
 #### **Local state and safety**
@@ -111,7 +111,7 @@ BDFL does not publish its local runtime state, metrics, analytics, or logs. Prov
 
 - `.bdfl/` is repository-local runtime state, ignored by Git, that stores session metadata, plans, snapshots, diffs, and worktrees. _Never commit it._
 - A workspace lock prevents two supervisors from mutating the same durable state.
-- Custom profile commands cannot use arbitrary executables, shell operators, environment prefixes, headless flags, or BDFL-owned flags.
+- Custom profile commands cannot use arbitrary executables, shell operators, environment prefixes, headless flags, or BDFL-owned lifecycle flags. Safe provider permission options may override BDFL's role defaults; dangerous access requires `bdfl --dangerous`.
 
 See [Model providers](docs/MODEL-PROVIDERS.md), [Permissions](docs/PERMISSIONS.md), and [Recovery](docs/RECOVERY.md) for the complete contracts.
 
@@ -150,7 +150,7 @@ Open running sessions or resume closed ones with their saved provider identity a
 
 #### Review
 
-Review worker and combined results without leaving the terminal. Worker results can be accepted or returned with feedback; a consolidated result can be integrated only after checks and a read-only verification pass.
+Review worker and combined results without leaving the terminal. Worker results can be accepted or returned with feedback; a consolidated result can be integrated only after checks and a fresh verification pass.
 
 
 <a id="suggested-workflow"></a>
@@ -164,7 +164,7 @@ Review worker and combined results without leaving the terminal. Worker results 
 4. **Approve** exact sections you want to lock. Execution remains blocked until every section in the chosen version is approved.
 5. **Build** eligible chunks in isolated branches and worktrees, in parallel where the approved dependency graph allows it.
 6. **Review** each worker's actual diff and checks. Accept it or send feedback to that worker.
-7. **Verify** the consolidated result with global checks and a fresh read-only agent.
+7. **Verify** the consolidated result with global checks and a fresh non-implementing agent.
 8. **Integrate** only after final review and only while the frozen target remains unchanged and clean.
 
 <a id="commands"></a>
@@ -172,10 +172,13 @@ Review worker and combined results without leaving the terminal. Worker results 
 
 ```bash
 bdfl                 # open the foreground supervisor
+bdfl --dangerous     # open with provider approvals and sandboxes bypassed
 bdfl status          # count saved sessions and active agents
 bdfl --version       # print the installed version
 bdfl help            # show usage and terminal controls
 ```
+
+`--dangerous` applies to every Claude, Codex, and Ollama-backed Codex agent launched or restored during that supervisor run. It passes the provider's native bypass flag, is not persisted, and should be used only in an externally isolated environment. Dangerous provider flags and full-access permission values are rejected from per-agent options.
 
 <a id="project-docs"></a>
 ## Project docs
