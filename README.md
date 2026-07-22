@@ -33,19 +33,17 @@ bdfl
 
 The first-run wizard lets you choose the planning agent, worker agent, models, effort levels, optional CLI arguments, and a worker capacity from 1–5.
 
-### Try a small local Ollama model
+### Use the free Ollama Cloud model
 
-Install and start [Ollama](https://ollama.com/download), then install Codex and pull a compact test model:
+Install and start [Ollama](https://ollama.com/download), install Codex, and sign in to Ollama Cloud:
 
 ```bash
 npm install --global @openai/codex
-ollama pull qwen3:4b
+ollama signin
 bdfl
 ```
 
-On Linux, run `ollama serve` in another terminal if the service is not already running. In **New**, choose **Ollama** for either agent role. BDFL lists models installed locally by querying `ollama list`; choose one of those models or enter any local or Ollama Cloud model ID manually.
-
-`qwen3:4b` is about 2.5 GB and is useful for checking the integration on modest hardware. Treat it as a smoke-test model, not the quality baseline for multi-step planning and implementation.
+On Linux, run `ollama serve` in another terminal if the service is not already running. In **New**, choose **Ollama**, select **Type a model ID…**, and enter `gpt-oss:20b-cloud` for either agent role. The model runs on [Ollama Cloud](https://docs.ollama.com/cloud), is available on the free tier, and does not require a local model download or a powerful GPU.
 
 > [!TIP]
 > Press `Ctrl+]` to switch between BDFL controls and the selected agent. When an agent has focus, its arrow keys and `Ctrl+C` work normally.

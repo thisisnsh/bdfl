@@ -7,14 +7,14 @@
 - Git.
 - At least one agent path: Claude Code or Codex installed and authenticated, or Ollama 0.18+ running with a current Codex CLI installed.
 
-For a small Ollama smoke test:
+For Ollama Cloud:
 
 ```bash
 npm install --global @openai/codex
-ollama pull qwen3:4b
+ollama signin
 ```
 
-Start the Ollama app, or run `ollama serve` in another terminal on Linux. Then launch BDFL, choose **Ollama**, and enter `qwen3:4b` manually for the planning or worker model.
+Start the Ollama app, or run `ollama serve` in another terminal on Linux. Then launch BDFL, choose **Ollama**, select **Type a model ID…**, and enter `gpt-oss:20b-cloud` for the planning or worker model. It runs on Ollama's free cloud tier without downloading a local model.
 
 ## Stable channel
 
