@@ -1,7 +1,7 @@
 'use strict';
 
 const readline = require('node:readline');
-const ACTIONS = ['status', 'execute', 'wait', 'complete', 'send'];
+const ACTIONS = ['status', 'execute', 'wait', 'complete', 'feedback', 'send'];
 const TOOL = { name: 'bdfl_workers', title: 'Coordinate approved BDFL workers', description: 'Execute and monitor only an approved BDFL plan.', inputSchema: { type: 'object', properties: { action: { type: 'string', enum: ACTIONS }, planId: { type: 'string' }, version: { type: 'integer' }, workstreamId: { type: 'string' }, executionId: { type: 'string' }, chunkId: { type: 'string' }, cursor: { type: 'integer' }, state: { type: 'string', enum: ['pass', 'blocked', 'fail'] }, summary: { type: 'string', maxLength: 800 }, message: { type: 'string', maxLength: 800 } }, required: ['action'], additionalProperties: false } };
 function result(value) { return { content: [{ type: 'text', text: value.message || 'BDFL worker state updated.' }], structuredContent: value }; }
 class WorkersMcpServer {

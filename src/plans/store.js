@@ -8,6 +8,7 @@ const { parsePlan, validateGraph } = require('./format');
 
 function versionName(number) { return `v${String(number).padStart(4, '0')}`; }
 function cleanBody(value) { return value.replace(/^\s*\n|\s+$/g, '') + '\n'; }
+function safePlanId(value) { if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(value)) throw new Error(`Invalid plan ID: ${value}`); return value; }
 
 function parsePatch(source) {
   const header = source.match(/<!--\s*bdfl-plan-patch:(\{[^\n]*\})\s*-->/);
@@ -20,15 +21,17 @@ function parsePatch(source) {
   let match;
   while ((match = chunks.exec(source))) replacements.push({ id: JSON.parse(match[1]).id, control: JSON.parse(match[1]), body: cleanBody(match[2]) });
   const global = source.match(/<!-- bdfl-global:start -->([\s\S]*?)<!-- bdfl-global:end -->/);
-  if (global) replacements.push({ id: 'global-validation', body: cleanBody(global[1]) });
+  const globalWithMetadata = source.match(/<!--\s*bdfl-global:(\{[^\n]*\})\s*-->([\s\S]*?)<!--\s*bdfl-global:end\s*-->/);
+  if (globalWithMetadata) replacements.push({ id: 'global-validation', control: JSON.parse(globalWithMetadata[1]), body: cleanBody(globalWithMetadata[2]) });
+  else if (global) replacements.push({ id: 'global-validation', body: cleanBody(global[1]) });
   if (!replacements.length) throw new Error('Plan patch contains no replacement sections');
   return { metadata, replacements };
 }
 
 function renderSource(title, shared, chunks, globalValidation) {
   const lines = [`<!-- bdfl-plan:${JSON.stringify({ schema: 1, title })} -->`, `# ${title}`, '<!-- bdfl-shared:start -->', shared.body.trimEnd(), '<!-- bdfl-shared:end -->'];
-  for (const chunk of chunks) lines.push(`<!-- bdfl-chunk:${JSON.stringify({ id: chunk.id, paths: chunk.paths, dependsOn: chunk.dependsOn, locks: chunk.locks })} -->`, chunk.body.trimEnd(), '<!-- bdfl-chunk:end -->');
-  lines.push('<!-- bdfl-global:start -->', globalValidation.body.trimEnd(), '<!-- bdfl-global:end -->', '<!-- bdfl-plan:end -->');
+  for (const chunk of chunks) { const control = { id: chunk.id, paths: chunk.paths, dependsOn: chunk.dependsOn, locks: chunk.locks }; if (chunk.checksSpecified) control.checks = chunk.checks || []; lines.push(`<!-- bdfl-chunk:${JSON.stringify(control)} -->`, chunk.body.trimEnd(), '<!-- bdfl-chunk:end -->'); }
+  lines.push(globalValidation.checksSpecified ? `<!-- bdfl-global:${JSON.stringify({ checks: globalValidation.checks || [] })} -->` : '<!-- bdfl-global:start -->', globalValidation.body.trimEnd(), '<!-- bdfl-global:end -->', '<!-- bdfl-plan:end -->');
   return `${lines.join('\n')}\n`;
 }
 
@@ -38,7 +41,7 @@ class LineageStore {
     this.directory = path.join(this.root, '.bdfl', 'plans');
   }
 
-  planDirectory(id) { return path.join(this.directory, id); }
+  planDirectory(id) { return path.join(this.directory, safePlanId(id)); }
   lineageFile(id) { return path.join(this.planDirectory(id), 'lineage.json'); }
   load(id) { return JSON.parse(this.io.readFileSync(this.lineageFile(id), 'utf8')); }
   versionDirectory(id, version) { return path.join(this.planDirectory(id), 'versions', versionName(version)); }
@@ -47,6 +50,15 @@ class LineageStore {
     const base = this.versionDirectory(id, version);
     const file = sectionId === 'shared' ? 'shared.md' : sectionId === 'global-validation' ? 'global-validation.md' : path.join('chunks', `${sectionId}.md`);
     return this.io.readFileSync(path.join(base, file), 'utf8');
+  }
+
+  list() {
+    let entries; try { entries = this.io.readdirSync(this.directory, { withFileTypes: true }); } catch { return []; }
+    return entries.filter((entry) => entry.isDirectory()).flatMap((entry) => { try { return [this.load(entry.name)]; } catch { return []; } });
+  }
+
+  current({ workstreamId, sessionId } = {}) {
+    return this.list().filter((lineage) => (!workstreamId || lineage.workstreamId === workstreamId) && (!sessionId || lineage.originSessionId === sessionId)).sort((left, right) => `${right.updatedAt}`.localeCompare(`${left.updatedAt}`))[0] || null;
   }
 
   assertSafeOwnership(parsed) {
@@ -59,7 +71,7 @@ class LineageStore {
 
   writeVersion(id, number, parsed, lineage, approvals = {}) {
     const directory = this.versionDirectory(id, number);
-    const manifest = { schema: 1, planId: id, version: number, title: parsed.title, skillVersion: lineage.skillVersion, shared: { id: 'shared', sha: parsed.shared.sha }, chunks: parsed.chunks.map(({ body: _body, ...chunk }, order) => ({ ...chunk, order })), globalValidation: { id: 'global-validation', sha: parsed.globalValidation.sha }, approvals };
+    const manifest = { schema: 1, planId: id, version: number, title: parsed.title, skillVersion: lineage.skillVersion, workstreamId: lineage.workstreamId || null, originSessionId: lineage.originSessionId || null, shared: { id: 'shared', sha: parsed.shared.sha }, chunks: parsed.chunks.map(({ body: _body, ...chunk }, order) => ({ ...chunk, order })), globalValidation: { id: 'global-validation', sha: parsed.globalValidation.sha, checks: parsed.globalValidation.checks || [] }, approvals };
     atomicWrite(path.join(directory, 'source.md'), parsed.source, this.io);
     atomicWrite(path.join(directory, 'consolidated.md'), parsed.consolidated, this.io);
     atomicWrite(path.join(directory, 'shared.md'), parsed.shared.body, this.io);
@@ -72,7 +84,7 @@ class LineageStore {
   create(source, options = {}) {
     const parsed = parsePlan(source); this.assertSafeOwnership(parsed); const id = options.planId || this.id(); const createdAt = this.now().toISOString();
     if (this.io.existsSync(this.lineageFile(id))) throw new Error(`Plan already exists: ${id}`);
-    const lineage = { schema: 1, planId: id, title: parsed.title, skillVersion: options.skillVersion || this.skillVersion, currentVersion: 1, createdAt, updatedAt: createdAt };
+    const publicationSha = sha256(source); const lineage = { schema: 1, planId: id, title: parsed.title, skillVersion: options.skillVersion || this.skillVersion, workstreamId: options.workstreamId || null, originSessionId: options.sessionId || null, currentVersion: 1, publications: [{ sha: publicationSha, version: 1, sessionId: options.sessionId || null }], createdAt, updatedAt: createdAt };
     this.writeVersion(id, 1, parsed, lineage);
     atomicWrite(this.lineageFile(id), `${JSON.stringify(lineage, null, 2)}\n`, this.io);
     return { lineage, manifest: this.readManifest(id, 1) };
@@ -94,12 +106,13 @@ class LineageStore {
   }
 
   executable(id, version) {
-    const manifest = this.readManifest(id, version); const ids = ['shared', ...manifest.chunks.map((chunk) => chunk.id), 'global-validation'];
+    if (this.load(id).currentVersion !== version) return false; const manifest = this.readManifest(id, version); const ids = ['shared', ...manifest.chunks.map((chunk) => chunk.id), 'global-validation'];
     return ids.every((sectionId) => manifest.approvals[sectionId]?.sectionSha === (sectionId === 'shared' ? manifest.shared.sha : sectionId === 'global-validation' ? manifest.globalValidation.sha : manifest.chunks.find((chunk) => chunk.id === sectionId).sha));
   }
 
   revise(id, patchSource) {
     const lineage = this.load(id); const patch = parsePatch(patchSource);
+    const publicationSha = sha256(patchSource); const duplicate = lineage.publications?.find((item) => item.sha === publicationSha); if (duplicate) return { lineage, manifest: this.readManifest(id, duplicate.version), duplicate: true };
     if (patch.metadata.schema !== 1 || patch.metadata.planId !== id || patch.metadata.baseVersion !== lineage.currentVersion) throw new Error('Plan patch base does not match current lineage');
     const previous = this.readManifest(id, lineage.currentVersion);
     let shared = { ...previous.shared, body: this.readSection(id, lineage.currentVersion, 'shared') };
@@ -107,7 +120,7 @@ class LineageStore {
     let chunks = previous.chunks.map((chunk) => ({ ...chunk, body: this.readSection(id, lineage.currentVersion, chunk.id) }));
     for (const replacement of patch.replacements) {
       if (replacement.id === 'shared') shared = { id: 'shared', body: replacement.body };
-      else if (replacement.id === 'global-validation') globalValidation = { id: 'global-validation', body: replacement.body };
+      else if (replacement.id === 'global-validation') globalValidation = { id: 'global-validation', checks: replacement.control?.checks || globalValidation.checks || [], checksSpecified: Boolean(replacement.control && Object.hasOwn(replacement.control, 'checks')), body: replacement.body };
       else {
         const index = chunks.findIndex((chunk) => chunk.id === replacement.id); if (index < 0) throw new Error(`Patch cannot introduce unknown chunk: ${replacement.id}`);
         chunks[index] = { ...chunks[index], ...replacement.control, body: replacement.body };
@@ -118,7 +131,7 @@ class LineageStore {
     const sharedChanged = parsed.shared.sha !== previous.shared.sha;
     const changedChunks = new Set(parsed.chunks.filter((chunk) => chunk.sha !== previous.chunks.find((old) => old.id === chunk.id)?.sha).map((chunk) => chunk.id));
     const metadataChanged = new Set(parsed.chunks.filter((chunk) => { const old = previous.chunks.find((item) => item.id === chunk.id); return old && JSON.stringify([chunk.paths, chunk.dependsOn, chunk.locks]) !== JSON.stringify([old.paths, old.dependsOn, old.locks]); }).map((chunk) => chunk.id));
-    const affected = new Set(metadataChanged); let changed = true;
+    const affected = new Set([...changedChunks, ...metadataChanged]); let changed = true;
     while (changed) { changed = false; for (const chunk of parsed.chunks) if (!affected.has(chunk.id) && chunk.dependsOn.some((dependency) => affected.has(dependency))) { affected.add(chunk.id); changed = true; } }
     const lockedChanges = [...changedChunks, ...(sharedChanged ? ['shared'] : []), ...(parsed.globalValidation.sha !== previous.globalValidation.sha ? ['global-validation'] : [])].filter((sectionId) => previous.approvals[sectionId]);
     if (lockedChanges.length) throw new Error(`Approved sections must receive feedback or be unlocked before revision: ${lockedChanges.join(', ')}`);
@@ -126,7 +139,7 @@ class LineageStore {
     if (!sharedChanged && previous.approvals.shared) approvals.shared = { ...previous.approvals.shared, version: lineage.currentVersion + 1 };
     if (!sharedChanged) for (const chunk of parsed.chunks) if (!changedChunks.has(chunk.id) && !affected.has(chunk.id) && previous.approvals[chunk.id]) approvals[chunk.id] = { ...previous.approvals[chunk.id], version: lineage.currentVersion + 1 };
     if (!sharedChanged && parsed.globalValidation.sha === previous.globalValidation.sha && previous.approvals['global-validation']) approvals['global-validation'] = { ...previous.approvals['global-validation'], version: lineage.currentVersion + 1 };
-    lineage.currentVersion += 1; lineage.updatedAt = this.now().toISOString();
+    lineage.currentVersion += 1; lineage.updatedAt = this.now().toISOString(); lineage.publications ||= []; lineage.publications.push({ sha: publicationSha, version: lineage.currentVersion, sessionId: lineage.originSessionId || null });
     const manifest = this.writeVersion(id, lineage.currentVersion, parsed, lineage, approvals);
     atomicWrite(this.lineageFile(id), `${JSON.stringify(lineage, null, 2)}\n`, this.io);
     return { lineage, manifest };
@@ -138,6 +151,17 @@ class LineageStore {
   }
 
   diff(id, before, after, sectionId) { return diffLines(this.readSection(id, before, sectionId), this.readSection(id, after, sectionId)); }
+
+  publish(source, options = {}) {
+    const publicationSha = sha256(source); const duplicate = this.list().find((lineage) => lineage.workstreamId === (options.workstreamId || null) && lineage.publications?.some((item) => item.sha === publicationSha));
+    if (duplicate) { const publication = duplicate.publications.find((item) => item.sha === publicationSha); return { lineage: duplicate, manifest: this.readManifest(duplicate.planId, publication.version), duplicate: true }; }
+    if (/<!--\s*bdfl-plan-patch:/.test(source)) {
+      const metadata = parsePatch(source).metadata; const lineage = this.load(options.planId || metadata.planId);
+      if (options.workstreamId && lineage.workstreamId !== options.workstreamId) throw new Error('Plan lineage belongs to a different workstream');
+      return this.revise(lineage.planId, source);
+    }
+    return this.create(source, options);
+  }
 }
 
-module.exports = { LineageStore, parsePatch, renderSource, versionName };
+module.exports = { LineageStore, parsePatch, renderSource, versionName, safePlanId };

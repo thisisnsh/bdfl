@@ -28,3 +28,10 @@ test('rejects unknown dependencies, cycles, unsafe paths, and incomplete chunks'
   assert.throws(() => parsePlan(plan(chunk('one', [], ['.bdfl/**']))), /Unsafe owned path/);
   assert.throws(() => parsePlan(plan(chunk('one').replace('### Acceptance conditions', '### Nope'))), /missing Acceptance/);
 });
+
+test('validates argv-array checks and includes them in approval SHAs', () => {
+  const plain = plan(chunk('one')); const checked = plain.replace('"locks":[]', '"locks":[],"checks":[["npm","test"]]').replace('<!-- bdfl-global:start -->', '<!-- bdfl-global:{"checks":[["node","--test"]]} -->'); const parsed = parsePlan(checked);
+  assert.deepEqual(parsed.chunks[0].checks, [['npm', 'test']]); assert.deepEqual(parsed.globalValidation.checks, [['node', '--test']]); assert.notEqual(parsed.chunks[0].sha, parsePlan(plain).chunks[0].sha);
+  assert.throws(() => parsePlan(plain.replace('"locks":[]', '"locks":[],"checks":["npm test"]')), /argv arrays/);
+  assert.throws(() => parsePlan(plain.replace('"locks":[]', '"locks":[],"checks":[["sh","-c","npm test"]]')), /cannot invoke a shell/);
+});

@@ -1,0 +1,14 @@
+'use strict';
+
+const test = require('node:test'); const assert = require('node:assert/strict'); const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+const { WorkspaceStore } = require('../../src/state/workspace'); const { SessionManager } = require('../../src/sessions/manager');
+
+test('materializes session-local bridge configuration for both cross-provider role directions', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-session-bridge-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root); const launches = [];
+  const pty = { spawn(command, args) { launches.push({ command, args }); return { pid: launches.length, onData() {}, onExit() {}, kill() {} }; } }; const bridge = { issue(scope) { return { url: 'http://127.0.0.1:45678/rpc', token: `${scope.role}-cap` }; } };
+  const pairs = [['claude', 'codex'], ['codex', 'claude']];
+  for (const [delegatorProvider, workerProvider] of pairs) {
+    const delegatorProfile = { provider: delegatorProvider, model: delegatorProvider === 'claude' ? 'default' : 'gpt-test', effort: 'high' }; const workerProfile = { provider: workerProvider, model: workerProvider === 'claude' ? 'default' : 'gpt-test', effort: 'medium', permissionMode: 'workspace-write' }; const stream = store.createWorkstream({ version: 1, delegatorProfile, workerProfile, workerCapacity: 2 }); const delegator = store.createSession(stream.id, 'delegator', delegatorProfile); const worker = store.createSession(stream.id, 'worker', workerProfile, { executionId: `execution-${stream.id}`, chunkId: 'chunk', worktree: root, roleInstruction: 'worker scope' }); const manager = new SessionManager(root, store, { pty, bridge, requireBridge: true, codexSessions: path.join(root, 'no-codex-sessions') }); manager.open(delegator.id); manager.open(worker.id); const plugin = path.join(root, '.bdfl', 'sessions', delegator.id, 'plugin'); if (delegatorProvider === 'claude') { assert.equal(fs.existsSync(path.join(plugin, '.claude-plugin', 'plugin.json')), true); assert.equal(fs.existsSync(path.join(plugin, 'skills', 'bdfl-plan', 'SKILL.md')), true); } const workerPlugin = path.join(root, '.bdfl', 'sessions', worker.id, 'plugin'); if (workerProvider === 'claude') { assert.equal(fs.existsSync(path.join(workerPlugin, '.mcp.json')), true); assert.equal(fs.existsSync(path.join(workerPlugin, 'skills', 'bdfl-plan')), false); } manager.shutdown();
+  }
+  assert.deepEqual(launches.map((launch) => launch.command), ['claude', 'codex', 'codex', 'claude']); assert.ok(launches.filter((launch) => launch.command === 'codex').every((launch) => launch.args.some((argument) => argument === 'mcp_servers.bdfl.required=true'))); assert.ok(launches.filter((launch) => launch.command === 'claude').every((launch) => launch.args.includes('--strict-mcp-config')));
+});

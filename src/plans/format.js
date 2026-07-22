@@ -5,6 +5,16 @@ const { sha256 } = require('../core/plans');
 
 const IDS = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+function validateChecks(value, label = 'Validation') {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error(`${label} checks must be argv arrays`);
+  return value.map((command) => {
+    if (!Array.isArray(command) || !command.length || command.some((argument) => typeof argument !== 'string' || !argument || argument.includes('\0'))) throw new Error(`${label} checks must be non-empty argv arrays`);
+    if (new Set(['sh', 'bash', 'zsh', 'fish', 'cmd', 'cmd.exe', 'powershell', 'pwsh']).has(path.basename(command[0]).toLowerCase())) throw new Error(`${label} checks cannot invoke a shell`);
+    return [...command];
+  });
+}
+
 function normalizeOwnedPath(value) {
   if (typeof value !== 'string' || !value.trim() || path.isAbsolute(value)) throw new Error(`Unsafe owned path: ${value}`);
   const normalized = value.trim().replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '');
@@ -34,7 +44,7 @@ function section(source, start, end, label) {
 
 function pathsOverlap(left, right) {
   const plain = (value) => value.replace(/\*\*.*$/, '').replace(/\*.*$/, '').replace(/\/+$/, '');
-  const a = plain(left); const b = plain(right);
+  const a = plain(left); const b = plain(right); if (!a || !b) return true;
   return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
@@ -75,7 +85,7 @@ function validateGraph(chunks) {
 }
 
 function stripMarkers(value) {
-  return value.replace(/<!--\s*bdfl-(?:plan(?::[^]*?|:end|end)|shared:(?:start|end)|chunk(?::[^]*?|:end|end)|global:(?:start|end))\s*-->/g, '').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  return value.replace(/<!--\s*bdfl-(?:plan(?::[^]*?|:end|end)|shared:(?:start|end)|chunk(?::[^]*?|:end|end)|global(?::[^]*?|:end|end))\s*-->/g, '').replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
 function parsePlan(source) {
@@ -83,10 +93,14 @@ function parsePlan(source) {
   const headerMatch = source.match(/<!--\s*bdfl-plan:(\{[^\n]*\})\s*-->/);
   if (!headerMatch) throw new Error('Plan header is missing');
   const metadata = parseMetadata(headerMatch[1], 'plan');
-  if (metadata.schema !== 1 || !metadata.title) throw new Error('Unsupported plan schema or missing title');
+  if (metadata.schema !== 1 || typeof metadata.title !== 'string' || !metadata.title.trim() || /[\u0000-\u001f]/u.test(metadata.title)) throw new Error('Unsupported plan schema or missing title');
   if (!/<!--\s*bdfl-plan:end\s*-->/.test(source)) throw new Error('Plan end marker is missing');
   const shared = section(source, '<!-- bdfl-shared:start -->', '<!-- bdfl-shared:end -->', 'shared');
-  const globalValidation = section(source, '<!-- bdfl-global:start -->', '<!-- bdfl-global:end -->', 'global-validation');
+  const globalHeaders = [...source.matchAll(/<!--\s*bdfl-global:(start|\{[^\n]*\})\s*-->/g)]; const globalHeader = globalHeaders[0];
+  if (globalHeaders.length !== 1) throw new Error('Plan requires exactly one global-validation section');
+  const globalValidation = section(source, globalHeader[0], '<!-- bdfl-global:end -->', 'global-validation');
+  const globalControl = globalHeader[1] === 'start' ? {} : parseMetadata(globalHeader[1], 'global-validation'); const globalChecksSpecified = Object.hasOwn(globalControl, 'checks');
+  const globalChecks = validateChecks(globalControl.checks, 'Global validation');
   if (!/^##\s+Global validation\s*$/im.test(globalValidation)) throw new Error('Global validation section requires its heading');
   const chunks = [];
   const pattern = /<!--\s*bdfl-chunk:(\{[^\n]*\})\s*-->([\s\S]*?)<!--\s*bdfl-chunk:end\s*-->/g;
@@ -98,7 +112,7 @@ function parsePlan(source) {
     if (control.locks.some((lock) => !IDS.test(lock))) throw new Error(`Invalid lock name in ${control.id}`);
     const body = match[2].replace(/^\s*\n|\s+$/g, '');
     requiredSubsections(body, control.id);
-    chunks.push({ id: control.id, paths: control.paths.map(normalizeOwnedPath), dependsOn: [...control.dependsOn], locks: [...new Set(control.locks)], body: `${body}\n`, sha: sha256(`${match[1]}\n${body}\n`) });
+    chunks.push({ id: control.id, paths: control.paths.map(normalizeOwnedPath), dependsOn: [...control.dependsOn], locks: [...new Set(control.locks)], checks: validateChecks(control.checks, `Chunk ${control.id}`), checksSpecified: Object.hasOwn(control, 'checks'), body: `${body}\n`, sha: sha256(`${match[1]}\n${body}\n`) });
   }
   if (!chunks.length) throw new Error('Plan requires at least one executable chunk');
   validateGraph(chunks);
@@ -106,7 +120,7 @@ function parsePlan(source) {
     schema: 1, title: metadata.title, source, consolidated: stripMarkers(source),
     shared: { id: 'shared', body: `${shared}\n`, sha: sha256(`${shared}\n`) },
     chunks,
-    globalValidation: { id: 'global-validation', body: `${globalValidation}\n`, sha: sha256(`${globalValidation}\n`) }
+    globalValidation: { id: 'global-validation', checks: globalChecks, checksSpecified: globalChecksSpecified, body: `${globalValidation}\n`, sha: globalChecksSpecified ? sha256(`${JSON.stringify(globalChecks)}\n${globalValidation}\n`) : sha256(`${globalValidation}\n`) }
   };
 }
 
@@ -128,4 +142,4 @@ function scheduleWaves(chunks, capacity = 4) {
   return waves;
 }
 
-module.exports = { IDS, normalizeOwnedPath, pathsOverlap, validateGraph, parsePlan, stripMarkers, scheduleWaves };
+module.exports = { IDS, validateChecks, normalizeOwnedPath, pathsOverlap, validateGraph, parsePlan, stripMarkers, scheduleWaves };
