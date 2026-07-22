@@ -21,6 +21,11 @@ function substantivePlanningPrompt(value) {
   return prompt;
 }
 
+function planningInputTokens(value) { return `${value}`.match(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)|\u001b\[[0-?]*[ -/]*[@-~]|\u001bO.|\u001b.|./gsu) || []; }
+function wordCharacter(value) { return /[\p{L}\p{N}_]/u.test(value || ''); }
+function moveWordLeft(characters, cursor) { while (cursor > 0 && !wordCharacter(characters[cursor - 1])) cursor -= 1; while (cursor > 0 && wordCharacter(characters[cursor - 1])) cursor -= 1; return cursor; }
+function moveWordRight(characters, cursor) { while (cursor < characters.length && !wordCharacter(characters[cursor])) cursor += 1; while (cursor < characters.length && wordCharacter(characters[cursor])) cursor += 1; return cursor; }
+
 class SessionManager {
   constructor(root, store, { pty = null, io = fs, packageRoot = path.resolve(__dirname, '../..'), codexSessions = path.join(os.homedir(), '.codex', 'sessions'), bridge = null, requireBridge = false, now = Date.now } = {}) { this.root = path.resolve(root); this.store = store; if (!pty) ensurePtyHelperExecutable(); this.pty = pty || require('node-pty'); this.io = io; this.packageRoot = packageRoot; this.codexSessions = codexSessions; this.bridge = bridge; this.requireBridge = requireBridge; this.now = now; this.processes = new Map(); this.terminals = new Map(); this.loadingSessions = new Set(); this.closedScreens = new Map(); this.captureTimers = new Map(); this.terminationIntent = new Map(); this.activityWrites = new Map(); this.promptBuffers = new Map(); this.planningSessions = new Set(); this.attentionNotified = new Set(); this.bridgeRecoveries = new Map(); this.bridgeRecoveryWindow = 60000; this.maxBridgeRecoveries = 3; this.onOutput = null; this.onAttention = null; this.onBridgeError = null; this.bridge?.setProxyLossHandler?.((sessionId) => this.recoverBridge(sessionId)); }
   injectSkill(session) { const destination = skillDestination(this.root, session.profile.provider, session.id); this.io.mkdirSync(path.dirname(destination), { recursive: true }); this.io.cpSync(path.join(this.packageRoot, 'skills', 'bdfl-plan'), destination, { recursive: true }); return destination; }
@@ -68,11 +73,23 @@ class SessionManager {
   scroll(sessionId, lines, mouse) { const child = this.processes.get(sessionId); const terminal = this.terminals.get(sessionId); if (!child || !terminal) return false; if (terminal.buffer.active.type === 'alternate' && terminal.modes.mouseTrackingMode !== 'none' && mouse) { child.write(`\u001b[<${mouse.button};${mouse.column};${mouse.row}${mouse.final || 'M'}`); this.markActivity(sessionId); return true; } if (terminal.buffer.active.type !== 'normal') return false; const before = terminal.buffer.active.viewportY; terminal.scrollLines(lines); const moved = terminal.buffer.active.viewportY - before; if (moved) this.onOutput?.(sessionId, { scroll: moved }); return true; }
   capturePlanningInput(sessionId, value) {
     if (!this.planningSessions.has(sessionId) || !this.store.setSessionTaskSnippet) return;
-    let buffer = this.promptBuffers.get(sessionId) || ''; const input = `${value}`.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/gu, '');
-    for (const character of input) {
-      if (character === '\r' || character === '\n') { const prompt = substantivePlanningPrompt(buffer); if (prompt) this.store.setSessionTaskSnippet(sessionId, prompt); buffer = ''; }
-      else if (character === '\u007f' || character === '\b') buffer = [...buffer].slice(0, -1).join('');
-      else if (!/[\u0000-\u001f\u007f-\u009f]/u.test(character)) buffer += character;
+    let buffer = this.promptBuffers.get(sessionId) || { value: '', cursor: 0 };
+    for (const token of planningInputTokens(value)) {
+      let characters = [...buffer.value];
+      if (token === '\r' || token === '\n') { const prompt = substantivePlanningPrompt(buffer.value); if (prompt) this.store.setSessionTaskSnippet(sessionId, prompt); buffer = { value: '', cursor: 0 }; continue; }
+      if (token === '\u007f' || token === '\b' || token === '\u001b\u007f') { if (buffer.cursor > 0) { characters.splice(buffer.cursor - 1, 1); buffer.cursor -= 1; } }
+      else if (token === '\u0001' || /^(?:\u001b\[(?:1~|7~|H)|\u001bOH)$/u.test(token)) buffer.cursor = 0;
+      else if (token === '\u0005' || /^(?:\u001b\[(?:4~|8~|F)|\u001bOF)$/u.test(token)) buffer.cursor = characters.length;
+      else if (token === '\u001bb' || /^\u001b\[[0-9;]*[D]$/u.test(token) && token.includes(';')) buffer.cursor = moveWordLeft(characters, buffer.cursor);
+      else if (token === '\u001bf' || /^\u001b\[[0-9;]*[C]$/u.test(token) && token.includes(';')) buffer.cursor = moveWordRight(characters, buffer.cursor);
+      else if (/^(?:\u001b\[D|\u001bOD)$/u.test(token)) buffer.cursor = Math.max(0, buffer.cursor - 1);
+      else if (/^(?:\u001b\[C|\u001bOC)$/u.test(token)) buffer.cursor = Math.min(characters.length, buffer.cursor + 1);
+      else if (token === '\u001b[3~') { if (buffer.cursor < characters.length) characters.splice(buffer.cursor, 1); }
+      else if (token === '\u0015') { characters.splice(0, buffer.cursor); buffer.cursor = 0; }
+      else if (token === '\u000b') characters.splice(buffer.cursor);
+      else if (token === '\u0017') { const start = moveWordLeft(characters, buffer.cursor); characters.splice(start, buffer.cursor - start); buffer.cursor = start; }
+      else if (!/[\u0000-\u001f\u007f-\u009f]/u.test(token)) { characters.splice(buffer.cursor, 0, ...token); buffer.cursor += [...token].length; }
+      buffer.value = characters.join('');
     }
     this.promptBuffers.set(sessionId, buffer);
   }
