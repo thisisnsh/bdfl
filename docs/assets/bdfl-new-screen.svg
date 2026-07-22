@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-labelledby="title desc">
+  <title id="title">BDFL New screen screenshot placeholder</title>
+  <desc id="desc">Replace this placeholder with a screenshot of the BDFL New screen.</desc>
+  <rect width="1200" height="675" rx="18" fill="#111827"/>
+  <rect x="24" y="24" width="1152" height="627" rx="12" fill="#1f2937" stroke="#facc15" stroke-width="3"/>
+  <text x="600" y="315" text-anchor="middle" fill="#f9fafb" font-family="monospace" font-size="36">New screen screenshot</text>
+  <text x="600" y="365" text-anchor="middle" fill="#9ca3af" font-family="sans-serif" font-size="22">Replace docs/assets/bdfl-new-screen.svg</text>
+</svg>

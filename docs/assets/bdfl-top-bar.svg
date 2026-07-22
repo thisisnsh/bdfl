@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="180" viewBox="0 0 1200 180" role="img" aria-labelledby="title desc">
+  <title id="title">BDFL top bar screenshot placeholder</title>
+  <desc id="desc">Replace this placeholder with a screenshot of the BDFL top bar.</desc>
+  <rect width="1200" height="180" rx="18" fill="#111827"/>
+  <rect x="24" y="24" width="1152" height="132" rx="12" fill="#1f2937" stroke="#facc15" stroke-width="3"/>
+  <text x="600" y="84" text-anchor="middle" fill="#f9fafb" font-family="monospace" font-size="30">Top bar screenshot</text>
+  <text x="600" y="122" text-anchor="middle" fill="#9ca3af" font-family="sans-serif" font-size="20">Replace docs/assets/bdfl-top-bar.svg</text>
+</svg>
