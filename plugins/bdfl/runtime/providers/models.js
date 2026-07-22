@@ -1,6 +1,6 @@
 'use strict';
 
-const fs = require('node:fs'); const path = require('node:path');
+const fs = require('node:fs'); const path = require('node:path'); const { execFileSync } = require('node:child_process');
 
 const REASONING_EFFORTS = ['low', 'medium', 'high'];
 const CLAUDE_MODEL_IDS = ['fable', 'opus', 'sonnet', 'haiku'];
@@ -16,10 +16,11 @@ function executable(provider, { io = fs, env = process.env } = {}) {
 
 function claudeCatalog() { return catalog(CLAUDE_MODEL_IDS); }
 function codexCatalog() { return catalog(CODEX_MODEL_IDS); }
-function ollamaCatalog() { return []; }
-function discoverProviderCatalogs(options = {}) { const catalogs = {}; if (executable('claude', options)) catalogs.claude = claudeCatalog(); if (executable('codex', options)) catalogs.codex = codexCatalog(); if (executable('ollama', options)) catalogs.ollama = ollamaCatalog(); return catalogs; }
+function parseOllamaList(output) { return [...new Set(`${output}`.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !/^NAME(?:\s|$)/i.test(line)).map((line) => line.split(/\s+/, 1)[0]))]; }
+function ollamaModels({ run = execFileSync, command = 'ollama' } = {}) { try { return parseOllamaList(run(command, ['list'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 })); } catch { return []; } }
+function ollamaCatalog(options = {}) { return catalog(ollamaModels(options)); }
+function discoverProviderCatalogs(options = {}) { const catalogs = {}; if (executable('claude', options)) catalogs.claude = claudeCatalog(); if (executable('codex', options)) catalogs.codex = codexCatalog(); const ollama = executable('ollama', options); if (ollama) catalogs.ollama = ollamaCatalog({ ...options, command: ollama }); return catalogs; }
 function claudeModels() { return [...CLAUDE_MODEL_IDS]; }
 function codexModels() { return [...CODEX_MODEL_IDS]; }
-function ollamaModels() { return []; }
 
-module.exports = { claudeCatalog, claudeModels, codexCatalog, codexModels, ollamaCatalog, ollamaModels, discoverProviderCatalogs, executable };
+module.exports = { claudeCatalog, claudeModels, codexCatalog, codexModels, ollamaCatalog, ollamaModels, parseOllamaList, discoverProviderCatalogs, executable };

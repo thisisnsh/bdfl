@@ -43,7 +43,7 @@ ollama pull qwen3:4b
 bdfl
 ```
 
-On Linux, run `ollama serve` in another terminal if the service is not already running. In **New**, choose **Ollama** for either agent role and enter `qwen3:4b` as the model ID. BDFL intentionally does not ship an Ollama model list; any local or Ollama Cloud model ID can be entered manually.
+On Linux, run `ollama serve` in another terminal if the service is not already running. In **New**, choose **Ollama** for either agent role. BDFL lists models installed locally by querying `ollama list`; choose one of those models or enter any local or Ollama Cloud model ID manually.
 
 `qwen3:4b` is about 2.5 GB and is useful for checking the integration on modest hardware. Treat it as a smoke-test model, not the quality baseline for multi-step planning and implementation.
 

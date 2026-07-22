@@ -59,6 +59,18 @@ test('shows Ollama without built-in models and immediately accepts a manual mode
   assert.equal(wizard.key(), 'delegatorEffort');
 });
 
+test('offers installed Ollama models and still accepts a manual model ID', () => {
+  const wizard = new WorkstreamWizard({ models: { ollama: ['qwen3:4b', 'gemma3:latest'] } });
+  wizard.handle('\r');
+  assert.deepEqual(wizard.options(), ['qwen3:4b', 'gemma3:latest', 'Type a model ID…']);
+  assert.match(wizard.render(), /installed Ollama model or enter a model ID manually/);
+  wizard.handle('\u001b[B');
+  wizard.handle('\u001b[B');
+  wizard.handle('\r');
+  enter(wizard, 'cloud-model');
+  assert.equal(wizard.values.delegatorModel, 'cloud-model');
+});
+
 test('accepts delegator and worker options, custom worker models, and defaults capacity to five', () => {
   const wizard = new WorkstreamWizard({ models: { claude: ['opus'], codex: ['gpt-5.4'] } });
   wizard.handle('\r');
@@ -127,7 +139,7 @@ test('offers manually entered models in the last-used setup', () => {
   assert.deepEqual(wizard.handle('\r'), lastUsed);
 });
 
-test('restores a last-used Ollama setup even though its catalog is intentionally empty', () => {
+test('restores a last-used Ollama setup when its catalog is empty', () => {
   const lastUsed = { version: 1, delegatorProfile: { provider: 'ollama', model: 'qwen3:4b', effort: 'medium' }, workerProfile: { provider: 'ollama', model: 'qwen3:4b', effort: 'low', permissionMode: 'workspace-write' }, workerCapacity: 2 };
   const wizard = new WorkstreamWizard({ catalogs: { ollama: [] }, lastUsed });
   assert.equal(wizard.key(), 'preset');
