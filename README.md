@@ -30,7 +30,7 @@ cd your-git-repository
 bdfl
 ```
 
-Next, choose separate planning and worker agents, models, effort levels, optional CLI arguments, and a worker capacity to begin planning and delegating.
+Next, choose separate planning and worker agents, models, effort levels, optional CLI arguments, and a worker capacity to begin planning and delegating. You need a Git repository before BDFL can execute the plan.
 
 <details>
 <summary>Want to use the main branch build?</summary>
@@ -109,8 +109,9 @@ BDFL gives each session role-specific `bdfl` MCP tools, while planning sessions 
 
 BDFL does not publish its local runtime state, metrics, analytics, or logs. Provider traffic still follows the agent and model you choose; use Ollama with a local model for a fully local setup.
 
-- `.bdfl/` is repository-local runtime state, ignored by Git, that stores session metadata, plans, snapshots, diffs, and worktrees. _Never commit it._
-- A workspace lock prevents two supervisors from mutating the same durable state.
+- Each repository owns its `.bdfl/` runtime state, which stores session metadata, plans, snapshots, diffs, and worktrees. _Never commit it._
+- A parent launch aggregates repository-owned state; it does not move plans or worktrees into the parent directory.
+- Coordinator and repository locks prevent two supervisors from mutating the same durable state.
 - Custom profile commands cannot use arbitrary executables, shell operators, environment prefixes, headless flags, or BDFL-owned lifecycle flags. Safe provider permission options may override BDFL's role defaults; dangerous access requires `bdfl --dangerous`.
 
 See [Model providers](docs/MODEL-PROVIDERS.md), [Permissions](docs/PERMISSIONS.md), and [Recovery](docs/RECOVERY.md) for the complete contracts.
@@ -134,7 +135,10 @@ The bottom rail holds every open planning agent and worker. Square badges identi
 
 <img src="docs/assets/bdfl-new-screen.svg" alt="BDFL New screen for configuring planning and worker agents" width="900">
 
-Create a session by selecting independent planning and worker providers, models, effort levels, optional arguments, and maximum worker count. Reuse **Last used** or customize a fresh setup; worker access is always limited to edits inside isolated worktrees.
+Create a session by selecting its repository, then independent planning and worker providers, models, effort levels, optional arguments, and maximum worker count. Only Git repositories with at least one commit are selectable. Reuse that repository's **Last used** setup or customize a fresh one; worker access is always limited to edits inside isolated worktrees in the selected repository.
+
+You can also start `bdfl` from a non-Git parent and it discovers committed Git repositories up to two directory levels. The parent view aggregates sessions, plans, and reviews from those repositories. Starting BDFL anywhere inside a repository instead scopes the view to that repository's Git top level.
+
 
 #### Plans
 

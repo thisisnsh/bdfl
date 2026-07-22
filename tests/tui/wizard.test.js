@@ -3,6 +3,23 @@ const test = require('node:test'); const assert = require('node:assert/strict');
 
 function enter(wizard, value) { for (const character of value) wizard.handle(character); wizard.handle('\r'); }
 
+test('chooses a committed repository before configuring a session', () => {
+  const repositories = [{ root: '/projects/claudia', label: 'claudia', lastUsed: null }];
+  const wizard = new WorkstreamWizard({ models: { claude: ['opus'] }, repositories });
+  const screen = wizard.render().replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+  assert.equal(wizard.key(), 'repository');
+  assert.match(screen, /Choose the repository for this session\. A repository needs at least one Git commit to appear here\./);
+  assert.match(screen, /claudia/);
+  wizard.handle('\r');
+  assert.equal(wizard.key(), 'delegatorProvider');
+  assert.equal(wizard.values.repositoryRoot, '/projects/claudia');
+});
+
+test('explains when no committed repository is selectable', () => {
+  const wizard = new WorkstreamWizard({ models: { claude: ['opus'] }, repositories: [] });
+  assert.match(wizard.render(), /No Git repository with at least one commit was found within two directory levels/);
+});
+
 test('expands each setup section directly beneath its heading', () => {
   const wizard = new WorkstreamWizard({ models: { claude: ['opus', 'sonnet'], codex: ['gpt-5.4'] } });
   const first = wizard.render();

@@ -18,7 +18,7 @@ class IntegrationCoordinator {
   prepare(executionId) {
     const execution = this.scheduler.load(executionId);
     if (execution.chunks.some((chunk) => chunk.status !== 'accepted')) throw new Error('All chunks must be accepted before consolidation');
-    const integration = this.git.createIntegration(executionId, execution.baseline); const result = this.git.consolidate(integration, execution.chunks);
+    const integration = this.git.createIntegration(executionId, execution.baseline, execution.repositoryRoot); const result = this.git.consolidate(integration, execution.chunks);
     if (result.state === 'conflict') {
       const allowedPaths = [...new Set(execution.chunks.flatMap((chunk) => chunk.paths))];
       const worker = this.integrationLauncher?.({ execution, integration, result, allowedPaths, profile: execution.profile });
@@ -42,7 +42,7 @@ class IntegrationCoordinator {
   }
 
   verification(executionId, report) { const execution = this.scheduler.load(executionId); if (execution.status !== 'verifying') throw new Error('Execution is not awaiting global verification'); execution.verification = { state: report.state, summary: `${report.summary || ''}`.slice(0, 800), affectedChunkIds: report.affectedChunkIds || [], completedAt: this.now().toISOString() }; execution.status = report.state === 'pass' ? 'integration-review' : 'verification-failed'; this.scheduler.save(execution); return execution.verification; }
-  finalize(executionId, target = {}) { const execution = this.scheduler.load(executionId); if (execution.status !== 'integration-review' || execution.verification?.state !== 'pass' || execution.integration?.checkResults?.some((check) => !check.ok)) throw new Error('Passing global verification is required before final integration'); const commit = this.git.integrate(execution.integration, { targetBranch: execution.targetBranch || target.branch, targetHead: execution.targetHead || target.head, message: target.message || `Integrate ${execution.planId}` }); execution.status = 'complete'; execution.finalCommit = commit; execution.completedAt = this.now().toISOString(); this.scheduler.save(execution); return commit; }
+  finalize(executionId, target = {}) { const execution = this.scheduler.load(executionId); if (execution.status !== 'integration-review' || execution.verification?.state !== 'pass' || execution.integration?.checkResults?.some((check) => !check.ok)) throw new Error('Passing global verification is required before final integration'); const commit = this.git.integrate(execution.integration, { targetBranch: execution.targetBranch || target.branch, targetHead: execution.targetHead || target.head, message: target.message || `Integrate ${execution.planId}`, repository: execution.repositoryRoot }); execution.status = 'complete'; execution.finalCommit = commit; execution.completedAt = this.now().toISOString(); this.scheduler.save(execution); return commit; }
 }
 
 module.exports = { IntegrationCoordinator };
