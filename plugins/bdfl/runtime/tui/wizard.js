@@ -136,7 +136,7 @@ class WorkstreamWizard {
       }
     }
     if (this.message && !this.message.startsWith('Type the model')) lines.push(`${COLOR.error}${COLOR.bold}! ${this.message}${COLOR.reset}`);
-    lines.push('', `${COLOR.accent}↑/↓ choose  •  ← edit previous  •  Enter continue  •  Esc/Ctrl+] back${COLOR.reset}`); return lines.join('\n');
+    lines.push('', `${COLOR.accent}↑/↓ choose  •  ← edit previous  •  Enter continue  •  Esc back${COLOR.reset}`); return lines.join('\n');
   }
 }
 

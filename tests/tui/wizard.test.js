@@ -11,7 +11,8 @@ test('expands each setup section directly beneath its heading', () => {
   assert.match(first, /7\. Max worker count[^\n]*5 \(default\)/);
   assert.match(plain, /Codex\n\n○ 2\. Delegator model/);
   assert.match(plain, /^○ 1\. Delegator agent$/m);
-  assert.match(plain, /Esc\/Ctrl\+\] back/);
+  assert.match(plain, /Esc back/);
+  assert.doesNotMatch(plain, /Ctrl\+?\]/);
   assert.doesNotMatch(first, /\u001b\[48;5;81m/);
   assert.doesNotMatch(first, /delegatorProvider/);
   wizard.handle('\r');
