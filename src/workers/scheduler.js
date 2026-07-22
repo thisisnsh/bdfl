@@ -32,13 +32,14 @@ class WorkerScheduler {
   }
   active(execution) { return execution.chunks.filter((chunk) => ACTIVE.has(chunk.status)); }
   ancestors(execution, chunk) { const found = new Set(); const visit = (id) => { const current = execution.chunks.find((item) => item.id === id); if (!current) return; for (const dependency of current.dependsOn) visit(dependency); found.add(id); }; for (const dependency of chunk.dependsOn) visit(dependency); return execution.chunks.filter((item) => found.has(item.id)).sort((left, right) => left.order - right.order); }
+  resume() { return this.list().filter((execution) => execution.status === 'running').map((execution) => this.recalculate(execution.id)); }
   recalculate(id) {
     const execution = this.load(id); const active = this.active(execution); const held = new Set(active.flatMap((chunk) => chunk.locks)); let slots = Math.max(0, execution.capacity - active.length);
     for (const chunk of execution.chunks) {
       if (!slots || chunk.status !== 'queued') continue;
       if (!chunk.dependsOn.every((dependency) => execution.chunks.find((item) => item.id === dependency)?.status === 'accepted')) continue;
       if (chunk.locks.some((lock) => held.has(lock))) continue;
-      const predecessors = this.ancestors(execution, chunk); const commits = predecessors.map((item) => item.commit).filter(Boolean); const base = commits.length && this.worktrees?.composeBase ? this.worktrees.composeBase(execution.id, chunk.id, chunk.attempts.length + 1, execution.baseline, commits, execution.repositoryRoot) : commits.at(-1) || execution.baseline;
+      const predecessors = this.ancestors(execution, chunk); const commits = predecessors.map((item) => item.commit).filter(Boolean); const base = predecessors.length && this.worktrees?.composeBase ? this.worktrees.composeBase(execution.id, chunk.id, chunk.attempts.length + 1, execution.baseline, predecessors, execution.repositoryRoot) : commits.at(-1) || execution.baseline;
       const attempt = { number: chunk.attempts.length + 1, base, startedAt: this.now().toISOString() }; chunk.attempts.push(attempt); chunk.status = 'running'; chunk.locks.forEach((lock) => held.add(lock)); slots -= 1;
       const source = this.lineage.readSection(execution.planId, execution.version, chunk.id); const taskSnippet = workerTaskSnippet(source, chunk.id); chunk.taskSnippet = taskSnippet; const context = this.materializeContext(execution, chunk); const launched = this.launcher?.({ execution, chunk, attempt, context, profile: execution.profile, taskSnippet });
       if (this.launcher && (!launched || typeof launched.sessionId !== 'string' || !launched.sessionId)) throw new Error(`Worker launch for ${chunk.id} must return its created sessionId`);
