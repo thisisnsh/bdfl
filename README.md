@@ -43,13 +43,13 @@ npm install --global @thisisnsh/bdfl@staging
 
 </details>
 
-### Use with Codex or Claude Code
+#### Use with Codex or Claude Code
 
 Install the [Codex CLI](https://developers.openai.com/codex/cli) or [Claude Code](https://code.claude.com/docs/en/getting-started), run it once to sign in, then start BDFL in your Git repository.
 
 Choose **Codex** or **Claude Code** for the planning agent, worker agent, or both. Each role can use a different model and effort level. You can also mix Codex with Claude Code or Ollama.
 
-### Use open models with Ollama
+#### Use open models with Ollama
 
 Install and start [Ollama](https://ollama.com/download), install Codex, and sign in to Ollama Cloud if you want to use a cloud model:
 

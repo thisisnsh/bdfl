@@ -48,7 +48,7 @@ Test.
     planId: 'plan-private-id',
     workstreamId: 'one',
     status: 'running',
-    chunks: [{ id: 'build-bash-lookup', status: 'review', summary: 'Added strict validation for every argument before producing any output from the lookup script.', diff: '+done', changedPaths: ['planet.sh'], attempts: [{ sessionId: 'w' }] }]
+    chunks: [{ id: 'build-bash-lookup', status: 'review', summary: 'Added strict validation for every argument before producing any output from the lookup script.', diff: 'diff --git a/planet.sh b/planet.sh\n--- a/planet.sh\n+++ b/planet.sh\n-previous lookup implementation that should be removed cleanly\n+replacement lookup implementation that should be added cleanly', changedPaths: ['planet.sh'], attempts: [{ sessionId: 'w' }] }]
   };
   const handlers = new Map();
   const supervisor = new TerminalSupervisor(root, {
@@ -75,9 +75,27 @@ Test.
   assert.match(content, /Added strict validation for every\n\s+argument before producing any output from\n\s+the lookup script/);
 
   handlers.get('data')('\r');
+  const styled = supervisor.actionPageLines();
+  const redRows = styled.filter((line) => line.startsWith('\u001b[38;5;203m'));
+  const greenRows = styled.filter((line) => line.startsWith('\u001b[38;5;114m'));
+  assert.ok(redRows.length >= 2);
+  assert.ok(greenRows.length >= 2);
+  assert.ok(redRows.every((line) => line.endsWith('\u001b[0m')));
+  assert.ok(greenRows.every((line) => line.endsWith('\u001b[0m')));
+  assert.match(redRows[0], /-previous lookup implementation/);
+  assert.match(greenRows[0], /\+replacement lookup implementation/);
+  assert.ok(styled.some((line) => line === '--- a/planet.sh'));
+  assert.ok(styled.some((line) => line === '+++ b/planet.sh'));
   content = plain();
   assert.match(content, /Make Bash Script \(W 1\) · Planet lookup/);
   assert.doesNotMatch(content, /build-bash-lookup|plan-private-id|execution-private-id/);
   assert.match(content, /Added strict validation for every argument\nbefore producing any output from the lookup\nscript/);
+  assert.match(content, /a accept • f feedback • Esc back/);
+  assert.doesNotMatch(content, /a accept · f feedback · Esc back/);
+
+  handlers.get('data')('fFix the script');
+  const feedbackLines = supervisor.actionPageLines();
+  assert.ok(feedbackLines.some((line) => line === '\u001b[38;5;220mFeedback: Fix the script\u001b[0m'));
+  assert.match(plain(), /Enter send • Esc cancel/);
   supervisor.stop();
 });
