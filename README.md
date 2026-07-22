@@ -4,7 +4,7 @@
 
 **Plan deliberately. Build in parallel. Stay in control.**
 
-BDFL is a terminal supervisor for Codex, Claude Code, and Ollama-backed Codex sessions. Work with a planning agent, compare and approve versioned plans or parts of it, then let isolated worker agents implement the approved work while BDFL handles scheduling, checks, review, verification, integration, and recovery.
+BDFL is a terminal supervisor for Codex, Claude Code, and Ollama-backed Codex sessions. Work with a planning agent, compare and approve versioned plans or individual sections, then let isolated worker agents implement the approved work while BDFL handles scheduling, checks, review, verification, integration, and recovery.
 
 _BDFL also stands for [Benevolent Dictator for Life](https://en.wikipedia.org/wiki/Benevolent_dictator_for_life). In this project, BDFL delegates the work to LLMs. Hence the name!_
 
@@ -22,7 +22,7 @@ _BDFL also stands for [Benevolent Dictator for Life](https://en.wikipedia.org/wi
 <a id="quick-start"></a>
 ## ⚡ Quick start
 
-You need macOS or Linux _(Windows Soon)_, Node.js 20+, Git, and at least one supported agent CLI installed and authenticated.
+You need macOS or Linux _(Windows support is planned)_, Node.js 20+, Git, and at least one supported agent CLI installed and authenticated.
 
 ```bash
 npm install --global @thisisnsh/bdfl
@@ -30,7 +30,7 @@ cd your-git-repository
 bdfl
 ```
 
-Next, choose separate planning and worker agents, models, effort levels, optional CLI arguments, and worker capacity to begin planning and delegating effortlessly.
+Next, choose separate planning and worker agents, models, effort levels, optional CLI arguments, and a worker capacity to begin planning and delegating.
 
 <details>
 <summary>Want to use the main branch build?</summary>
@@ -47,7 +47,7 @@ npm install --global @thisisnsh/bdfl@staging
 
 Install the [Codex CLI](https://developers.openai.com/codex/cli) or [Claude Code](https://code.claude.com/docs/en/getting-started), run it once to sign in, then start BDFL in your Git repository.
 
-Choose **Codex** / **Claude** for the planning agent, worker agent, or both. Each role can use a different model and effort level. You can also mix Codex with Claude Code or Ollama.
+Choose **Codex** or **Claude Code** for the planning agent, worker agent, or both. Each role can use a different model and effort level. You can also mix Codex with Claude Code or Ollama.
 
 ### Use open models with Ollama
 
@@ -56,13 +56,13 @@ Install and start [Ollama](https://ollama.com/download), install Codex, and sign
 ```bash
 ollama signin
 # Pull a local model if you want to use one
-ollama pull <model> 
+ollama pull <model>
 bdfl
 ```
 
-Choose **Ollama** and select the running models, or enter a model ID such as `gpt-oss:120b-cloud`. BDFL uses [Ollama's Codex integration](https://docs.ollama.com/integrations/codex), so a current Codex CLI is required. 
+Choose **Ollama** and select an installed model, or enter a model ID such as `gpt-oss:120b-cloud`. BDFL uses [Ollama's Codex integration](https://docs.ollama.com/integrations/codex), so a current Codex CLI is required.
 
-Run `ollama ps` in another terminal to verify that the models are running.
+Run `ollama ps` in another terminal to see which models are currently loaded.
 
 
 <a id="features"></a>
@@ -72,44 +72,44 @@ Run `ollama ps` in another terminal to verify that the models are running.
 
 Use Codex, Claude Code, or Ollama independently for planning and worker roles.
 
-* Configure different models, reasoning-effort levels, and safe additional CLI arguments for each role.
+- Configure different models, reasoning-effort levels, and safe additional CLI arguments for each role.
 
 #### **Deliberate, versioned planning**
 
 Plans use immutable versions with shared decisions, worker chunks, and global validation.
 
-* Compare adjacent versions.
-* Approve individual sections while preserving approvals for unchanged sections.
-* Unlock sections for revision.
-* Execute any fully approved plan version.
+- Compare adjacent versions.
+- Approve individual sections while preserving approvals for unchanged sections.
+- Unlock sections for revision.
+- Execute any fully approved plan version.
 
 #### **Dependency-aware, isolated execution**
 
-Each worker receives a private and focused context.
+Each worker receives an isolated, and focused context.
 
-* Independent chunks can run in parallel within the configured worker limit.
-* Prerequisites and named locks keep dependent or conflicting work in the correct order.
+- Independent chunks can run in parallel within the configured worker limit.
+- Prerequisites and named locks keep dependent or conflicting work in the correct order.
 
 #### **Review before integration**
 
 Inspect each worker’s summary, diff, changed paths, checks, and commit metadata.
 
-* Accept the result or send feedback to the same worker for revision.
-* Review the consolidated result after global checks and a fresh read-only verification pass.
+- Accept the result or send feedback to the same worker for revision.
+- Review the consolidated result after global checks and a fresh read-only verification pass.
 
 #### **Constrained roles with skills and MCP**
 
-Sessions within BDFL get the `bdfl` MCP and `bdfl-plan` skill to tasks.
+BDFL gives each session role-specific `bdfl` MCP tools, while planning sessions also receive the `bdfl-plan` skill.
 
-* A session-scoped MCP bridge exposes only the tools permitted for each role.
-* Planning and verification remain read-only.
-* Workers can edit only their isolated worktrees.
+- A session-scoped MCP bridge exposes only the tools permitted for each role.
+- Planning and verification remain read-only.
+- Workers can edit only their isolated worktrees.
 
 #### **Local state and safety**
 
-Everything stays local, and no metrics, analytics, or logs are published. The best way to try BDFL is to run it with Ollama using a local model.
+BDFL does not publish its local runtime state, metrics, analytics, or logs. Provider traffic still follows the agent and model you choose; use Ollama with a local model for a fully local setup.
 
-- `.bdfl/` is repository-local config, ignored by Git, that stores the session metadata, plans, snapshots, diffs, and worktrees. _Never commit it._
+- `.bdfl/` is repository-local runtime state, ignored by Git, that stores session metadata, plans, snapshots, diffs, and worktrees. _Never commit it._
 - A workspace lock prevents two supervisors from mutating the same durable state.
 - Custom profile commands cannot use arbitrary executables, shell operators, environment prefixes, headless flags, or BDFL-owned flags.
 
@@ -150,7 +150,7 @@ Open running sessions or resume closed ones with their saved provider identity a
 
 #### Review
 
-Review worker and combined results without leaving the terminal. Worker results can be accepted or returned with feedback; a consolidated result can be integrated only after checks and read-only verification pass.
+Review worker and combined results without leaving the terminal. Worker results can be accepted or returned with feedback; a consolidated result can be integrated only after checks and a read-only verification pass.
 
 
 <a id="suggested-workflow"></a>
