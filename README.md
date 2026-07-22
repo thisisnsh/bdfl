@@ -4,6 +4,13 @@
 
 **Plan deliberately. Build in parallel. Stay in control.**
 
+<p>
+  <a href="https://www.npmjs.com/package/@thisisnsh/bdfl"><img src="https://img.shields.io/npm/v/%40thisisnsh%2Fbdfl?color=facc15" alt="npm version"></a>
+  <a href="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml"><img src="https://github.com/thisisnsh/bdfl/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/thisisnsh/bdfl"><img src="https://img.shields.io/badge/node-%3E%3D20-42ba75" alt="Node 20+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/thisisnsh/bdfl" alt="MIT license"></a>
+</p>
+
 BDFL is a terminal supervisor for Codex, Claude Code, and Ollama-backed Codex sessions. Work with a planning agent, compare and approve versioned plans or individual sections, then let isolated worker agents implement the approved work while BDFL handles scheduling, checks, review, verification, integration, and recovery.
 
 _BDFL also stands for [Benevolent Dictator for Life](https://en.wikipedia.org/wiki/Benevolent_dictator_for_life). In this project, BDFL delegates the work to LLMs. Hence the name!_
