@@ -15,12 +15,12 @@
     "node-pty": "^1.1.0",
     "semver": "^7.8.5"
   },
-  "bin": { "bdfl": "bin/bdfl" },
+  "bin": { "bdfl": "bin/bdfl", "bfdl": "bin/bfdl" },
   "scripts": {
     "test": "node --test tests/**/*.test.js",
     "package": "node scripts/package.js",
     "package:check": "node scripts/package.js --check",
     "validate": "npm run package:check"
   },
-  "files": ["bin/bdfl", "bin/bdfl-mcp.js", "skills/", "src/", "LICENSE", "README.md", "SECURITY.md", "SUPPORT.md"]
+  "files": ["bin/bdfl", "bin/bfdl", "bin/bdfl-mcp.js", "skills/", "src/", "LICENSE", "README.md", "SECURITY.md", "SUPPORT.md"]
 }

@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+'use strict';
+
+process.stderr.write('No No No No! Did you mean bdfl?\n');
+process.exitCode = 1;
