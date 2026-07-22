@@ -25,13 +25,28 @@ jobs:
       - name: Show publishing toolchain
         run: node --version && npm --version
       - run: npm ci
+      - name: Resolve staging base from latest GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_tag=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
+          RELEASE_TAG="$release_tag" node <<'NODE'
+          const fs = require('node:fs');
+          const semver = require('semver');
+          const tag = process.env.RELEASE_TAG || '';
+          const version = tag.startsWith('v') ? tag.slice(1) : '';
+          if (!semver.valid(version) || semver.prerelease(version)) {
+            throw new Error(`Latest GitHub Release must use stable v-prefixed SemVer: ${tag}`);
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV, `STAGING_BASE_VERSION=${version}\n`);
+          NODE
       - run: npm test
       - run: npm run validate
       - name: Build staging package
         id: pack
         run: |
           short_sha="${GITHUB_SHA::7}"
-          npm version "0.1.0-staging.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${short_sha}" --no-git-tag-version --allow-same-version
+          npm version "${STAGING_BASE_VERSION}-staging.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${short_sha}" --no-git-tag-version --allow-same-version
           tarball=$(npm pack --json | node -e 'let value=""; process.stdin.on("data", chunk => value += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(value)[0].filename));')
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
           sha256sum "$tarball" > SHA256SUMS

@@ -39,13 +39,13 @@ GitHub documents environment reviewers and protection rules in [Managing environ
 
 ## Staging releases
 
-Every successful push to `main` runs tests and publishes:
+Every successful push to `main` reads the latest published GitHub Release tag, validates it as stable SemVer, and uses that release version as the staging prefix. Given a latest release of `v0.9.0`, it publishes:
 
 ```text
-0.1.0-staging.<run-number>.<run-attempt>.<short-sha>
+0.9.0-staging.<run-number>.<run-attempt>.<short-sha>
 ```
 
-The version receives the npm `staging` tag. `latest` is untouched. The tarball and SHA-256 report remain as GitHub Actions artifacts for 14 days; no staging GitHub Release is created.
+The version receives the npm `staging` tag. `latest` is untouched. The tarball and SHA-256 report remain as GitHub Actions artifacts for 14 days; no staging GitHub Release is created. If the repository has no published release, or the latest release tag is not stable `v`-prefixed SemVer, staging fails instead of inventing a version.
 
 Verify a staging publication:
 
