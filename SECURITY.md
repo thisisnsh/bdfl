@@ -8,11 +8,11 @@ The latest stable release and `main` receive security fixes. Include impact, rep
 
 BDFL keeps plans, prompts, one-line task snippets, agent names, events, terminal snapshots, diffs, session metadata, worktrees, and execution records under repository-local `.bdfl/`. Planning snippets retain the latest substantive submitted prompt; worker snippets summarize their assigned plan chunk. Treat all of it as sensitive. It is excluded through local Git metadata and must never be committed or shared without review.
 
-Provider authentication remains in the provider's native store. BDFL does not ask for or persist Claude, Codex, npm, or GitHub credentials.
+Provider authentication remains in the provider's native store. BDFL does not ask for or persist Claude, Codex, Ollama, npm, or GitHub credentials.
 
 ## Network behavior
 
-BDFL performs a short nonblocking request to the public npm registry on launch to check for updates. Offline failure does not block the terminal. Provider CLIs and npm retain their own network behavior. BDFL has no analytics account or application telemetry service.
+BDFL performs a short nonblocking request to the public npm registry on launch to check for updates. Offline failure does not block the terminal. Provider CLIs and npm retain their own network behavior; Ollama decides whether a selected model runs locally or through Ollama Cloud. BDFL has no analytics account or application telemetry service.
 
 ## Execution boundaries
 

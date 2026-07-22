@@ -9,23 +9,26 @@ const ATTENTION_EVENTS = ['agent-turn-complete', 'approval-requested', 'plan-mod
 const CLAUDE_NOTIFICATION_EVENTS = ['permission_prompt', 'idle_prompt', 'elicitation_dialog', 'agent_needs_input'];
 
 function codexSandbox(mode) { return mode === 'full-access' ? 'danger-full-access' : mode === 'workspace-write' ? 'workspace-write' : 'read-only'; }
+function codexRuntime(provider) { return provider === 'codex' || provider === 'ollama'; }
 
 function stripOwnedArgs(argv = [], provider) {
-  const pairs = provider === 'codex' ? new Set(['-m', '--model', '-s', '--sandbox', '-a', '--ask-for-approval']) : new Set(['--model', '--effort', '--permission-mode']);
-  const switches = provider === 'codex' ? new Set(['--dangerously-bypass-approvals-and-sandbox']) : new Set(['--dangerously-skip-permissions', '--allow-dangerously-skip-permissions']);
+  const codex = codexRuntime(provider);
+  const pairs = codex ? new Set(['-m', '--model', '-s', '--sandbox', '-a', '--ask-for-approval']) : new Set(['--model', '--effort', '--permission-mode']);
+  const switches = codex ? new Set(['--dangerously-bypass-approvals-and-sandbox']) : new Set(['--dangerously-skip-permissions', '--allow-dangerously-skip-permissions']);
+  if (provider === 'ollama') { for (const flag of ['-p', '--profile', '--local-provider']) pairs.add(flag); for (const flag of ['--oss', '--yes']) switches.add(flag); }
   const controlledConfig = new Set(['model', 'model_reasoning_effort', 'sandbox_mode', 'approval_policy']); const result = [];
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]; const pair = [...pairs].find((flag) => argument === flag || argument.startsWith(`${flag}=`));
     if (pair) { if (argument === pair) index += 1; continue; }
     if (switches.has(argument)) continue;
-    if (provider === 'codex' && (argument === '-c' || argument === '--config') && index + 1 < argv.length) { const config = argv[index + 1]; const key = config.split('=', 1)[0]; if (controlledConfig.has(key)) { index += 1; continue; } }
+    if (codex && (argument === '-c' || argument === '--config') && index + 1 < argv.length) { const config = argv[index + 1]; const key = config.split('=', 1)[0]; if (controlledConfig.has(key) || provider === 'ollama' && (key === 'profile' || key === 'model_provider' || key === 'model_catalog_json' || key.startsWith('model_providers.'))) { index += 1; continue; } }
     result.push(argument);
   }
   return result;
 }
 
-function buildCodex(profile, options) {
-  const common = [...stripOwnedArgs(profile.argv, 'codex'), '--no-alt-screen', '-m', profile.model, '-c', `model_reasoning_effort="${profile.effort}"`, '--sandbox', codexSandbox(options.permissionMode || 'read-only'), '-c', `tui.notifications=${JSON.stringify(ATTENTION_EVENTS)}`, '-c', 'tui.notification_method="bel"', '-c', 'tui.notification_condition="always"'];
+function codexArgs(profile, options, { model = true, provider = 'codex' } = {}) {
+  const common = [...stripOwnedArgs(profile.argv, provider), '--no-alt-screen', ...(model ? ['-m', profile.model] : []), '-c', `model_reasoning_effort="${profile.effort}"`, '--sandbox', codexSandbox(options.permissionMode || 'read-only'), '-c', `tui.notifications=${JSON.stringify(ATTENTION_EVENTS)}`, '-c', 'tui.notification_method="bel"', '-c', 'tui.notification_condition="always"'];
   if (options.bridge) {
     const tools = options.bridge.tools || ['bdfl_workers'];
     common.push('-c', `mcp_servers.bdfl.command=${JSON.stringify(options.bridge.command)}`, '-c', `mcp_servers.bdfl.args=${JSON.stringify(options.bridge.args)}`, '-c', 'mcp_servers.bdfl.required=true', '-c', `mcp_servers.bdfl.enabled_tools=${JSON.stringify(tools)}`, '-c', 'mcp_servers.bdfl.default_tools_approval_mode="approve"');
@@ -33,8 +36,11 @@ function buildCodex(profile, options) {
   }
   if (options.resume) common.push('resume', options.sessionId);
   if (options.roleInstruction && !options.resume) common.push(options.roleInstruction);
-  return { command: 'codex', args: common, env: TERMINAL_ENV };
+  return common;
 }
+
+function buildCodex(profile, options) { return { command: 'codex', args: codexArgs(profile, options), env: TERMINAL_ENV }; }
+function buildOllama(profile, options) { return { command: 'ollama', args: ['launch', 'codex', '--model', profile.model, '--yes', '--', ...codexArgs(profile, options, { model: false, provider: 'ollama' })], env: TERMINAL_ENV }; }
 
 function buildClaude(profile, options) {
   const common = [...stripOwnedArgs(profile.argv, 'claude'), ...(profile.model === 'default' ? [] : ['--model', profile.model]), '--effort', profile.effort, '--permission-mode', options.permissionMode === 'full-access' ? 'bypassPermissions' : options.permissionMode === 'workspace-write' ? 'acceptEdits' : 'plan'];
@@ -53,15 +59,15 @@ function buildClaude(profile, options) {
 function buildLaunch(profileValue, options = {}) {
   const profile = validateProfile(profileValue, { worker: options.role !== 'delegator' });
   if (options.resume && !options.sessionId) throw new Error('A provider session ID is required to resume');
-  const invocation = profile.provider === 'codex' ? buildCodex(profile, options) : buildClaude(profile, options);
+  const invocation = profile.provider === 'codex' ? buildCodex(profile, options) : profile.provider === 'ollama' ? buildOllama(profile, options) : buildClaude(profile, options);
   return { ...invocation, cwd: options.cwd, roleInstruction: options.role === 'delegator' ? ROLE : options.roleInstruction || null };
 }
 
 function skillDestination(root, provider, sessionId) {
-  const folder = provider === 'codex' ? '.agents/skills' : '.claude/skills';
+  const folder = codexRuntime(provider) ? '.agents/skills' : '.claude/skills';
   return path.join(root, '.bdfl', 'sessions', sessionId, 'planning', folder, 'bdfl-plan');
 }
 
 function pluginDestination(root, sessionId) { return path.join(root, '.bdfl', 'sessions', sessionId, 'plugin'); }
 
-module.exports = { ROLE, ATTENTION_EVENTS, CLAUDE_NOTIFICATION_EVENTS, codexSandbox, stripOwnedArgs, buildLaunch, skillDestination, pluginDestination };
+module.exports = { ROLE, ATTENTION_EVENTS, CLAUDE_NOTIFICATION_EVENTS, codexSandbox, codexRuntime, stripOwnedArgs, buildLaunch, skillDestination, pluginDestination };

@@ -4,7 +4,7 @@ This is the working roadmap for BDFL. Items here are plans, not promises or curr
 
 ## Providers and platforms
 
-- [ ] Add Ollama and local-model support.
+- [x] Add Ollama and local-model support through Codex.
 - [ ] Add native Windows support.
 - [ ] Evaluate additional coding-agent providers: Aider, OpenCode, Goose, Gemini CLI, and Qwen Code.
 

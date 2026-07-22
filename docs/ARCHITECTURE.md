@@ -13,7 +13,7 @@ Real terminal
        └─ Git worktrees + consolidation + final integration
 ```
 
-The supervisor is the only durable-state writer. There is no daemon or headless provider broker. Provider adapters construct interactive delegator, worker, resume, integration, and verifier launches while provider-native authentication stays outside BDFL.
+The supervisor is the only durable-state writer. There is no daemon or headless provider broker. Provider adapters construct interactive delegator, worker, resume, integration, and verifier launches while provider-native authentication stays outside BDFL. Ollama is a Codex-backed adapter: its outer launcher selects and prepares the model, while the inner Codex arguments carry BDFL's MCP, permission, notification, and recovery contract.
 
 ## Plans
 

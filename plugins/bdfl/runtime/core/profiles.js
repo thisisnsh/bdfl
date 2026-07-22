@@ -1,6 +1,6 @@
 'use strict';
 
-const PROVIDERS = new Set(['claude', 'codex']);
+const PROVIDERS = new Set(['claude', 'codex', 'ollama']);
 const PERMISSIONS = new Set(['read-only', 'workspace-write', 'full-access']);
 
 function tokenizeCommand(command) {
@@ -20,7 +20,7 @@ function tokenizeCommand(command) {
   }
   if (quote) throw new Error('Unterminated quote in custom command');
   if (token) argv.push(token);
-  if (!PROVIDERS.has(argv[0])) throw new Error('Custom commands must begin with claude or codex');
+  if (!PROVIDERS.has(argv[0])) throw new Error('Custom commands must begin with claude, codex, or ollama');
   if (argv.slice(1).some((argument) => argument.includes('=') && !argument.startsWith('-'))) throw new Error('Environment prefixes are not allowed');
   const forbidden = new Set(['exec', '--print', '-p', '--output-format', '--resume', 'resume', '--mcp-config', '--add-dir', '--settings']);
   if (argv.slice(1).some((argument) => forbidden.has(argument) || argument.startsWith('--settings='))) throw new Error('BDFL owns headless, resume, MCP, settings, and role flags');

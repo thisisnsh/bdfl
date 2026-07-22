@@ -27,7 +27,7 @@ const SETUP_GROUPS = [
 ];
 const TEXT_STEPS = new Set(['delegatorArgs', 'workerArgs', 'workerCapacity']);
 const REASONING_EFFORTS = ['low', 'medium', 'high'];
-const LABELS = { claude: 'Claude Code', codex: 'Codex', default: 'Claude current default', medium: 'Medium', low: 'Low', high: 'High', 'workspace-write': 'Accept edits', 'read-only': 'Read only', 'full-access': 'Full access' };
+const LABELS = { claude: 'Claude Code', codex: 'Codex', ollama: 'Ollama', default: 'Claude current default', medium: 'Medium', low: 'Low', high: 'High', 'workspace-write': 'Accept edits', 'read-only': 'Read only', 'full-access': 'Full access' };
 const ESC = '\u001b['; const COLOR = process.env.NO_COLOR ? { reset: '', bold: '', dim: '', accent: '', selected: '', input: '', done: '', white: '', black: '', bgYellow: '', bgCyan: '', error: '' } : { reset: `${ESC}0m`, bold: `${ESC}1m`, dim: `${ESC}38;5;245m`, accent: `${ESC}38;5;81m`, selected: `${ESC}38;5;220m`, input: `${ESC}38;5;213m`, done: `${ESC}38;5;114m`, white: `${ESC}38;5;255m`, black: `${ESC}38;5;16m`, bgYellow: `${ESC}48;5;220m`, bgCyan: `${ESC}48;5;81m`, error: `${ESC}38;5;203m` };
 
 function display(value) { return LABELS[value] || `${value}`; }
@@ -38,6 +38,8 @@ class WorkstreamWizard {
   key() { return STEPS[this.step]; }
   modelOptions(provider) { return this.models[provider] || []; }
   model(provider, id) { return (this.catalogs[provider] || []).find((model) => model.id === id); }
+  prefix() { return this.key().startsWith('delegator') ? 'delegator' : 'worker'; }
+  manualModelOnly() { return this.key().endsWith('Model') && this.modelOptions(this.values[`${this.prefix()}Provider`]).length === 0; }
   optionLabel(option) { if (this.key().endsWith('Model') && option !== 'Type a model ID…') { const prefix = this.key().startsWith('delegator') ? 'delegator' : 'worker'; const model = this.model(this.values[`${prefix}Provider`], option); if (model?.label && model.label !== option) return `${model.label} · ${option}`; } return display(option); }
   options() {
     const key = this.key();
@@ -51,12 +53,12 @@ class WorkstreamWizard {
   }
   move(delta) { const length = this.options().length; if (length) this.selection = (this.selection + delta + length) % length; }
   prepareInput() { const key = this.key(); if (key === 'workerCapacity') this.input = `${this.values.workerCapacity || 5}`; else if (key.endsWith('Args')) this.input = (this.values[key] || []).join(' '); else this.input = `${this.values[key] || ''}`; }
-  advance(answer) { if (answer !== undefined) this.history.push({ key: this.key(), title: COPY[this.key()][0], answer }); this.step += 1; this.selection = 0; this.input = ''; this.message = ''; if (TEXT_STEPS.has(this.key())) this.prepareInput(); }
+  advance(answer) { if (answer !== undefined) this.history.push({ key: this.key(), title: COPY[this.key()][0], answer }); this.step += 1; this.selection = 0; this.input = ''; this.message = ''; if (TEXT_STEPS.has(this.key())) this.prepareInput(); else if (this.manualModelOnly()) this.message = 'Type the model ID, then press Enter.'; }
   back() {
     const firstStep = this.lastUsed ? 0 : 1; if (this.step <= firstStep) return;
     this.step -= 1; this.history.pop(); this.selection = 0; this.message = '';
     if (TEXT_STEPS.has(this.key())) this.prepareInput();
-    else { const selected = this.options().indexOf(this.values[this.key()]); if (selected >= 0) this.selection = selected; else if (this.key().endsWith('Model') && this.values[this.key()]) { this.input = this.values[this.key()]; this.message = 'Type the model ID, then press Enter.'; } }
+    else { const selected = this.options().indexOf(this.values[this.key()]); if (selected >= 0 && !this.manualModelOnly()) this.selection = selected; else if (this.key().endsWith('Model') && (this.values[this.key()] || this.manualModelOnly())) { this.input = this.values[this.key()] || ''; this.message = 'Type the model ID, then press Enter.'; } }
   }
   parseArgs(provider) { if (!this.input.trim()) return []; return tokenizeCommand(`${provider} ${this.input}`).argv; }
   config() { return { version: 1, delegatorProfile: { provider: this.values.delegatorProvider, model: this.values.delegatorModel, effort: this.values.delegatorEffort, ...(this.values.delegatorArgs?.length ? { argv: this.values.delegatorArgs } : {}) }, workerProfile: { provider: this.values.workerProvider, model: this.values.workerModel, effort: this.values.workerEffort, permissionMode: 'workspace-write', ...(this.values.workerArgs?.length ? { argv: this.values.workerArgs } : {}) }, workerCapacity: this.values.workerCapacity }; }
@@ -65,7 +67,7 @@ class WorkstreamWizard {
     if (key === 'preset') { if (value === 'Last used') return structuredClone(this.lastUsed); this.advance('Custom setup'); return null; }
     if (key === 'confirmation') { if (value === 'Go back') { this.back(); return null; } return this.config(); }
     if (key.endsWith('Model') && value === 'Type a model ID…') { this.input = ''; this.message = 'Type the model ID, then press Enter.'; return null; }
-    if (value === undefined) { this.message = 'Install Claude Code or Codex and sign in before continuing.'; return null; }
+    if (value === undefined) { this.message = 'Install Claude Code, Codex, or Ollama before continuing.'; return null; }
     this.values[key] = value; this.advance(display(value)); return null;
   }
   submitText() {
@@ -79,7 +81,7 @@ class WorkstreamWizard {
   }
   handle(value) {
     if (value === '\u001b[D') { this.back(); return null; }
-    const typingModel = this.key().endsWith('Model') && this.message.startsWith('Type the model');
+    const typingModel = this.key().endsWith('Model') && (this.manualModelOnly() || this.message.startsWith('Type the model'));
     if (TEXT_STEPS.has(this.key()) || typingModel) {
       if (value === '\r') return this.submitText();
       if (value === '\u007f' || value === '\b') this.input = this.input.slice(0, -1);
@@ -104,11 +106,11 @@ class WorkstreamWizard {
   }
   visibleOptions() { const options = this.options(); if (options.length <= 5) return options.map((option, index) => ({ option, index })); const start = Math.max(0, Math.min(this.selection - 2, options.length - 5)); return options.slice(start, start + 5).map((option, offset) => ({ option, index: start + offset })); }
   render() {
-    const key = this.key(); const [title, description] = COPY[key]; const lines = [`${COLOR.selected}New session${COLOR.reset}`, `${COLOR.dim}Choose the agents and defaults BDFL should restore with this session.${COLOR.reset}`, ''];
+    const key = this.key(); const [title, baseDescription] = COPY[key]; let description = baseDescription; const provider = this.values[`${this.prefix()}Provider`]; if (this.manualModelOnly()) description = `Enter the model ID you want ${display(provider)} to use.`; else if (key.endsWith('Args') && provider === 'ollama') description = 'Optional Codex CLI arguments passed through Ollama, such as --search. BDFL adds model, permissions, and session flags.'; const lines = [`${COLOR.selected}New session${COLOR.reset}`, `${COLOR.dim}Choose the agents and defaults BDFL should restore with this session.${COLOR.reset}`, ''];
     const optionLine = (option, index) => index === this.selection ? `${COLOR.bgYellow}${COLOR.black}${COLOR.bold} › ${this.optionLabel(option)} ${COLOR.reset}` : `   ${COLOR.white}${COLOR.bold}${this.optionLabel(option)}${COLOR.reset}`;
     const activeDetails = () => {
       lines.push(`${COLOR.dim}  ${description}${COLOR.reset}`);
-      if (TEXT_STEPS.has(key) || (key.endsWith('Model') && this.message.startsWith('Type the model'))) {
+      if (TEXT_STEPS.has(key) || key.endsWith('Model') && (this.manualModelOnly() || this.message.startsWith('Type the model'))) {
         const optional = key.endsWith('Args');
         lines.push(`${COLOR.input}${COLOR.bold} › ${this.input}${COLOR.bgCyan}${COLOR.black} ${COLOR.reset}`, `${COLOR.dim}${optional ? 'Enter skips or continues.' : 'Enter continues.'}${COLOR.reset}`);
       } else if (key === 'confirmation') {

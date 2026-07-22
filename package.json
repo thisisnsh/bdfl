@@ -1,7 +1,7 @@
 {
   "name": "@thisisnsh/bdfl",
   "version": "0.1.0",
-  "description": "Benevolent Delegator for LLMs: supervised planning and isolated Claude Code and Codex workers",
+  "description": "Benevolent Delegator for LLMs: supervised Claude Code, Codex, and Ollama-backed workstreams",
   "license": "MIT",
   "author": "thisisnsh",
   "repository": {

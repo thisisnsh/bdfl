@@ -16,8 +16,10 @@ function executable(provider, { io = fs, env = process.env } = {}) {
 
 function claudeCatalog() { return catalog(CLAUDE_MODEL_IDS); }
 function codexCatalog() { return catalog(CODEX_MODEL_IDS); }
-function discoverProviderCatalogs(options = {}) { const catalogs = {}; if (executable('claude', options)) catalogs.claude = claudeCatalog(); if (executable('codex', options)) catalogs.codex = codexCatalog(); return catalogs; }
+function ollamaCatalog() { return []; }
+function discoverProviderCatalogs(options = {}) { const catalogs = {}; if (executable('claude', options)) catalogs.claude = claudeCatalog(); if (executable('codex', options)) catalogs.codex = codexCatalog(); if (executable('ollama', options)) catalogs.ollama = ollamaCatalog(); return catalogs; }
 function claudeModels() { return [...CLAUDE_MODEL_IDS]; }
 function codexModels() { return [...CODEX_MODEL_IDS]; }
+function ollamaModels() { return []; }
 
-module.exports = { claudeCatalog, claudeModels, codexCatalog, codexModels, discoverProviderCatalogs, executable };
+module.exports = { claudeCatalog, claudeModels, codexCatalog, codexModels, ollamaCatalog, ollamaModels, discoverProviderCatalogs, executable };

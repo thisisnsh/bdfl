@@ -11,7 +11,7 @@ npm ci
 npm test
 ```
 
-Use Node.js 20 or newer. Claude Code and Codex are needed only for opt-in provider smoke testing; the deterministic suite must not require credentials.
+Use Node.js 20 or newer. Claude Code, Codex, and Ollama are needed only for opt-in provider smoke testing; the deterministic suite must not require credentials, a running model service, or downloaded models.
 
 ## Make a change
 

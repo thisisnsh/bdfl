@@ -3,7 +3,7 @@
 BDFL runs in the foreground, but its work survives a closed pane or supervisor restart. Schema-2 `.bdfl/workspace.json` records each agent's stable name, role sequence, task snippet, attention state, and provider resume identity; plan lineages, executions, worker contexts, worktrees, events, and terminal snapshots live in their dedicated `.bdfl/` directories.
 
 - **Close** stops a session's PTYs and hides it. Its provider session IDs, roles, profiles, custom argv, branches, worktrees, plan relationships, and snapshots remain; **Sessions** can reopen it later.
-- Reopening uses the provider's exact interactive resume identity: `claude --resume <id>` or `codex resume <id>` alongside the saved model, effort, permission, custom arguments, fresh session capability, and canonical role instructions.
+- Reopening uses the provider's exact interactive resume identity: `claude --resume <id>`, `codex resume <id>`, or the underlying `codex resume <id>` passed through `ollama launch codex`. The saved model, effort, permission, custom arguments, fresh session capability, and canonical role instructions are restored with it.
 - **Quit** stops all PTYs without marking their sessions closed. Every agent in those sessions launches automatically when BDFL starts again.
 - Native Plan and Review panes reconstruct themselves from files, not model context.
 - One workspace lock prevents concurrent supervisors from mutating state.

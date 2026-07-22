@@ -45,6 +45,20 @@ test('accepts a custom planning model and offers all effort levels', () => {
   assert.deepEqual(wizard.options(), ['low', 'medium', 'high']);
 });
 
+test('shows Ollama without built-in models and immediately accepts a manual model ID', () => {
+  const wizard = new WorkstreamWizard({ catalogs: { ollama: [] } });
+  assert.deepEqual(wizard.options(), ['ollama']);
+  wizard.handle('\r');
+  assert.equal(wizard.key(), 'delegatorModel');
+  assert.match(wizard.render(), /Enter the model ID you want Ollama to use/);
+  assert.doesNotMatch(wizard.render(), /Type a model ID…/);
+  wizard.handle('\r');
+  assert.match(wizard.message, /model ID is required/);
+  enter(wizard, 'qwen3:4b');
+  assert.equal(wizard.values.delegatorModel, 'qwen3:4b');
+  assert.equal(wizard.key(), 'delegatorEffort');
+});
+
 test('accepts delegator and worker options, custom worker models, and defaults capacity to five', () => {
   const wizard = new WorkstreamWizard({ models: { claude: ['opus'], codex: ['gpt-5.4'] } });
   wizard.handle('\r');
@@ -110,6 +124,14 @@ test('offers manually entered models in the last-used setup', () => {
   const lastUsed = { version: 1, delegatorProfile: { provider: 'claude', model: 'custom/planner', effort: 'high' }, workerProfile: { provider: 'codex', model: 'custom/worker', effort: 'medium', permissionMode: 'workspace-write' }, workerCapacity: 3 };
   const wizard = new WorkstreamWizard({ models: { claude: ['opus'], codex: ['gpt-5.4'] }, lastUsed });
   assert.equal(wizard.key(), 'preset');
+  assert.deepEqual(wizard.handle('\r'), lastUsed);
+});
+
+test('restores a last-used Ollama setup even though its catalog is intentionally empty', () => {
+  const lastUsed = { version: 1, delegatorProfile: { provider: 'ollama', model: 'qwen3:4b', effort: 'medium' }, workerProfile: { provider: 'ollama', model: 'qwen3:4b', effort: 'low', permissionMode: 'workspace-write' }, workerCapacity: 2 };
+  const wizard = new WorkstreamWizard({ catalogs: { ollama: [] }, lastUsed });
+  assert.equal(wizard.key(), 'preset');
+  assert.match(wizard.render(), /Ollama · qwen3:4b · Medium/);
   assert.deepEqual(wizard.handle('\r'), lastUsed);
 });
 
