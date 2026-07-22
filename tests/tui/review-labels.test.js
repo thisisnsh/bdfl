@@ -51,11 +51,12 @@ Test.
     chunks: [{ id: 'build-bash-lookup', status: 'review', summary: 'Added strict validation for every argument before producing any output from the lookup script.', diff: 'diff --git a/planet.sh b/planet.sh\n--- a/planet.sh\n+++ b/planet.sh\n-previous lookup implementation that should be removed cleanly\n+replacement lookup implementation that should be added cleanly', changedPaths: ['planet.sh'], attempts: [{ sessionId: 'w' }] }]
   };
   const handlers = new Map();
+  const workerWrites = [];
   const supervisor = new TerminalSupervisor(root, {
     lineage,
     store: { load: () => state, setSessionAttention() {} },
-    sessions: { restore: () => ({ opened: [], errors: [] }), shutdown() {} },
-    scheduler: { list: () => [execution], load: () => execution },
+    sessions: { restore: () => ({ opened: [], errors: [] }), shutdown() {}, write(sessionId, value) { workerWrites.push([sessionId, value]); } },
+    scheduler: { list: () => [execution], load: () => execution, feedback(executionId, chunkId, message, sender) { sender(executionId, chunkId, message); } },
     integration: {},
     bridge: { start() {}, close() {} },
     input: { on(event, fn) { handlers.set(event, fn); }, off() {}, setRawMode() {}, resume() {}, pause() {} },
@@ -97,5 +98,7 @@ Test.
   const feedbackLines = supervisor.actionPageLines();
   assert.ok(feedbackLines.some((line) => line === '\u001b[38;5;220mFeedback: Fix the script\u001b[0m'));
   assert.match(plain(), /Enter send • Esc cancel/);
+  handlers.get('data')('\r');
+  assert.deepEqual(workerWrites, [['w', '\u001b[200~Fix the script\u001b[201~'], ['w', '\r']]);
   supervisor.stop();
 });
