@@ -11,7 +11,7 @@ const CLAUDE_NOTIFICATION_EVENTS = ['permission_prompt', 'idle_prompt', 'elicita
 function codexSandbox(mode) { return mode === 'full-access' ? 'danger-full-access' : mode === 'workspace-write' ? 'workspace-write' : 'read-only'; }
 
 function buildCodex(profile, options) {
-  const common = [...(profile.argv || []), '-m', profile.model, '-c', `model_reasoning_effort="${profile.effort}"`, '--sandbox', codexSandbox(options.permissionMode || 'read-only'), '-c', `tui.notifications=${JSON.stringify(ATTENTION_EVENTS)}`, '-c', 'tui.notification_method="bel"', '-c', 'tui.notification_condition="always"'];
+  const common = [...(profile.argv || []), '--no-alt-screen', '-m', profile.model, '-c', `model_reasoning_effort="${profile.effort}"`, '--sandbox', codexSandbox(options.permissionMode || 'read-only'), '-c', `tui.notifications=${JSON.stringify(ATTENTION_EVENTS)}`, '-c', 'tui.notification_method="bel"', '-c', 'tui.notification_condition="always"'];
   if (options.resume) return { command: 'codex', args: [...common, 'resume', options.sessionId], env: TERMINAL_ENV };
   return { command: 'codex', args: common, env: TERMINAL_ENV };
 }

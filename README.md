@@ -115,6 +115,7 @@ npm install --global @thisisnsh/bdfl@staging
 - **Close** gracefully stops every provider PTY in the active session and hides it without deleting provider resume IDs, models, effort, custom args, or history.
 - **Sessions** lists open and closed sessions. Selecting a closed entry restores every agent through its provider's resume command.
 - **Quit** gracefully stops all provider PTYs but leaves open sessions eligible for automatic restoration the next time `bdfl` starts.
+- Wheel and trackpad scrolling works over the visible agent pane even while BDFL owns keyboard focus. Codex uses inline terminal scrollback; mouse-aware Claude Code panes retain their native scrolling behavior and configured speed.
 - The footer keeps the `Ctrl+]` agent/BDFL focus shortcut on the left and a clickable GitHub link on the right.
 - The alternate screen restores your previous terminal scrollback on exit.
 
