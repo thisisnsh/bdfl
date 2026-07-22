@@ -2,8 +2,15 @@
 
 const fs = require('node:fs'); const path = require('node:path'); const crypto = require('node:crypto'); const { EventEmitter } = require('node:events');
 const { atomicWrite } = require('../core/plans');
+const { normalizeTaskSnippet } = require('../state/workspace');
 
 const ACTIVE = new Set(['running', 'waiting']);
+
+function workerTaskSnippet(source, fallback) {
+  const title = source.match(/^##\s+(.+?)\s*$/mu)?.[1]; const outcomeStart = source.match(/^###\s+Outcome\s*$/imu); const outcome = outcomeStart ? source.slice(outcomeStart.index + outcomeStart[0].length).split(/^###\s+/mu)[0] : null;
+  const paragraph = outcome?.trim().split(/\n\s*\n/u)[0]?.replace(/\s+/gu, ' ').trim();
+  return normalizeTaskSnippet(title && paragraph ? `${title} — ${paragraph}` : fallback) || `${fallback}`;
+}
 
 class WorkerScheduler {
   constructor(root, { store, lineage, launcher, validator, worktrees, now = () => new Date(), id = () => crypto.randomUUID() } = {}) { this.root = path.resolve(root); this.store = store; this.lineage = lineage; this.launcher = launcher; this.validator = validator; this.worktrees = worktrees; this.now = now; this.id = id; this.emitter = new EventEmitter(); }
@@ -25,7 +32,9 @@ class WorkerScheduler {
       if (chunk.locks.some((lock) => held.has(lock))) continue;
       const predecessors = chunk.dependsOn.map((dependency) => execution.chunks.find((item) => item.id === dependency)); const base = predecessors.length ? predecessors.at(-1).commit : execution.baseline;
       const attempt = { number: chunk.attempts.length + 1, base, startedAt: this.now().toISOString() }; chunk.attempts.push(attempt); chunk.status = 'running'; chunk.locks.forEach((lock) => held.add(lock)); slots -= 1;
-      const context = this.materializeContext(execution, chunk); const launched = this.launcher?.({ execution, chunk, attempt, context, profile: execution.profile }); if (launched) Object.assign(attempt, launched);
+      const source = this.lineage.readSection(execution.planId, execution.version, chunk.id); const taskSnippet = workerTaskSnippet(source, chunk.id); chunk.taskSnippet = taskSnippet; const context = this.materializeContext(execution, chunk); const launched = this.launcher?.({ execution, chunk, attempt, context, profile: execution.profile, taskSnippet });
+      if (this.launcher && (!launched || typeof launched.sessionId !== 'string' || !launched.sessionId)) throw new Error(`Worker launch for ${chunk.id} must return its created sessionId`);
+      if (launched) Object.assign(attempt, launched, { sessionId: launched.sessionId, taskSnippet });
       execution.events.push({ type: 'worker.started', chunkId: chunk.id, at: attempt.startedAt });
     }
     this.save(execution); return execution;
@@ -34,9 +43,9 @@ class WorkerScheduler {
   complete(id, chunkId, result) { const execution = this.load(id); const chunk = execution.chunks.find((item) => item.id === chunkId); if (!chunk || !ACTIVE.has(chunk.status)) throw new Error(`Chunk is not active: ${chunkId}`); const summary = `${result.summary || ''}`.slice(0, 800); const attempt = chunk.attempts.at(-1); let verified = result; if (result.state === 'pass' && this.validator) verified = { ...result, ...this.validator({ execution, chunk, attempt, result }) }; Object.assign(attempt, { completedAt: this.now().toISOString(), result: verified.state, summary }); Object.assign(chunk, { status: verified.state === 'pass' ? 'review' : verified.state === 'blocked' ? 'waiting' : 'failed', summary, commit: verified.commit || attempt.commit, changedPaths: verified.changedPaths || [], checks: verified.checks || [] }); execution.events.push({ type: `worker.${chunk.status}`, chunkId, at: this.now().toISOString() }); this.save(execution); this.recalculate(id); return chunk; }
   accept(id, chunkId) { const execution = this.load(id); const chunk = execution.chunks.find((item) => item.id === chunkId); if (!chunk || chunk.status !== 'review') throw new Error(`Chunk is not ready for acceptance: ${chunkId}`); chunk.status = 'accepted'; chunk.acceptedAt = this.now().toISOString(); execution.integrationHead = chunk.commit || execution.integrationHead; execution.events.push({ type: 'worker.accepted', chunkId, at: chunk.acceptedAt }); this.save(execution); return this.recalculate(id); }
   setCapacity(id, capacity) { if (!Number.isInteger(capacity) || capacity < 1 || capacity > 5) throw new Error('Worker capacity must be an integer from 1 to 5'); const execution = this.load(id); execution.capacity = capacity; this.save(execution); return this.recalculate(id); }
-  status(id) { const execution = this.load(id); return { id, planId: execution.planId, version: execution.version, status: execution.status, capacity: execution.capacity, chunks: execution.chunks.map(({ id: chunkId, status, commit, dependsOn }) => ({ id: chunkId, status, commit, dependsOn })), paths: { execution: this.executionFile(id) } }; }
+  status(id) { const execution = this.load(id); return { id, planId: execution.planId, version: execution.version, status: execution.status, capacity: execution.capacity, chunks: execution.chunks.map(({ id: chunkId, status, commit, dependsOn, taskSnippet, attempts }) => ({ id: chunkId, status, commit, dependsOn, taskSnippet: taskSnippet || null, sessionId: attempts.at(-1)?.sessionId || null })), paths: { execution: this.executionFile(id) } }; }
   events(id, cursor = 0) { const events = this.load(id).events.slice(cursor, cursor + 20); return { cursor: cursor + events.length, events: events.map(({ type, chunkId, at }) => ({ type, chunkId, at })) }; }
   wait(id, cursor = 0, timeout = 55000) { const immediate = this.events(id, cursor); if (immediate.events.length) return Promise.resolve(immediate); return new Promise((resolve) => { const finish = () => { clearTimeout(timer); this.emitter.off(id, finish); resolve(this.events(id, cursor)); }; const timer = setTimeout(finish, timeout); this.emitter.once(id, finish); }); }
 }
 
-module.exports = { WorkerScheduler, ACTIVE };
+module.exports = { WorkerScheduler, ACTIVE, workerTaskSnippet };

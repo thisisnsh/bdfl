@@ -6,7 +6,7 @@ The latest stable release and `main` receive security fixes. Include impact, rep
 
 ## Local data
 
-BDFL keeps plans, prompts, events, terminal snapshots, diffs, session metadata, worktrees, and execution records under repository-local `.bdfl/`. Treat it as sensitive. It is excluded through local Git metadata and must never be committed or shared without review.
+BDFL keeps plans, prompts, one-line task snippets, agent names, events, terminal snapshots, diffs, session metadata, worktrees, and execution records under repository-local `.bdfl/`. Planning snippets retain the latest substantive submitted prompt; worker snippets summarize their assigned plan chunk. Treat all of it as sensitive. It is excluded through local Git metadata and must never be committed or shared without review.
 
 Provider authentication remains in the provider's native store. BDFL does not ask for or persist Claude, Codex, npm, or GitHub credentials.
 

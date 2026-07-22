@@ -29,4 +29,4 @@ Accepted commits apply to an integration worktree in dependency order. Conflicts
 
 ## Persistence
 
-`.bdfl/` contains configuration, workspace/session records, plans, executions, worker contexts, worktrees, events, snapshots, and the live supervisor lock. Git excludes it locally. Old unreleased architectures are reset or exported explicitly rather than migrated by inference.
+`.bdfl/` contains schema-2 configuration and workspace/session records, plans, executions, worker contexts, worktrees, events, snapshots, and the live supervisor lock. Every session record carries a stable name, role-local sequence, and normalized task snippet. Git excludes the directory locally. Schema-1 development state is reset explicitly rather than migrated by inference.

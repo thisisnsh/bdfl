@@ -103,25 +103,24 @@ npm install --global @thisisnsh/bdfl@staging
 │                                                                       │
 │                                                                       │
 │                                                                       │
-└─[Claude Code 1]──[Codex 1*]──[Claude Code 2]──────────────────────────┘
-  Press [1] [2*] to change agents · Toggle Focus: Ctrl+]  Star on GitHub thisisnsh/bdfl
+└─[Claude 1]-(W 1)-(W 2*) [Codex 1]-(W 1)───────────────────────────────┘
+  W 2: UI shell — Build the native rail   Tip: Press Ctrl+] to toggle focus between agents and BDFL.
 ```
 
-- Single-agent sessions need no agent selector. In multi-agent sessions, number shortcuts start at 1 independently and appear in the status line.
-- `*` marks a completed or blocked agent and persists on its agent shortcut, grouped session, and terminal-tab title until that exact agent receives focus.
-- Selecting a session or agent shortcut preserves its marker; Enter, `Ctrl+]`, and native plan/review pane activation clear only the agent that actually receives focus.
-- The active bottom session remains highlighted while focus is inside its agent.
-- Pressing Enter on a highlighted bottom session opens its primary agent directly.
+- Planning agents and workers share one bottom navigation rail. Use Left/Right to wrap across every badge; Enter or `Ctrl+]` focuses the selected agent.
+- `*` marks the exact agent that needs attention. Selection preserves it; only giving that provider focus clears it.
+- Planning agents are named `Claude 1`, `Codex 1`, and so on. Workers are numbered independently within their workstream as `W 1`, `W 2`, and so on. **Sessions** can rename either kind of agent.
+- The footer shows the selected agent's latest task while the rail owns focus. Its right side alternates between the focus shortcut and the GitHub star reminder.
+- The terminal tab title follows the selected planning workstream, or the active native New, Plans, Sessions, or Review page. A selected worker keeps its parent planning name in the title.
 - **Close** gracefully stops every provider PTY in the active session and hides it without deleting provider resume IDs, models, effort, custom args, or history.
-- **Sessions** lists open and closed sessions. Selecting a closed entry restores every agent through its provider's resume command.
+- **Sessions** lists every planning and worker agent with its provider, status, attention marker, and complete saved task. Selecting a closed row restores its parent workstream through each provider's resume command.
 - **Quit** gracefully stops all provider PTYs but leaves open sessions eligible for automatic restoration the next time `bdfl` starts.
 - Wheel and trackpad scrolling works over the visible agent pane even while BDFL owns keyboard focus. Codex uses inline terminal scrollback; mouse-aware Claude Code panes retain their native scrolling behavior and configured speed.
-- The footer keeps the `Ctrl+]` agent/BDFL focus shortcut on the left and a clickable GitHub link on the right.
 - The alternate screen restores your previous terminal scrollback on exit.
 
 ## Safety model
 
-- `.bdfl/` is local, ignored, and may contain sensitive prompts, plans, snapshots, and diffs.
+- `.bdfl/` is local, ignored, and may contain sensitive prompts, task snippets, agent names, plans, snapshots, and diffs.
 - BDFL never launches a shell for custom profiles. It stores validated argv arrays beginning with `claude` or `codex`.
 - Shell operators, environment prefixes, arbitrary executables, headless flags, and BDFL-owned launch flags are rejected.
 - A single workspace lock prevents two supervisors from writing durable state concurrently.
@@ -144,7 +143,7 @@ bdfl help            # terminal controls and usage
 
 ## Coming soon
 
-Ollama and local models · native Windows · Aider · OpenCode · Goose · Gemini CLI · Qwen Code · remote peers and sessions · session renaming · profile management UI · tiled worker monitoring.
+Ollama and local models · native Windows · Aider · OpenCode · Goose · Gemini CLI · Qwen Code · remote peers and sessions · profile management UI · tiled worker monitoring.
 
 ---
 
