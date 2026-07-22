@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="docs/assets/bdfl-logo.png" alt="BDFL logo" width="240">
-</p>
+<img src="docs/assets/bdfl-logo.png" alt="BDFL logo" width="100">
 
 # BDFL - Benevolent Delegator for LLMs
 
