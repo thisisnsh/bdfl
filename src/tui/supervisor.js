@@ -10,7 +10,7 @@ const { WorkstreamWizard, display } = require('./wizard');
 const ESC = '\u001b['; const COLORS = { yellow: `${ESC}38;5;220m`, cyan: `${ESC}38;5;81m`, green: `${ESC}38;5;114m`, red: `${ESC}38;5;203m`, white: `${ESC}38;5;255m`, black: `${ESC}38;5;16m`, bgYellow: `${ESC}48;5;220m`, bgCyan: `${ESC}48;5;81m`, bgGray: `${ESC}48;5;245m`, gray: `${ESC}38;5;245m`, reset: `${ESC}0m`, bold: `${ESC}1m`, underline: `${ESC}4m`, inverse: `${ESC}7m`, dim: `${ESC}2m` };
 const ACTIONS = ['New', 'Plans', 'Sessions', 'Review', 'Close', 'Quit'];
 const NATIVE_PAGES = new Set(['New', 'Plans', 'Sessions', 'Review']);
-const STAR_MESSAGE = 'Like BDFL? Star github.com/thisisnsh/bdfl to show support.';
+const STAR_MESSAGE = 'Tip: Star github.com/thisisnsh/bdfl to show support.';
 const FOOTER_MESSAGES = [
   'Tip: Press Ctrl+] to toggle focus between agents and BDFL.',
   STAR_MESSAGE,
