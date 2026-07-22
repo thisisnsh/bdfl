@@ -5,14 +5,14 @@ const { tokenizeCommand } = require('../core/profiles'); const { discoverProvide
 const STEPS = ['preset', 'delegatorProvider', 'delegatorModel', 'delegatorEffort', 'delegatorArgs', 'workerProvider', 'workerModel', 'workerEffort', 'workerArgs', 'workerCapacity', 'confirmation'];
 const COPY = {
   preset: ['Create a new session', 'Reuse your previous setup or customize a fresh session.'],
-  delegatorProvider: ['Choose your planning agent', 'This is the main agent you talk with. It stays read-only and coordinates the work.'],
+  delegatorProvider: ['Choose your planning agent', 'This is the main agent you talk with. It coordinates the work without implementing it.'],
   delegatorModel: ['Choose the planning model', 'Choose a built-in model or enter a model ID manually.'],
-  delegatorArgs: ['Planning agent options', 'Optional CLI arguments, such as --search. BDFL adds model, permissions, and session flags.'],
+  delegatorArgs: ['Planning agent options', 'Optional CLI arguments, such as --search. Safe permission overrides are allowed; dangerous access requires bdfl --dangerous.'],
   delegatorEffort: ['Planning effort', 'How much reasoning the planning agent should use.'],
   workerProvider: ['Choose the worker tool', 'Workers connect through BDFL’s MCP workflow and implement approved chunks.'],
   workerModel: ['Choose the worker model', 'Choose a built-in model or enter a model ID manually.'],
   workerEffort: ['Worker effort', 'How much reasoning each worker should use.'],
-  workerArgs: ['Worker agent options', 'Optional CLI arguments, such as --search. BDFL adds model, permissions, and session flags.'],
+  workerArgs: ['Worker agent options', 'Optional CLI arguments, such as --search. Safe permission overrides are allowed; dangerous access requires bdfl --dangerous.'],
   workerCapacity: ['Parallel worker capacity', 'Maximum active workers. Five is the default; dependencies still run in order.'],
   confirmation: ['Review your session', 'This setup will be saved as “Last used” for your next session.']
 };
@@ -106,7 +106,7 @@ class WorkstreamWizard {
   }
   visibleOptions() { const options = this.options(); if (options.length <= 5) return options.map((option, index) => ({ option, index })); const start = Math.max(0, Math.min(this.selection - 2, options.length - 5)); return options.slice(start, start + 5).map((option, offset) => ({ option, index: start + offset })); }
   render() {
-    const key = this.key(); const [title, baseDescription] = COPY[key]; let description = baseDescription; const provider = this.values[`${this.prefix()}Provider`]; if (this.manualModelOnly()) description = `Enter the model ID you want ${display(provider)} to use.`; else if (key.endsWith('Model') && provider === 'ollama') description = 'Choose an installed Ollama model or enter a model ID manually.'; else if (key.endsWith('Args') && provider === 'ollama') description = 'Optional Codex CLI arguments passed through Ollama, such as --search. BDFL adds model, permissions, and session flags.'; const lines = [`${COLOR.selected}New session${COLOR.reset}`, `${COLOR.dim}Choose the agents and defaults BDFL should restore with this session.${COLOR.reset}`, ''];
+    const key = this.key(); const [title, baseDescription] = COPY[key]; let description = baseDescription; const provider = this.values[`${this.prefix()}Provider`]; if (this.manualModelOnly()) description = `Enter the model ID you want ${display(provider)} to use.`; else if (key.endsWith('Model') && provider === 'ollama') description = 'Choose an installed Ollama model or enter a model ID manually.'; else if (key.endsWith('Args') && provider === 'ollama') description = 'Optional Codex CLI arguments passed through Ollama, such as --search or --sandbox. Dangerous access requires bdfl --dangerous.'; const lines = [`${COLOR.selected}New session${COLOR.reset}`, `${COLOR.dim}Choose the agents and defaults BDFL should restore with this session.${COLOR.reset}`, ''];
     const optionLine = (option, index) => index === this.selection ? `${COLOR.bgYellow}${COLOR.black}${COLOR.bold} › ${this.optionLabel(option)} ${COLOR.reset}` : `   ${COLOR.white}${COLOR.bold}${this.optionLabel(option)}${COLOR.reset}`;
     const activeDetails = () => {
       lines.push(`${COLOR.dim}  ${description}${COLOR.reset}`);
