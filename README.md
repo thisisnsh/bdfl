@@ -1,14 +1,12 @@
-# BDFL
-
-## Benevolent Delegator for LLMs
+# BDFL - Benevolent Delegator for LLMs
 
 **Plan deliberately. Build in parallel. Stay in control.**
 
 BDFL is a foreground terminal supervisor for Claude Code, Codex, and Ollama-backed Codex sessions. You work with one read-only planning agent, approve the plan, and let isolated workers implement it while BDFL handles scheduling, checks, review, integration, and recovery.
 
-### 🙂 BDFL also stands for [Benevolent Dictator for Life](https://en.wikipedia.org/wiki/Benevolent_dictator_for_life)
+🙂 _BDFL also stands for [Benevolent Dictator for Life](https://en.wikipedia.org/wiki/Benevolent_dictator_for_life)_
 
-That open-source title is the joke. In this project, BDFL is the **delegator**: it coordinates work but does not quietly write code or overrule your approvals.
+In this project, BDFL is the **delegator**: it coordinates work but does not quietly write code or overrule your approvals.
 
 ## 🧭 Index
 
