@@ -5,6 +5,7 @@ const { atomicWrite } = require('../core/plans');
 const { normalizeTaskSnippet } = require('../state/workspace');
 
 const ACTIVE = new Set(['running', 'waiting']);
+const TERMINAL_EXECUTIONS = new Set(['complete', 'cancelled']);
 
 function workerTaskSnippet(source, fallback) {
   const title = source.match(/^##\s+(.+?)\s*$/mu)?.[1]; const outcomeStart = source.match(/^###\s+Outcome\s*$/imu); const outcome = outcomeStart ? source.slice(outcomeStart.index + outcomeStart[0].length).split(/^###\s+/mu)[0] : null;
@@ -19,11 +20,12 @@ class WorkerScheduler {
   save(execution) { atomicWrite(this.executionFile(execution.id), `${JSON.stringify(execution, null, 2)}\n`); this.emitter.emit(execution.id); return execution; }
   list() { const directory = path.join(this.root, '.bdfl', 'executions'); let entries; try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { return []; } return entries.filter((entry) => entry.isDirectory()).flatMap((entry) => { try { return [this.load(entry.name)]; } catch { return []; } }); }
   freeze(planId, version, workstreamId, baseline = 'HEAD') {
-    if (!this.lineage.executable(planId, version)) throw new Error('Execution requires approval of every current plan section');
-    const existing = this.list().find((item) => item.planId === planId && item.version === version && item.workstreamId === workstreamId); if (existing) return { ...existing, duplicate: true };
+    if (!this.lineage.executable(planId, version)) throw new Error('Execution requires approval of every plan section');
+    const executions = this.list(); const existing = executions.find((item) => item.planId === planId && item.version === version && item.workstreamId === workstreamId); if (existing) return { ...existing, duplicate: true };
+    const activeLineage = executions.find((item) => item.planId === planId && !TERMINAL_EXECUTIONS.has(item.status)); if (activeLineage) throw new Error(`Plan ${planId} already has active execution ${activeLineage.id}`);
     const manifest = this.lineage.readManifest(planId, version); const workspace = this.store.load(); const stream = workspace.workstreams.find((item) => item.id === workstreamId); if (!stream) throw new Error(`Unknown workstream: ${workstreamId}`); if (manifest.workstreamId && manifest.workstreamId !== workstreamId) throw new Error('Plan belongs to a different workstream');
     const target = this.worktrees?.target ? this.worktrees.target() : { branch: null, head: baseline }; const frozenBaseline = this.worktrees?.baseline ? this.worktrees.baseline(target.head || baseline) : baseline;
-    const id = `execution-${this.id()}`; const execution = { id, schema: 1, planId, version, workstreamId, baseline: frozenBaseline, targetBranch: target.branch, targetHead: target.head || frozenBaseline, integrationHead: frozenBaseline, profile: structuredClone(stream.workerProfile), capacity: stream.workerCapacity, status: 'running', createdAt: this.now().toISOString(), globalValidation: manifest.globalValidation, chunks: manifest.chunks.map((chunk) => ({ id: chunk.id, order: chunk.order, sha: chunk.sha, paths: chunk.paths, dependsOn: chunk.dependsOn, locks: chunk.locks, checks: chunk.checks || [], status: 'queued', attempts: [] })), events: [] };
+    const id = `execution-${this.id()}`; const execution = { id, schema: 1, planId, version, workstreamId, baseline: frozenBaseline, targetBranch: target.branch, targetHead: target.head || frozenBaseline, integrationHead: frozenBaseline, profile: structuredClone(stream.workerProfile), capacity: stream.workerCapacity, workload: { implementationWorkers: manifest.chunks.length, verifierWorkers: 1, maxConcurrent: stream.workerCapacity }, status: 'running', createdAt: this.now().toISOString(), globalValidation: manifest.globalValidation, chunks: manifest.chunks.map((chunk) => ({ id: chunk.id, order: chunk.order, sha: chunk.sha, paths: chunk.paths, dependsOn: chunk.dependsOn, locks: chunk.locks, checks: chunk.checks || [], status: 'queued', attempts: [] })), events: [] };
     this.save(execution); this.recalculate(id); return this.load(id);
   }
   active(execution) { return execution.chunks.filter((chunk) => ACTIVE.has(chunk.status)); }
@@ -53,4 +55,4 @@ class WorkerScheduler {
   wait(id, cursor = 0, timeout = 55000) { const immediate = this.events(id, cursor); if (immediate.events.length) return Promise.resolve(immediate); return new Promise((resolve) => { const finish = () => { clearTimeout(timer); this.emitter.off(id, finish); resolve(this.events(id, cursor)); }; const timer = setTimeout(finish, timeout); this.emitter.once(id, finish); }); }
 }
 
-module.exports = { WorkerScheduler, ACTIVE, workerTaskSnippet };
+module.exports = { WorkerScheduler, ACTIVE, TERMINAL_EXECUTIONS, workerTaskSnippet };

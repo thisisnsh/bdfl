@@ -91,7 +91,7 @@ class LineageStore {
   }
 
   approve(id, version, sectionId) {
-    const lineage = this.load(id); if (lineage.currentVersion !== version) throw new Error('Only the current plan version can be approved');
+    const lineage = this.load(id); if (!Number.isInteger(version) || version < 1 || version > lineage.currentVersion) throw new Error(`Unknown plan version: ${version}`);
     const manifest = this.readManifest(id, version);
     const section = sectionId === 'shared' ? manifest.shared : sectionId === 'global-validation' ? manifest.globalValidation : manifest.chunks.find((chunk) => chunk.id === sectionId);
     if (!section) throw new Error(`Unknown plan section: ${sectionId}`);
@@ -101,12 +101,15 @@ class LineageStore {
   }
 
   unlock(id, version, sectionId) {
-    const manifest = this.readManifest(id, version); delete manifest.approvals[sectionId];
+    const lineage = this.load(id); if (!Number.isInteger(version) || version < 1 || version > lineage.currentVersion) throw new Error(`Unknown plan version: ${version}`);
+    const manifest = this.readManifest(id, version); const sections = [manifest.shared, ...manifest.chunks, manifest.globalValidation]; if (!sections.some((section) => section.id === sectionId)) throw new Error(`Unknown plan section: ${sectionId}`); delete manifest.approvals[sectionId];
     atomicWrite(path.join(this.versionDirectory(id, version), 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, this.io); return manifest;
   }
 
+  removeApproval(id, version, sectionId) { return this.unlock(id, version, sectionId); }
+
   executable(id, version) {
-    if (this.load(id).currentVersion !== version) return false; const manifest = this.readManifest(id, version); const ids = ['shared', ...manifest.chunks.map((chunk) => chunk.id), 'global-validation'];
+    const lineage = this.load(id); if (!Number.isInteger(version) || version < 1 || version > lineage.currentVersion) return false; const manifest = this.readManifest(id, version); const ids = ['shared', ...manifest.chunks.map((chunk) => chunk.id), 'global-validation'];
     return ids.every((sectionId) => manifest.approvals[sectionId]?.sectionSha === (sectionId === 'shared' ? manifest.shared.sha : sectionId === 'global-validation' ? manifest.globalValidation.sha : manifest.chunks.find((chunk) => chunk.id === sectionId).sha));
   }
 
@@ -133,16 +136,18 @@ class LineageStore {
     const metadataChanged = new Set(parsed.chunks.filter((chunk) => { const old = previous.chunks.find((item) => item.id === chunk.id); return old && JSON.stringify([chunk.paths, chunk.dependsOn, chunk.locks]) !== JSON.stringify([old.paths, old.dependsOn, old.locks]); }).map((chunk) => chunk.id));
     const affected = new Set([...changedChunks, ...metadataChanged]); let changed = true;
     while (changed) { changed = false; for (const chunk of parsed.chunks) if (!affected.has(chunk.id) && chunk.dependsOn.some((dependency) => affected.has(dependency))) { affected.add(chunk.id); changed = true; } }
-    const lockedChanges = [...changedChunks, ...(sharedChanged ? ['shared'] : []), ...(parsed.globalValidation.sha !== previous.globalValidation.sha ? ['global-validation'] : [])].filter((sectionId) => previous.approvals[sectionId]);
-    if (lockedChanges.length) throw new Error(`Approved sections must receive feedback or be unlocked before revision: ${lockedChanges.join(', ')}`);
+    const globalChanged = parsed.globalValidation.sha !== previous.globalValidation.sha;
+    const approvedChanges = [...changedChunks, ...(sharedChanged ? ['shared'] : []), ...(globalChanged ? ['global-validation'] : [])].filter((sectionId) => previous.approvals[sectionId]?.sectionSha === (sectionId === 'shared' ? previous.shared.sha : sectionId === 'global-validation' ? previous.globalValidation.sha : previous.chunks.find((chunk) => chunk.id === sectionId)?.sha));
+    if (approvedChanges.length) throw new Error(`Revision changes approved sections. Remove approval before publishing: ${approvedChanges.join(', ')}`);
     const approvals = {};
     if (!sharedChanged && previous.approvals.shared) approvals.shared = { ...previous.approvals.shared, version: lineage.currentVersion + 1 };
     if (!sharedChanged) for (const chunk of parsed.chunks) if (!changedChunks.has(chunk.id) && !affected.has(chunk.id) && previous.approvals[chunk.id]) approvals[chunk.id] = { ...previous.approvals[chunk.id], version: lineage.currentVersion + 1 };
-    if (!sharedChanged && parsed.globalValidation.sha === previous.globalValidation.sha && previous.approvals['global-validation']) approvals['global-validation'] = { ...previous.approvals['global-validation'], version: lineage.currentVersion + 1 };
+    if (!sharedChanged && !globalChanged && previous.approvals['global-validation']) approvals['global-validation'] = { ...previous.approvals['global-validation'], version: lineage.currentVersion + 1 };
     lineage.currentVersion += 1; lineage.updatedAt = this.now().toISOString(); lineage.publications ||= []; lineage.publications.push({ sha: publicationSha, version: lineage.currentVersion, sessionId: lineage.originSessionId || null });
     const manifest = this.writeVersion(id, lineage.currentVersion, parsed, lineage, approvals);
     atomicWrite(this.lineageFile(id), `${JSON.stringify(lineage, null, 2)}\n`, this.io);
-    return { lineage, manifest };
+    const changedSections = [...(sharedChanged ? ['shared'] : []), ...changedChunks, ...(globalChanged ? ['global-validation'] : [])]; const preservedSections = ['shared', ...parsed.chunks.map((chunk) => chunk.id), 'global-validation'].filter((sectionId) => !changedSections.includes(sectionId));
+    return { lineage, manifest, changedSections, preservedSections, preservedApprovals: Object.keys(approvals) };
   }
 
   feedback(id, version, sectionId, value) {
