@@ -103,27 +103,35 @@ Test.
   supervisor.stop();
 });
 
-test('bottom bar checks only accepted worker sessions and preserves the check when cropped', () => {
+test('bottom bar checks only unchanged accepted workers and never combines approval with attention', () => {
   const state = {
     schema: 2,
     activeWorkstreamId: 'one',
     workstreams: [{ id: 'one', status: 'active', delegatorProfile: { provider: 'claude' } }],
     sessions: [
       { id: 'd', workstreamId: 'one', role: 'delegator', paneNumber: 1, name: 'Planner', explicitlyClosed: false },
-      { id: 'accepted', workstreamId: 'one', role: 'worker', paneNumber: 2, name: 'W 1', explicitlyClosed: false },
+      { id: 'accepted', workstreamId: 'one', role: 'worker', paneNumber: 2, name: 'W 1', updatedAt: '2026-07-22T12:00:00.000Z', attention: true, explicitlyClosed: false },
       { id: 'review', workstreamId: 'one', role: 'worker', paneNumber: 3, name: 'W 2', explicitlyClosed: false }
     ]
   };
-  const execution = { chunks: [{ status: 'accepted', attempts: [{ sessionId: 'accepted' }] }, { status: 'review', attempts: [{ sessionId: 'review' }] }] };
+  const execution = { chunks: [{ status: 'accepted', acceptedAt: '2026-07-22T12:01:00.000Z', attempts: [{ sessionId: 'accepted' }] }, { status: 'review', attempts: [{ sessionId: 'review' }] }] };
   const supervisor = new TerminalSupervisor('/tmp/bdfl-approved-worker-test', { store: { load: () => state }, lineage: { list: () => [] }, sessions: {}, scheduler: { list: () => [execution] }, integration: {}, bridge: {} });
   const decorated = supervisor.decorateWorkspace(state);
   let navigation = new Navigation(decorated);
   let plain = new TerminalRenderer().render(decorated, navigation, { columns: 100, rows: 8 }).replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
   assert.match(plain, /\[Planner\]-\(W 1✓\)-\(W 2\)/);
+  assert.doesNotMatch(plain, /W 1✓\*/);
   assert.doesNotMatch(plain, /W 2✓/);
 
   decorated.sessions.find((session) => session.id === 'accepted').name = 'Approved Worker With A Long Name';
   navigation = new Navigation(decorated); navigation.selectSession('accepted');
   plain = new TerminalRenderer().render(decorated, navigation, { columns: 20, rows: 8 }).replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
   assert.match(plain, /\(Approved Wor…✓\)/);
+
+  state.sessions.find((session) => session.id === 'accepted').updatedAt = '2026-07-22T12:02:00.000Z';
+  const active = supervisor.decorateWorkspace(state);
+  navigation = new Navigation(active); navigation.selectSession('accepted');
+  plain = new TerminalRenderer().render(active, navigation, { columns: 100, rows: 8 }).replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+  assert.match(plain, /\(W 1\*\)/);
+  assert.doesNotMatch(plain, /W 1✓/);
 });
