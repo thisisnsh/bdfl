@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { TerminalSupervisor } = require('../../src/tui/supervisor');
+const { Navigation, TerminalRenderer, TerminalSupervisor } = require('../../src/tui/supervisor');
 const { LineageStore } = require('../../src/plans/store');
 
 test('Review shows plan and agent names, hides internal IDs, and wraps result text', (t) => {
@@ -101,4 +101,29 @@ Test.
   handlers.get('data')('\r');
   assert.deepEqual(workerWrites, [['w', '\u001b[200~Fix the script\u001b[201~'], ['w', '\r']]);
   supervisor.stop();
+});
+
+test('bottom bar checks only accepted worker sessions and preserves the check when cropped', () => {
+  const state = {
+    schema: 2,
+    activeWorkstreamId: 'one',
+    workstreams: [{ id: 'one', status: 'active', delegatorProfile: { provider: 'claude' } }],
+    sessions: [
+      { id: 'd', workstreamId: 'one', role: 'delegator', paneNumber: 1, name: 'Planner', explicitlyClosed: false },
+      { id: 'accepted', workstreamId: 'one', role: 'worker', paneNumber: 2, name: 'W 1', explicitlyClosed: false },
+      { id: 'review', workstreamId: 'one', role: 'worker', paneNumber: 3, name: 'W 2', explicitlyClosed: false }
+    ]
+  };
+  const execution = { chunks: [{ status: 'accepted', attempts: [{ sessionId: 'accepted' }] }, { status: 'review', attempts: [{ sessionId: 'review' }] }] };
+  const supervisor = new TerminalSupervisor('/tmp/bdfl-approved-worker-test', { store: { load: () => state }, lineage: { list: () => [] }, sessions: {}, scheduler: { list: () => [execution] }, integration: {}, bridge: {} });
+  const decorated = supervisor.decorateWorkspace(state);
+  let navigation = new Navigation(decorated);
+  let plain = new TerminalRenderer().render(decorated, navigation, { columns: 100, rows: 8 }).replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+  assert.match(plain, /\[Planner\]-\(W 1✓\)-\(W 2\)/);
+  assert.doesNotMatch(plain, /W 2✓/);
+
+  decorated.sessions.find((session) => session.id === 'accepted').name = 'Approved Worker With A Long Name';
+  navigation = new Navigation(decorated); navigation.selectSession('accepted');
+  plain = new TerminalRenderer().render(decorated, navigation, { columns: 20, rows: 8 }).replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+  assert.match(plain, /\(Approved Wor…✓\)/);
 });
