@@ -6,4 +6,6 @@ const path = require('node:path');
 
 const sourceCli = path.resolve(__dirname, '..', 'src', 'cli');
 const packagedCli = path.resolve(__dirname, '..', 'runtime', 'cli');
-process.exitCode = require(fs.existsSync(sourceCli) ? sourceCli : packagedCli).main();
+const cli = require(fs.existsSync(sourceCli) ? sourceCli : packagedCli);
+cli.installFatalErrorHandlers(process);
+process.exitCode = cli.run();

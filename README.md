@@ -116,6 +116,7 @@ npm install --global @thisisnsh/bdfl@staging
 - **Sessions** lists every planning and worker agent with its provider, status, attention marker, and complete saved task. Selecting a closed row restores its parent workstream through each provider's resume command.
 - **Quit** gracefully stops all provider PTYs but leaves open sessions eligible for automatic restoration the next time `bdfl` starts.
 - Wheel and trackpad scrolling works over the visible agent pane even while BDFL owns keyboard focus. Codex uses inline terminal scrollback; mouse-aware Claude Code panes retain their native scrolling behavior and configured speed.
+- Startup and fatal failures restore the terminal and show a stable error code, readable message, environment versions, and the GitHub issue link instead of a raw JavaScript stack.
 - The alternate screen restores your previous terminal scrollback on exit.
 
 ## Safety model

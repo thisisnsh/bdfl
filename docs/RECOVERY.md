@@ -9,6 +9,8 @@ BDFL runs in the foreground, but its work survives a closed pane or supervisor r
 - One workspace lock prevents concurrent supervisors from mutating state.
 - Development schema 1 state is not migrated. Stop the active supervisor, remove only this repository's `.bdfl/` directory, and start BDFL again to create fresh schema-2 state.
 
+When recovery or another startup step fails, BDFL prints a stable error code and message without a JavaScript stack, restores the terminal, and provides the repository issue link. Include that code and message when reporting a failure.
+
 Treat `.bdfl/` as sensitive and never commit it. Agent task snippets include the latest substantive planning prompt and worker assignment summaries. Before manually deleting state, inspect the associated plans, private branches, worktrees, and provider transcripts. Integrated Git history and provider-retained transcripts are independent of BDFL's local records and may outlive session deletion.
 
 If a provider process survives a supervisor crash, confirm its identity before terminating it. Resume through BDFL so the durable record remains the source of truth.
