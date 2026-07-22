@@ -10,20 +10,34 @@ const CLAUDE_NOTIFICATION_EVENTS = ['permission_prompt', 'idle_prompt', 'elicita
 
 function codexSandbox(mode) { return mode === 'full-access' ? 'danger-full-access' : mode === 'workspace-write' ? 'workspace-write' : 'read-only'; }
 
+function stripOwnedArgs(argv = [], provider) {
+  const pairs = provider === 'codex' ? new Set(['-m', '--model', '-s', '--sandbox', '-a', '--ask-for-approval']) : new Set(['--model', '--effort', '--permission-mode']);
+  const switches = provider === 'codex' ? new Set(['--dangerously-bypass-approvals-and-sandbox']) : new Set(['--dangerously-skip-permissions', '--allow-dangerously-skip-permissions']);
+  const controlledConfig = new Set(['model', 'model_reasoning_effort', 'sandbox_mode', 'approval_policy']); const result = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]; const pair = [...pairs].find((flag) => argument === flag || argument.startsWith(`${flag}=`));
+    if (pair) { if (argument === pair) index += 1; continue; }
+    if (switches.has(argument)) continue;
+    if (provider === 'codex' && (argument === '-c' || argument === '--config') && index + 1 < argv.length) { const config = argv[index + 1]; const key = config.split('=', 1)[0]; if (controlledConfig.has(key)) { index += 1; continue; } }
+    result.push(argument);
+  }
+  return result;
+}
+
 function buildCodex(profile, options) {
-  const common = [...(profile.argv || []), '--no-alt-screen', '-m', profile.model, '-c', `model_reasoning_effort="${profile.effort}"`, '--sandbox', codexSandbox(options.permissionMode || 'read-only'), '-c', `tui.notifications=${JSON.stringify(ATTENTION_EVENTS)}`, '-c', 'tui.notification_method="bel"', '-c', 'tui.notification_condition="always"'];
+  const common = [...stripOwnedArgs(profile.argv, 'codex'), '--no-alt-screen', '-m', profile.model, '-c', `model_reasoning_effort="${profile.effort}"`, '--sandbox', codexSandbox(options.permissionMode || 'read-only'), '-c', `tui.notifications=${JSON.stringify(ATTENTION_EVENTS)}`, '-c', 'tui.notification_method="bel"', '-c', 'tui.notification_condition="always"'];
   if (options.bridge) {
     const tools = options.bridge.tools || ['bdfl_workers'];
     common.push('-c', `mcp_servers.bdfl.command=${JSON.stringify(options.bridge.command)}`, '-c', `mcp_servers.bdfl.args=${JSON.stringify(options.bridge.args)}`, '-c', 'mcp_servers.bdfl.required=true', '-c', `mcp_servers.bdfl.enabled_tools=${JSON.stringify(tools)}`, '-c', 'mcp_servers.bdfl.default_tools_approval_mode="approve"');
     if (options.instructions) common.push('-c', `developer_instructions=${JSON.stringify(options.instructions)}`);
   }
   if (options.resume) common.push('resume', options.sessionId);
-  if (options.roleInstruction) common.push(options.roleInstruction);
+  if (options.roleInstruction && !options.resume) common.push(options.roleInstruction);
   return { command: 'codex', args: common, env: TERMINAL_ENV };
 }
 
 function buildClaude(profile, options) {
-  const common = [...(profile.argv || []), ...(profile.model === 'default' ? [] : ['--model', profile.model]), '--effort', profile.effort, '--permission-mode', options.permissionMode === 'full-access' ? 'bypassPermissions' : options.permissionMode === 'workspace-write' ? 'acceptEdits' : 'plan'];
+  const common = [...stripOwnedArgs(profile.argv, 'claude'), ...(profile.model === 'default' ? [] : ['--model', profile.model]), '--effort', profile.effort, '--permission-mode', options.permissionMode === 'full-access' ? 'bypassPermissions' : options.permissionMode === 'workspace-write' ? 'acceptEdits' : 'plan'];
   if (options.skillDirectory) common.push('--add-dir', options.skillDirectory);
   if (options.pluginDirectory) common.push('--plugin-dir', options.pluginDirectory);
   if (options.mcpConfig) common.push('--mcp-config', options.mcpConfig, '--strict-mcp-config', '--allowedTools', ...(options.allowedTools || ['mcp__bdfl__bdfl_workers']));
@@ -32,7 +46,7 @@ function buildClaude(profile, options) {
   common.push('--settings', JSON.stringify(settings));
   if (options.resume) common.push('--resume', options.sessionId);
   else if (options.sessionId) common.push('--session-id', options.sessionId);
-  if (options.roleInstruction) common.push(options.roleInstruction);
+  if (options.roleInstruction && !options.resume) common.push(options.roleInstruction);
   return { command: 'claude', args: common, env: TERMINAL_ENV };
 }
 
@@ -50,4 +64,4 @@ function skillDestination(root, provider, sessionId) {
 
 function pluginDestination(root, sessionId) { return path.join(root, '.bdfl', 'sessions', sessionId, 'plugin'); }
 
-module.exports = { ROLE, ATTENTION_EVENTS, CLAUDE_NOTIFICATION_EVENTS, codexSandbox, buildLaunch, skillDestination, pluginDestination };
+module.exports = { ROLE, ATTENTION_EVENTS, CLAUDE_NOTIFICATION_EVENTS, codexSandbox, stripOwnedArgs, buildLaunch, skillDestination, pluginDestination };

@@ -123,7 +123,7 @@ npm install --global @thisisnsh/bdfl@staging
 
 - `.bdfl/` is local, ignored, and may contain sensitive prompts, task snippets, agent names, plans, snapshots, and diffs.
 - BDFL never launches a shell for custom profiles. It stores validated argv arrays beginning with `claude` or `codex`.
-- Shell operators, environment prefixes, arbitrary executables, headless flags, and BDFL-owned launch flags are rejected.
+- Shell operators, environment prefixes, arbitrary executables, headless flags, and BDFL-owned session/MCP/settings flags are rejected. Duplicate model, effort, or permission flags are accepted, then replaced with one canonical BDFL role profile: planning is Claude `plan` or Codex `read-only`; workers are Claude `acceptEdits` or Codex `workspace-write`.
 - A single workspace lock prevents two supervisors from writing durable state concurrently.
 - Worker results outside approved ownership fail mechanical validation.
 - Conflicts go to an isolated integration worker—not the delegator and not the target branch.
