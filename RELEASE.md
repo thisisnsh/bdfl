@@ -4,8 +4,8 @@ BDFL publishes only to the public npm registry. `main` produces staging builds; 
 
 ## One-time npm setup
 
-1. Create or use an npm account with two-factor authentication enabled.
-2. Confirm that the unscoped package name belongs to the maintainer:
+1. Use an npm account with two-factor authentication enabled and publish access to the `@thisisnsh` scope.
+2. Confirm that the package belongs to the maintainer:
 
    ```bash
    npm login
@@ -13,19 +13,7 @@ BDFL publishes only to the public npm registry. `main` produces staging builds; 
    npm view @thisisnsh/bdfl name version dist-tags
    ```
 
-3. If `@thisisnsh/bdfl` has never been published, bootstrap the package once from the exact clean release commit. Inspect the tarball before using a short-lived granular token:
-
-   ```bash
-   npm ci
-   npm test
-   npm run validate
-   npm pack --dry-run
-   npm publish --access public
-   ```
-
-   Revoke that token after trusted publishing works. Routine releases must not use a stored npm token.
-
-4. On npmjs.com, open **@thisisnsh/bdfl → Settings → Trusted Publisher → GitHub Actions** and configure:
+3. On npmjs.com, open **@thisisnsh/bdfl → Settings → Trusted Publisher → GitHub Actions** and configure:
 
    | Field | Value |
    |---|---|
@@ -34,9 +22,11 @@ BDFL publishes only to the public npm registry. `main` produces staging builds; 
    | Workflow filename | `release.yml` |
    | Environment | leave blank so the same workflow can publish both channels |
 
-   The workflow requests `id-token: write` and publishes with provenance. See npm's [trusted publishing](https://docs.npmjs.com/trusted-publishers/) and [provenance](https://docs.npmjs.com/generating-provenance-statements/) documentation.
+   Under **Allowed actions**, enable **Allow `npm publish`** and leave **Allow `npm stage publish`** disabled. BDFL's staging channel is an immediately installable prerelease dist-tag, not npm's manual staged-publishing queue.
 
-5. After OIDC succeeds, consider restricting token-based package publishing in npm settings. Keep account recovery codes offline.
+4. Under **Publishing access**, select **Require two-factor authentication and disallow tokens**. OIDC trusted publishers continue to work, while long-lived and granular access tokens cannot publish.
+
+The workflow requests `id-token: write`, uses Node 24 with npm 11.15.0, and publishes with provenance. See npm's [trusted publishing](https://docs.npmjs.com/trusted-publishers/), [staged publishing](https://docs.npmjs.com/staged-publishing/), and [provenance](https://docs.npmjs.com/generating-provenance-statements/) documentation.
 
 ## One-time GitHub setup
 

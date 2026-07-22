@@ -18,8 +18,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org
+      - name: Install trusted-publishing npm CLI
+        run: npm install --global npm@11.15.0
+      - name: Show publishing toolchain
+        run: node --version && npm --version
       - run: npm ci
       - run: npm test
       - run: npm run validate
@@ -85,8 +89,12 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org
+      - name: Install trusted-publishing npm CLI
+        run: npm install --global npm@11.15.0
+      - name: Show publishing toolchain
+        run: node --version && npm --version
       - run: npm ci
       - name: Resolve version from GitHub Release
         env:
