@@ -1,0 +1,23 @@
+{
+  "name": "BDFL — Benevolent Delegator for LLMs",
+  "short_name": "BDFL",
+  "description": "Plan deliberately. Build in parallel. Stay in control.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080808",
+  "theme_color": "#080808",
+  "icons": [
+    {
+      "src": "/docs/assets/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/docs/assets/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
