@@ -1,5 +1,3 @@
-<img src="docs/assets/bdfl-logo.png" alt="BDFL logo" width="100">
-
 # BDFL - Benevolent Delegator for LLMs
 
 **Plan deliberately. Build in parallel. Stay in control.**
@@ -11,6 +9,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/thisisnsh/bdfl" alt="MIT license"></a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/bdfl.png" alt="BDFL terminal home screen" width="900">
+</p>
+
 BDFL is a terminal supervisor for Codex, Claude Code, and Ollama-backed Codex sessions. Work with a planning agent, compare and approve versioned plans or individual sections, then let isolated worker agents implement the approved work while BDFL handles scheduling, checks, review, verification, integration, and recovery.
 
 _BDFL also stands for [Benevolent Dictator for Life](https://en.wikipedia.org/wiki/Benevolent_dictator_for_life). In this project, BDFL delegates the work to LLMs. Hence the name!_
@@ -19,8 +21,7 @@ _BDFL also stands for [Benevolent Dictator for Life](https://en.wikipedia.org/wi
 
 - [Quick start](#quick-start)
 - [Features](#features)
-- [Terminal tour](#terminal-tour)
-- [Suggested workflow](#suggested-workflow)
+- [Workflow](#workflow)
 - [Commands](#commands)
 - [Project docs](#project-docs)
 - [Roadmap](#roadmap)
@@ -56,6 +57,11 @@ Install the [Codex CLI](https://developers.openai.com/codex/cli) or [Claude Code
 
 Choose **Codex** or **Claude Code** for the planning agent, worker agent, or both. Each role can use a different model and effort level. You can also mix Codex with Claude Code or Ollama.
 
+<p align="center">
+  <img src="docs/assets/agent-gpt.png" alt="BDFL planning session using Codex with a GPT model" width="440">
+  <img src="docs/assets/agent-openai.png" alt="BDFL planning session using Claude Code" width="440">
+</p>
+
 #### Use open models with Ollama
 
 Install and start [Ollama](https://ollama.com/download), install Codex, and sign in to Ollama Cloud if you want to use a cloud model:
@@ -71,40 +77,70 @@ Choose **Ollama** and select an installed model, or enter a model ID such as `gp
 
 Run `ollama ps` in another terminal to see which models are currently loaded.
 
+<p align="center">
+  <img src="docs/assets/agent-ollama.png" alt="BDFL planning session using an Ollama-backed Codex model" width="440">
+</p>
 
 <a id="features"></a>
 ## ✨ Features
 
-#### **Multiple agent configuration**
+#### Multiple agents & parallel sessions
 
 Use Codex, Claude Code, or Ollama independently for planning and worker roles.
 
-- Configure different models, reasoning-effort levels, and safe additional CLI arguments for each role.
+- Create a session by selecting work directory, planning and worker models, effort and more.
 
-#### **Deliberate, versioned planning**
+- Manage running sessions or resume closed ones. Rename or permanently delete them.
 
-Plans use immutable versions with shared decisions, worker chunks, and global validation.
+<p align="center">
+  <img src="docs/assets/new-session.png" alt="Configuring planning and worker agents in a new BDFL session" width="440">
+  <img src="docs/assets/session.png" alt="BDFL session list with planning and worker agents" width="440">
+</p>
 
-- Compare adjacent versions.
+#### Deliberate & versioned planning
+
+Plans use immutable versions with individually managed sections.
+
+- Browse durable plan versions, compare adjacent versions, and inspect exact changes.
 - Approve individual sections while preserving approvals for unchanged sections.
-- Unlock sections for revision.
 - Execute any fully approved plan version.
 
-#### **Dependency-aware, isolated execution**
+<p align="center">
+  <img src="docs/assets/plan-approve.png" alt="Approving individual sections of a versioned BDFL plan" width="440">
+  <img src="docs/assets/plan-diff.png" alt="Comparing two versions of a plan in BDFL" width="440">
+</p>
 
-Each worker receives an isolated, and focused context.
+#### DAG-based isolated execution
 
+Each worker receives an isolated and focused context, and is aware of their turn in the execution workflow.
+
+- Navigate to any worker from the bottom rail to follow its progress or respond when it needs attention.
 - Independent chunks can run in parallel within the configured worker limit.
 - Prerequisites and named locks keep dependent or conflicting work in the correct order.
 
-#### **Review before integration**
+<p align="center">
+  <img src="docs/assets/worker-agent.png" alt="A BDFL worker agent running in its isolated worktree" width="440">
+</p>
+
+
+#### Review before integration
 
 Inspect each worker’s summary, diff, changed paths, checks, and commit metadata.
 
 - Accept the result or send feedback to the same worker for revision.
 - Review the consolidated result after global checks and a fresh verification pass.
 
-#### **Constrained roles with skills and MCP**
+After worker review, BDFL runs global checks and a fresh verification pass before presenting the consolidated result for integration.
+
+<p align="center">
+  <img src="docs/assets/review-worker.png" alt="Reviewing a worker diff and writing revision feedback in BDFL" width="440">
+  <img src="docs/assets/review.png" alt="BDFL review queue with worker results waiting for review" width="440">
+  <br>
+  <img src="docs/assets/review-verifying.png" alt="BDFL review queue while a fresh verification agent is running" width="440">
+  <img src="docs/assets/review-integrate.png" alt="BDFL integration confirmation with verification findings and the consolidated diff visible" width="440">
+</p>
+
+#### Constrained roles with skills and MCP
 
 BDFL gives each session role-specific `bdfl` MCP tools, while planning sessions also receive the `bdfl-plan` skill.
 
@@ -112,7 +148,7 @@ BDFL gives each session role-specific `bdfl` MCP tools, while planning sessions 
 - Planning and verification agents are instructed not to edit; Claude defaults to `manual`, while Codex and Ollama default to a read-only sandbox.
 - Workers can edit only their isolated worktrees.
 
-#### **Local state and safety**
+#### Local state and safety
 
 BDFL does not publish its local runtime state, metrics, analytics, or logs. Provider traffic still follows the agent and model you choose; use Ollama with a local model for a fully local setup.
 
@@ -123,49 +159,9 @@ BDFL does not publish its local runtime state, metrics, analytics, or logs. Prov
 
 See [Model providers](docs/MODEL-PROVIDERS.md), [Permissions](docs/PERMISSIONS.md), and [Recovery](docs/RECOVERY.md) for the complete contracts.
 
-<a id="terminal-tour"></a>
-## 🖥️ Terminal tour
 
-#### Top bar
-
-<img src="docs/assets/bdfl-top-bar.svg" alt="BDFL top bar with New, Plans, Sessions, Review, Close, and Quit actions" width="900">
-
-The top bar provides **New**, **Plans**, **Sessions**, **Review**, **Close**, and **Quit** actions. Availability follows the current workspace: for example, **Plans** and **Review** appear when there is something to plan or review. Use the arrow keys and Enter to navigate.
-
-#### Bottom bar
-
-<img src="docs/assets/bdfl-bottom-bar.svg" alt="BDFL bottom bar with planning and worker agent badges" width="900">
-
-The bottom rail holds every open planning agent and worker. Square badges identify planning agents, round badges identify workers, and `*` marks the exact agent waiting for attention. The footer shows the selected agent's last prompt alongside rotating controls and tips.
-
-#### New Session
-
-<img src="docs/assets/bdfl-new-screen.svg" alt="BDFL New screen for configuring planning and worker agents" width="900">
-
-Create a session by selecting its repository, then independent planning and worker providers, models, effort levels, optional arguments, and maximum worker count. Only Git repositories with at least one commit are selectable. Reuse that repository's **Last used** setup or customize a fresh one; worker access is always limited to edits inside isolated worktrees in the selected repository.
-
-You can also start `bdfl` from a non-Git parent and it discovers committed Git repositories up to two directory levels. The parent view aggregates sessions, plans, and reviews from those repositories. Starting BDFL anywhere inside a repository instead scopes the view to that repository's Git top level.
-
-
-#### Plans
-
-<img src="docs/assets/bdfl-plans-screen.svg" alt="BDFL Plans screen with versions and section approvals" width="900">
-
-Browse every durable plan and version, read individual sections, compare a version with its predecessor, approve or unlock exact sections, and execute a fully approved version. An older approved version can still run after an explicit confirmation.
-
-#### Sessions
-
-<img src="docs/assets/bdfl-sessions-screen.svg" alt="BDFL Sessions screen with saved planning and worker agents" width="900">
-
-Open running sessions or resume closed ones with their saved provider identity and configuration. Sessions can be renamed or permanently deleted, and each row shows its provider, state, attention marker, and latest task context.
-
-#### Review
-
-Review worker and combined results without leaving the terminal. Worker results can be accepted or returned with feedback; a consolidated result can be integrated only after checks and a fresh verification pass.
-
-
-<a id="suggested-workflow"></a>
-## Suggested workflow
+<a id="workflow"></a>
+## Workflow
 
 `Talk → Plan → Review → Approve → Build → Review → Verify → Integrate`
 
