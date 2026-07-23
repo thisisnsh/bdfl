@@ -58,8 +58,8 @@ Install the [Codex CLI](https://developers.openai.com/codex/cli) or [Claude Code
 Choose **Codex** or **Claude Code** for the planning agent, worker agent, or both. Each role can use a different model and effort level. You can also mix Codex with Claude Code or Ollama.
 
 <p align="center">
-  <img src="docs/assets/agent-gpt.png" alt="BDFL planning session using Codex with a GPT model" width="440">
-  <img src="docs/assets/agent-openai.png" alt="BDFL planning session using Claude Code" width="440">
+  <img src="docs/assets/agent-gpt.png" alt="BDFL planning session using Codex with a GPT model" >
+  <img src="docs/assets/agent-openai.png" alt="BDFL planning session using Claude Code" >
 </p>
 
 #### Use open models with Ollama
@@ -78,7 +78,7 @@ Choose **Ollama** and select an installed model, or enter a model ID such as `gp
 Run `ollama ps` in another terminal to see which models are currently loaded.
 
 <p align="center">
-  <img src="docs/assets/agent-ollama.png" alt="BDFL planning session using an Ollama-backed Codex model" width="440">
+  <img src="docs/assets/agent-ollama.png" alt="BDFL planning session using an Ollama-backed Codex model" >
 </p>
 
 <a id="features"></a>
@@ -93,8 +93,8 @@ Use Codex, Claude Code, or Ollama independently for planning and worker roles.
 - Manage running sessions or resume closed ones. Rename or permanently delete them.
 
 <p align="center">
-  <img src="docs/assets/new-session.png" alt="Configuring planning and worker agents in a new BDFL session" width="440">
-  <img src="docs/assets/session.png" alt="BDFL session list with planning and worker agents" width="440">
+  <img src="docs/assets/new-session.png" alt="Configuring planning and worker agents in a new BDFL session" >
+  <img src="docs/assets/session.png" alt="BDFL session list with planning and worker agents" >
 </p>
 
 #### Deliberate & versioned planning
@@ -106,8 +106,8 @@ Plans use immutable versions with individually managed sections.
 - Execute any fully approved plan version.
 
 <p align="center">
-  <img src="docs/assets/plan-approve.png" alt="Approving individual sections of a versioned BDFL plan" width="440">
-  <img src="docs/assets/plan-diff.png" alt="Comparing two versions of a plan in BDFL" width="440">
+  <img src="docs/assets/plan-approve.png" alt="Approving individual sections of a versioned BDFL plan" >
+  <img src="docs/assets/plan-diff.png" alt="Comparing two versions of a plan in BDFL" >
 </p>
 
 #### DAG-based isolated execution
@@ -119,7 +119,7 @@ Each worker receives an isolated and focused context, and is aware of their turn
 - Prerequisites and named locks keep dependent or conflicting work in the correct order.
 
 <p align="center">
-  <img src="docs/assets/worker-agent.png" alt="A BDFL worker agent running in its isolated worktree" width="440">
+  <img src="docs/assets/worker-agent.png" alt="A BDFL worker agent running in its isolated worktree" >
 </p>
 
 
@@ -133,11 +133,10 @@ Inspect each worker’s summary, diff, changed paths, checks, and commit metadat
 After worker review, BDFL runs global checks and a fresh verification pass before presenting the consolidated result for integration.
 
 <p align="center">
-  <img src="docs/assets/review-worker.png" alt="Reviewing a worker diff and writing revision feedback in BDFL" width="440">
-  <img src="docs/assets/review.png" alt="BDFL review queue with worker results waiting for review" width="440">
-  <br>
-  <img src="docs/assets/review-verifying.png" alt="BDFL review queue while a fresh verification agent is running" width="440">
-  <img src="docs/assets/review-integrate.png" alt="BDFL integration confirmation with verification findings and the consolidated diff visible" width="440">
+  <img src="docs/assets/review-worker.png" alt="Reviewing a worker diff and writing revision feedback in BDFL" >
+  <img src="docs/assets/review.png" alt="BDFL review queue with worker results waiting for review" >
+  <img src="docs/assets/review-verifying.png" alt="BDFL review queue while a fresh verification agent is running" >
+  <img src="docs/assets/review-integrate.png" alt="BDFL integration confirmation with verification findings and the consolidated diff visible" >
 </p>
 
 #### Constrained roles with skills and MCP
