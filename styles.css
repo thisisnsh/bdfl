@@ -127,6 +127,8 @@ h1 span { color: var(--yellow); }
 .button-secondary svg { width: 18px; fill: currentColor; }
 .hero-meta { display: flex; gap: 26px; padding: 0; color: var(--dim); font: 500 .69rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; list-style: none; text-transform: uppercase; }
 .hero-meta li:not(:first-child)::before { margin-right: 26px; color: #353531; content: "/"; }
+.hero-command { color: #8f8e88; text-transform: none; }
+.hero-command span { margin-right: 7px; color: var(--yellow); }
 
 .hero-orchestration { position: relative; z-index: 2; width: min(100%, 550px); aspect-ratio: 1; justify-self: end; }
 .orbit { position: absolute; border: 1px solid #282824; border-radius: 50%; }
@@ -299,9 +301,7 @@ h1 span { color: var(--yellow); }
 .install-copy > p:not(.section-index):not(.install-note) { color: #92918b; font-size: 1.05rem; line-height: 1.7; }
 .install-mark { position: relative; width: 410px; height: 500px; opacity: .95; }
 .install-mark svg { width: 100%; height: 100%; overflow: visible; }
-.mark-arrow { fill: var(--yellow); }
 .mark-disc { fill: var(--ink); }
-.mark-ring { fill: none; stroke: var(--ink); stroke-width: 28; }
 .command { display: flex; width: min(100%, 670px); min-height: 64px; align-items: center; justify-content: space-between; gap: 20px; margin-top: 35px; padding: 0 10px 0 20px; border: 1px solid #3e3e39; background: #11110f; }
 .command code { color: #dddcd5; font: 500 clamp(.72rem, 1.5vw, .88rem)/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .command code span { margin-right: 11px; color: var(--yellow); }

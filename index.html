@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#080808">
     <meta name="color-scheme" content="dark">
-    <meta name="description" content="BDFL is a terminal supervisor for planning, delegating, reviewing, and integrating work across Codex, Claude Code, and Ollama agents.">
+    <meta name="description" content="BDFL is a terminal supervisor for Codex, Claude Code, and Ollama-backed Codex sessions. Plan deliberately, build in parallel, and stay in control.">
     <meta name="keywords" content="BDFL, AI coding agents, Codex, Claude Code, Ollama, terminal supervisor, multi-agent coding, agent orchestration">
     <meta name="author" content="Nishant Hada">
     <meta name="application-name" content="BDFL">
@@ -29,10 +29,10 @@
     <meta name="twitter:image:alt" content="The BDFL terminal supervisor interface">
     <title>BDFL — Benevolent Delegator for LLMs</title>
     <link rel="canonical" href="https://usebdfl.com/">
-    <link rel="icon" href="docs/assets/favicon.svg" type="image/svg+xml">
-    <link rel="alternate icon" href="docs/assets/favicon-32.png" sizes="32x32" type="image/png">
-    <link rel="shortcut icon" href="docs/assets/favicon-32.png" type="image/png">
-    <link rel="apple-touch-icon" href="docs/assets/apple-touch-icon.png" sizes="180x180">
+    <link rel="icon" href="docs/assets/favicon.svg?v=2" type="image/svg+xml">
+    <link rel="alternate icon" href="docs/assets/favicon-32.png?v=2" sizes="32x32" type="image/png">
+    <link rel="shortcut icon" href="favicon.ico?v=2" sizes="32x32" type="image/x-icon">
+    <link rel="apple-touch-icon" href="docs/assets/apple-touch-icon.png?v=2" sizes="180x180">
     <link rel="mask-icon" href="docs/assets/safari-pinned-tab.svg" color="#ffffff">
     <link rel="manifest" href="site.webmanifest">
     <link rel="stylesheet" href="styles.css">
@@ -43,7 +43,7 @@
         "@type": "SoftwareApplication",
         "name": "BDFL",
         "alternateName": "Benevolent Delegator for LLMs",
-        "description": "A terminal supervisor for planning, delegating, reviewing, and integrating work across Codex, Claude Code, and Ollama agents.",
+        "description": "A terminal supervisor for Codex, Claude Code, and Ollama-backed Codex sessions with versioned planning, isolated parallel execution, review, verification, and integration.",
         "url": "https://usebdfl.com/",
         "downloadUrl": "https://www.npmjs.com/package/@thisisnsh/bdfl",
         "codeRepository": "https://github.com/thisisnsh/bdfl",
@@ -64,7 +64,6 @@
 
     <header class="site-header">
       <a class="brand" href="#top" aria-label="BDFL home">
-        <img src="docs/assets/bdfl-logo.png" alt="" width="30" height="30">
         <span>BDFL</span>
       </a>
       <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
@@ -84,9 +83,9 @@
       <section class="hero" id="top">
         <div class="hero-grid" aria-hidden="true"></div>
         <div class="hero-copy reveal">
-          <p class="eyebrow"><span class="status-dot"></span> Open source terminal supervisor</p>
-          <h1>Delegate the work.<br><span>Keep the judgment.</span></h1>
-          <p class="hero-lede">BDFL turns one ambitious coding task into a deliberate plan, isolated parallel work, and a result you review before it ever reaches your branch.</p>
+          <p class="eyebrow"><span class="status-dot"></span> Benevolent Delegator for LLMs</p>
+          <h1>Plan deliberately.<br><span>Build in parallel.</span></h1>
+          <p class="hero-lede">BDFL is a terminal supervisor for AI agents. Create versioned plans, review diffs, approve whole plans or individual sections, delegate work to isolated workers, review every result, and stay in control.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="#install">Get BDFL <span aria-hidden="true">↓</span></a>
             <a class="button button-secondary" href="https://github.com/thisisnsh/bdfl" target="_blank" rel="noreferrer">
@@ -94,11 +93,7 @@
               View source
             </a>
           </div>
-          <ul class="hero-meta" aria-label="Requirements and license">
-            <li>Node 20+</li>
-            <li>macOS &amp; Linux</li>
-            <li>MIT licensed</li>
-          </ul>
+          <p class="hero-meta hero-command" aria-label="Install command"><code><span>$</span> npm install --global @thisisnsh/bdfl</code></p>
         </div>
 
         <div class="hero-orchestration reveal" aria-label="BDFL delegates an approved plan to parallel workers, then brings their work back for review">
@@ -142,134 +137,17 @@
       </section>
 
       <section class="provider-strip" aria-label="Supported agent providers">
-        <p>One supervisor. Your choice of agents.</p>
+        <p>One supervisor. Your choice of agents. More coming soon.</p>
         <div class="provider-list">
-          <span>CODEX</span><i></i><span>CLAUDE CODE</span><i></i><span>OLLAMA</span>
+          <span>CODEX</span><i></i><span>CLAUDE CODE</span><i></i><span>OLLAMA (VIA CODEX)</span>
         </div>
       </section>
 
       <section class="manifesto section-shell reveal">
         <p class="section-index">01 / THE IDEA</p>
         <div>
-          <h2>Parallel agents are fast.<br><em>Supervised agents are useful.</em></h2>
-          <p>BDFL gives the speed of multiple coding agents a human checkpoint at every consequential step. Talk through the problem, approve the exact plan, inspect every result, and integrate only when the whole change holds up.</p>
-        </div>
-      </section>
-
-      <section class="workflow section-shell" id="workflow">
-        <div class="section-heading reveal">
-          <div>
-            <p class="section-index">02 / WORKFLOW</p>
-            <h2>From idea to integrated.<br>Nothing disappears into a black box.</h2>
-          </div>
-          <p>Eight explicit stages keep intent, implementation, and evidence connected.</p>
-        </div>
-
-        <div class="workflow-track reveal">
-          <div class="workflow-line" aria-hidden="true"></div>
-          <article>
-            <span class="step-dot step-square">01</span>
-            <h3>Talk</h3>
-            <p>Explore the repository with a read-only planning agent.</p>
-          </article>
-          <article>
-            <span class="step-dot step-square">02</span>
-            <h3>Plan</h3>
-            <p>Define decisions, chunks, dependencies, locks, and checks.</p>
-          </article>
-          <article>
-            <span class="step-dot step-square">03</span>
-            <h3>Review</h3>
-            <p>Compare plan versions and request revisions where needed.</p>
-          </article>
-          <article>
-            <span class="step-dot step-square">04</span>
-            <h3>Approve</h3>
-            <p>Lock the exact sections you trust for execution.</p>
-          </article>
-          <article>
-            <span class="step-dot">05</span>
-            <h3>Build</h3>
-            <p>Run eligible chunks in isolated worktrees, in parallel.</p>
-          </article>
-          <article>
-            <span class="step-dot">06</span>
-            <h3>Review</h3>
-            <p>Inspect diffs and checks; accept or return with feedback.</p>
-          </article>
-          <article>
-            <span class="step-dot step-ring">07</span>
-            <h3>Verify</h3>
-            <p>Run global checks and a fresh, non-implementing review.</p>
-          </article>
-          <article>
-            <span class="step-dot step-ring">08</span>
-            <h3>Integrate</h3>
-            <p>Bring the consolidated result into a clean target branch.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="features section-shell" id="features">
-        <div class="section-heading reveal">
-          <div>
-            <p class="section-index">03 / CONTROL SURFACE</p>
-            <h2>Built for deliberate delegation.</h2>
-          </div>
-          <p>Enough structure to coordinate serious work without turning your terminal into project-management software.</p>
-        </div>
-
-        <div class="feature-grid">
-          <article class="feature feature-wide reveal">
-            <div class="feature-copy">
-              <span class="feature-number">01</span>
-              <h3>Versioned plans you can actually review</h3>
-              <p>Compare adjacent versions, approve individual sections, preserve unchanged approvals, and unlock anything that needs another pass.</p>
-            </div>
-            <div class="plan-visual" aria-hidden="true">
-              <div class="plan-version muted"><span>v01</span><i></i><i></i><i></i></div>
-              <div class="plan-arrow">→</div>
-              <div class="plan-version active"><span>v02</span><i></i><i></i><i></i><b>approved</b></div>
-            </div>
-          </article>
-
-          <article class="feature reveal">
-            <span class="feature-number">02</span>
-            <div class="mini-workers" aria-hidden="true"><i>P</i><span>1</span><span>2</span><span>3</span></div>
-            <h3>Independent agents, independent choices</h3>
-            <p>Mix Codex, Claude Code, and Ollama across planner and worker roles, with separate models and effort levels.</p>
-          </article>
-
-          <article class="feature feature-yellow reveal">
-            <span class="feature-number">03</span>
-            <div class="isolation-visual" aria-hidden="true">
-              <span>main</span><i>→</i><span>worktree/1</span><i>→</i><span>review</span>
-            </div>
-            <h3>Isolated by default</h3>
-            <p>Workers edit only their own worktrees. Dependencies and named locks keep conflicting tasks in order.</p>
-          </article>
-
-          <article class="feature reveal">
-            <span class="feature-number">04</span>
-            <div class="check-visual" aria-hidden="true">
-              <span><i>✓</i> unit tests</span><span><i>✓</i> global checks</span><span><i>✓</i> fresh verification</span>
-            </div>
-            <h3>Review the evidence</h3>
-            <p>See summaries, changed paths, actual diffs, check results, and commit metadata before accepting a worker’s result.</p>
-          </article>
-
-          <article class="feature feature-wide safety-feature reveal">
-            <div class="feature-copy">
-              <span class="feature-number">05</span>
-              <h3>Local state stays local</h3>
-              <p>Session metadata, plans, snapshots, diffs, and worktrees live in the repository’s ignored <code>.bdfl/</code> directory. BDFL publishes no metrics, analytics, logs, or local runtime state.</p>
-              <a href="https://github.com/thisisnsh/bdfl/blob/main/docs/PERMISSIONS.md">Read the permissions model <span aria-hidden="true">→</span></a>
-            </div>
-            <div class="local-visual" aria-hidden="true">
-              <div class="local-core"><span>LOCAL</span></div>
-              <div class="local-orbit"><i></i><i></i><i></i></div>
-            </div>
-          </article>
+          <h2>Multiple agents.<br><em>One supervised workflow.</em></h2>
+          <p>Use Codex, Claude Code, or Ollama independently for planning and worker roles. Work with a planning agent, compare and approve versioned plans or individual sections, then let isolated worker agents implement the approved work.</p>
         </div>
       </section>
 
@@ -277,10 +155,10 @@
         <div class="section-shell">
           <div class="section-heading reveal">
             <div>
-              <p class="section-index">04 / IN THE TERMINAL</p>
-              <h2>One interface.<br>Every agent in view.</h2>
+              <p class="section-index">02 / IN THE TERMINAL</p>
+              <h2>Multiple agents.<br>Every session in view.</h2>
             </div>
-            <p>Top-level workspace actions, durable sessions and plans, and an agent rail that shows exactly who is working—or waiting for you.</p>
+            <p>Manage running sessions or resume closed ones. Navigate to any worker from the bottom rail to follow progress or respond when it needs attention.</p>
           </div>
 
           <div class="terminal-showcase reveal" aria-label="Interactive demonstration of the BDFL terminal interface">
@@ -312,7 +190,7 @@
                 </div>
               </div>
               <div class="demo-footer">
-                <span id="demo-prompt">Last Prompt: Plan the GitHub Pages launch.</span>
+                <span id="demo-prompt">Last Prompt: Plan the requested repository change.</span>
                 <span>Click an action or agent to explore.</span>
               </div>
             </div>
@@ -321,18 +199,133 @@
         </div>
       </section>
 
+      <section class="workflow section-shell" id="workflow">
+        <div class="section-heading reveal">
+          <div>
+            <p class="section-index">03 / WORKFLOW</p>
+            <h2>Complete Workflow</h2>
+          </div>
+          <p>Role-specific <code>bdfl</code> MCP tools and the <code>bdfl-plan</code> skill keep planning and verification read-only while workers edit only isolated worktrees.</p>
+        </div>
+
+        <div class="workflow-track reveal">
+          <div class="workflow-line" aria-hidden="true"></div>
+          <article>
+            <span class="step-dot step-square">01</span>
+            <h3>Talk</h3>
+            <p>Work with a planning agent that can inspect the repository but cannot edit it.</p>
+          </article>
+          <article>
+            <span class="step-dot step-square">02</span>
+            <h3>Plan</h3>
+            <p>Define shared decisions, owned paths, dependencies, locks, local checks, and global validation.</p>
+          </article>
+          <article>
+            <span class="step-dot step-square">03</span>
+            <h3>Review</h3>
+            <p>Review plan versions, compare diffs, and request revisions where needed.</p>
+          </article>
+          <article>
+            <span class="step-dot step-square">04</span>
+            <h3>Approve</h3>
+            <p>Approve exact sections. Execution stays blocked until every section is approved.</p>
+          </article>
+          <article>
+            <span class="step-dot">05</span>
+            <h3>Build</h3>
+            <p>Build eligible chunks in isolated branches and worktrees where the dependency graph allows.</p>
+          </article>
+          <article>
+            <span class="step-dot">06</span>
+            <h3>Review</h3>
+            <p>Review each worker’s actual diff and checks. Accept it or send feedback.</p>
+          </article>
+          <article>
+            <span class="step-dot step-ring">07</span>
+            <h3>Verify</h3>
+            <p>Verify the consolidated result with global checks and a fresh non-implementing agent.</p>
+          </article>
+          <article>
+            <span class="step-dot step-ring">08</span>
+            <h3>Integrate</h3>
+            <p>Integrate only after final review while the frozen target remains unchanged and clean.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="features section-shell" id="features">
+        <div class="section-heading reveal">
+          <div>
+            <p class="section-index">04 / CONTROL SURFACE</p>
+            <h2>Supervised from plan to integration.</h2>
+          </div>
+          <p>Role-specific <code>bdfl</code> MCP tools constrain each agent: planners and verifiers do not edit; workers edit only isolated worktrees.</p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature feature-wide reveal">
+            <div class="feature-copy">
+              <span class="feature-number">01</span>
+              <h3>Deliberate &amp; versioned planning</h3>
+              <p>Browse durable plan versions, compare adjacent versions, inspect exact changes, and approve individual sections while preserving unchanged approvals.</p>
+            </div>
+            <div class="plan-visual" aria-hidden="true">
+              <div class="plan-version muted"><span>v01</span><i></i><i></i><i></i></div>
+              <div class="plan-arrow">→</div>
+              <div class="plan-version active"><span>v02</span><i></i><i></i><i></i><b>approved</b></div>
+            </div>
+          </article>
+
+          <article class="feature reveal">
+            <span class="feature-number">02</span>
+            <div class="mini-workers" aria-hidden="true"><i>P</i><span>1</span><span>2</span><span>3</span></div>
+            <h3>Multiple agents &amp; parallel sessions</h3>
+            <p>Use Codex, Claude Code, or Ollama independently for planning and worker roles, with separate models, effort levels, and options.</p>
+          </article>
+
+          <article class="feature feature-yellow reveal">
+            <span class="feature-number">03</span>
+            <div class="isolation-visual" aria-hidden="true">
+              <span>main</span><i>→</i><span>worktree/1</span><i>→</i><span>review</span>
+            </div>
+            <h3>DAG-based isolated execution</h3>
+            <p>Each worker receives isolated, focused context. Independent chunks run in parallel while prerequisites and named locks keep conflicting work in order.</p>
+          </article>
+
+          <article class="feature reveal">
+            <span class="feature-number">04</span>
+            <div class="check-visual" aria-hidden="true">
+              <span><i>✓</i> unit tests</span><span><i>✓</i> global checks</span><span><i>✓</i> fresh verification</span>
+            </div>
+            <h3>Review before integration</h3>
+            <p>Inspect each worker’s summary, diff, changed paths, checks, and commit metadata. Accept the result or send feedback to the same worker.</p>
+          </article>
+
+          <article class="feature feature-wide safety-feature reveal">
+            <div class="feature-copy">
+              <span class="feature-number">05</span>
+              <h3>Local state and safety</h3>
+              <p>Each repository owns its ignored <code>.bdfl/</code> runtime state. BDFL does not publish local state, metrics, analytics, or logs; use Ollama with a local model for a fully local setup.</p>
+              <a href="https://github.com/thisisnsh/bdfl/blob/main/docs/PERMISSIONS.md">Read the permissions model <span aria-hidden="true">→</span></a>
+            </div>
+            <div class="local-visual" aria-hidden="true">
+              <div class="local-core"><span>LOCAL</span></div>
+              <div class="local-orbit"><i></i><i></i><i></i></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section class="install section-shell" id="install">
         <div class="install-mark" aria-hidden="true">
           <svg viewBox="0 0 410 500">
-            <path class="mark-arrow" d="M55 20H115V210H165L85 300L5 210H55Z"></path>
-            <circle class="mark-disc" cx="300" cy="120" r="90"></circle>
-            <circle class="mark-ring" cx="300" cy="390" r="70"></circle>
+            <circle class="mark-disc" cx="205" cy="250" r="115"></circle>
           </svg>
         </div>
         <div class="install-copy reveal">
           <p class="section-index">05 / GET STARTED</p>
-          <h2>Your agents are ready.<br>Be a benevolent delegator.</h2>
-          <p>Install globally, move into any Git repository, and launch the supervisor.</p>
+          <h2>Plan deliberately.<br>Build in parallel.</h2>
+          <p>Install globally, start BDFL in a Git repository, then choose separate planning and worker agents, models, effort levels, options, and worker capacity.</p>
           <div class="command" aria-label="Install command">
             <code><span>$</span> npm install --global @thisisnsh/bdfl</code>
             <button type="button" data-copy="npm install --global @thisisnsh/bdfl" aria-label="Copy install command">
@@ -340,14 +333,13 @@
               <span>Copy</span>
             </button>
           </div>
-          <p class="install-note">Requires Git, Node.js 20+, and at least one supported agent CLI installed and authenticated.</p>
+          <p class="install-note">Requires macOS or Linux, Node.js 20+, Git, and at least one supported agent CLI installed and authenticated.</p>
         </div>
       </section>
     </main>
 
     <footer>
       <div class="footer-brand">
-        <img src="docs/assets/bdfl-logo.png" alt="" width="44" height="44">
         <div><strong>BDFL</strong><span>Benevolent Delegator for LLMs</span></div>
       </div>
       <div class="footer-links">
