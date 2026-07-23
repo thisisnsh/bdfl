@@ -48,7 +48,7 @@ Test.
     planId: 'plan-private-id',
     workstreamId: 'one',
     status: 'running',
-    chunks: [{ id: 'build-bash-lookup', status: 'review', summary: 'Added strict validation for every argument before producing any output from the lookup script.', diff: 'diff --git a/planet.sh b/planet.sh\n--- a/planet.sh\n+++ b/planet.sh\n-previous lookup implementation that should be removed cleanly\n+replacement lookup implementation that should be added cleanly', changedPaths: ['planet.sh'], attempts: [{ sessionId: 'w' }] }]
+    chunks: [{ id: 'build-bash-lookup', status: 'review', summary: 'Added strict validation for every argument before producing any output from the lookup script.', diff: ['diff --git a/planet.sh b/planet.sh', '--- a/planet.sh', '+++ b/planet.sh', '-previous lookup implementation that should be removed cleanly', '+replacement lookup implementation that should be added cleanly', ...Array.from({ length: 24 }, (_, index) => ` context line ${index + 1}`)].join('\n'), changedPaths: ['planet.sh'], attempts: [{ sessionId: 'w' }] }]
   };
   const handlers = new Map();
   const workerWrites = [];
@@ -60,7 +60,7 @@ Test.
     integration: {},
     bridge: { start() {}, close() {} },
     input: { on(event, fn) { handlers.set(event, fn); }, off() {}, setRawMode() {}, resume() {}, pause() {} },
-    output: { columns: 48, rows: 24, write() {} },
+    output: { columns: 48, rows: 32, write() {} },
     setInterval: () => ({ unref() {} }),
     clearInterval() {}
   });
@@ -91,8 +91,16 @@ Test.
   assert.match(content, /Make Bash Script \(W 1\) · Planet lookup/);
   assert.doesNotMatch(content, /build-bash-lookup|plan-private-id|execution-private-id/);
   assert.match(content, /Added strict validation for every argument\nbefore producing any output from the lookup\nscript/);
-  assert.match(content, /a accept • f feedback • Esc back/);
+  assert.match(content, /↑\/↓ scroll • a accept • f feedback • Esc\nback/);
   assert.doesNotMatch(content, /a accept · f feedback · Esc back/);
+
+  assert.equal(supervisor.topPage.detail.scroll, 0);
+  handlers.get('data')('\u001b[B');
+  assert.equal(supervisor.topPage.detail.scroll, 1);
+  handlers.get('data')('\u001b[<65;10;5M');
+  assert.equal(supervisor.topPage.detail.scroll, 4);
+  handlers.get('data')('\u001b[5~');
+  assert.equal(supervisor.topPage.detail.scroll, 0);
 
   handlers.get('data')('fFix the script');
   const feedbackLines = supervisor.actionPageLines();
