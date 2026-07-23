@@ -158,6 +158,42 @@ test('Review retains accepted workers only while their sessions remain open and 
   assert.match(question, /f respond • Esc back/);
 });
 
+test('Review offers a separately confirmed integration override after verification fails', () => {
+  const state = {
+    schema: 2,
+    activeWorkstreamId: 'one',
+    workstreams: [{ id: 'one', status: 'active', delegatorProfile: { provider: 'claude' } }],
+    sessions: [{ id: 'd', workstreamId: 'one', role: 'delegator', paneNumber: 1, name: 'Planner', explicitlyClosed: false }]
+  };
+  const execution = { id: 'execution', planId: 'plan', workstreamId: 'one', status: 'verification-failed', verification: { state: 'fail', summary: 'Tests failed' }, integration: { finalDiff: '+result', checkResults: [] }, chunks: [] };
+  const handlers = new Map();
+  const finalized = [];
+  const supervisor = new TerminalSupervisor('/tmp/bdfl-override-review-test', {
+    store: { load: () => state, setSessionAttention() {} },
+    lineage: { list: () => [{ planId: 'plan', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] },
+    sessions: { restore: () => ({ opened: [], errors: [] }), shutdown() {} },
+    scheduler: { list: () => [execution], resume() {} },
+    integration: { finalize(...args) { finalized.push(args); } },
+    bridge: { start() {}, close() {} },
+    input: { on(event, fn) { handlers.set(event, fn); }, off() {}, setRawMode() {}, resume() {}, pause() {} },
+    output: { columns: 80, rows: 22, write() {} },
+    setInterval: () => ({ unref() {} }),
+    clearInterval() {}
+  });
+  supervisor.acquire = () => {};
+  supervisor.release = () => {};
+  supervisor.start();
+  supervisor.activate('Review');
+  handlers.get('data')('\r');
+  assert.match(supervisor.actionPageLines().join('\n'), /o override/);
+  handlers.get('data')('o');
+  assert.match(supervisor.actionPageLines().join('\n'), /Override failed global verification/);
+  assert.deepEqual(finalized, []);
+  handlers.get('data')('\r');
+  assert.deepEqual(finalized, [['execution', {}, { override: true }]]);
+  supervisor.stop();
+});
+
 test('bottom bar checks only unchanged accepted workers and never combines approval with attention', () => {
   const state = {
     schema: 2,
