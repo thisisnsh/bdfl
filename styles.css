@@ -369,12 +369,23 @@ footer p { margin: 0; text-align: right; }
   .manifesto h2, .section-heading h2, .install h2 { font-size: clamp(2.35rem, 12vw, 3.6rem); }
   .workflow, .features, .terminal-section { padding-block: 90px; }
   .section-heading { margin-bottom: 50px; }
-  .workflow-track { grid-template-columns: repeat(2, 1fr); }
-  .feature-grid { grid-template-columns: 1fr; }
-  .feature, .feature-wide { grid-column: span 1; min-height: 360px; padding: 30px; }
+  .workflow-track { grid-template-columns: 1fr; gap: 34px; }
+  .workflow-line { top: 26px; right: auto; bottom: 26px; left: 26px; display: block; width: 1px; height: auto; }
+  .workflow-track article { display: grid; min-width: 0; grid-template-columns: 52px minmax(0, 1fr); grid-template-rows: auto 1fr; column-gap: 20px; }
+  .workflow-track .step-dot { grid-row: 1 / span 2; margin-bottom: 0; }
+  .workflow-track h3, .workflow-track p { grid-column: 2; }
+  .workflow-track h3 { margin: 3px 0 8px; }
+  .feature-grid { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+  .feature, .feature-wide { min-width: 0; grid-column: span 1; min-height: 360px; padding: 30px; }
   .feature-wide { grid-template-columns: 1fr; gap: 55px; }
+  .feature-copy { min-width: 0; }
   .feature-number { margin-bottom: 60px; }
-  .plan-visual { transform: scale(.88); }
+  .plan-visual { min-width: 0; gap: 14px; transform: none; }
+  .plan-version { width: auto; height: 190px; min-width: 0; flex: 1 1 0; padding: 18px; }
+  .plan-version b { right: -4px; padding: 7px; font-size: .46rem; }
+  .mini-workers { gap: 12px; }
+  .mini-workers i, .mini-workers span { width: 48px; height: 48px; flex: 0 0 48px; }
+  .mini-workers::after { width: auto; min-width: 24px; flex: 1 1 auto; }
   .safety-feature { padding-bottom: 50px; }
   .demo-terminal { padding: 10px 10px 8px; }
   .demo-frame { min-height: 560px; }
@@ -390,9 +401,12 @@ footer p { margin: 0; text-align: right; }
   .demo-footer { align-items: flex-start; flex-direction: column; gap: 5px; padding-block: 12px 5px; line-height: 1.4; }
   .demo-note { line-height: 1.5; }
   .install { min-height: auto; grid-template-columns: 1fr; gap: 30px; padding-block: 100px; }
-  .install-mark { width: 300px; height: 366px; margin: 0 auto; transform: none; }
+  .install-mark { display: none; }
+  .install-copy { min-width: 0; }
   .command { overflow-x: auto; }
   .command code { white-space: nowrap; }
+  .command button { min-width: 44px; width: 44px; }
+  .command button span { display: none; }
   footer { grid-template-columns: 1fr; }
   .footer-links { flex-wrap: wrap; }
   footer p { grid-column: auto; }
@@ -400,9 +414,13 @@ footer p { margin: 0; text-align: right; }
 
 @media (max-width: 430px) {
   .hero-orchestration { transform: scale(.92); }
-  .workflow-track { grid-template-columns: 1fr 1fr; gap: 34px 12px; }
   .feature { padding: 26px; }
-  .plan-visual { margin-inline: -35px; transform: scale(.73); }
+  .plan-visual { gap: 10px; }
+  .plan-version { height: 175px; padding: 15px; }
+  .plan-version span { margin-bottom: 26px; }
+  .plan-arrow { font-size: 1.35rem; }
+  .mini-workers { gap: 10px; }
+  .mini-workers i, .mini-workers span { width: 46px; height: 46px; flex-basis: 46px; }
   .check-visual { grid-template-columns: 1fr; }
   .check-visual span { flex-direction: row; }
 }
