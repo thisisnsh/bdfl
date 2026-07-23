@@ -103,6 +103,53 @@ Test.
   supervisor.stop();
 });
 
+test('Review retains accepted workers only while their sessions remain open and shows their squashed diff', () => {
+  const state = {
+    schema: 2,
+    activeWorkstreamId: 'one',
+    workstreams: [{ id: 'one', status: 'active', delegatorProfile: { provider: 'claude' } }],
+    sessions: [
+      { id: 'd', workstreamId: 'one', role: 'delegator', paneNumber: 1, name: 'Planner', explicitlyClosed: false },
+      { id: 'open', workstreamId: 'one', role: 'worker', paneNumber: 2, name: 'W 1', explicitlyClosed: false },
+      { id: 'closed', workstreamId: 'one', role: 'worker', paneNumber: 3, name: 'W 2', explicitlyClosed: true },
+      { id: 'waiting', workstreamId: 'one', role: 'worker', paneNumber: 4, name: 'W 3', explicitlyClosed: false },
+      { id: 'question', workstreamId: 'one', role: 'worker', paneNumber: 5, name: 'W 4', attention: true, explicitlyClosed: false }
+    ]
+  };
+  const execution = { id: 'execution', planId: 'plan', workstreamId: 'one', chunks: [
+    { id: 'open-result', status: 'accepted', commit: 'head', diff: '+latest commit only', attempts: [{ sessionId: 'open', base: 'base' }] },
+    { id: 'closed-result', status: 'accepted', commit: 'closed-head', attempts: [{ sessionId: 'closed', base: 'base' }] },
+    { id: 'waiting-result', status: 'waiting', summary: 'Which output format should I use?', attempts: [{ sessionId: 'waiting', base: 'base' }] },
+    { id: 'question-result', status: 'running', attempts: [{ sessionId: 'question', base: 'base' }] }
+  ] };
+  const diffs = [];
+  const supervisor = new TerminalSupervisor('/tmp/bdfl-accepted-review-test', {
+    store: { load: () => state },
+    lineage: { list: () => [{ planId: 'plan', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] },
+    sessions: {},
+    scheduler: { list: () => [execution] },
+    integration: {},
+    bridge: {},
+    git: { resultDiff(chunk) { diffs.push(chunk.id); return 'diff --git a/result b/result\n-old combined result\n+new combined result'; } }
+  });
+  const items = supervisor.reviewItems(state);
+  assert.deepEqual(items.map((item) => item.id), ['open-result', 'waiting-result', 'question-result']);
+  assert.deepEqual(diffs, ['open-result', 'waiting-result', 'question-result']);
+  assert.match(items[0].diff, /new combined result/);
+  assert.doesNotMatch(items[0].diff, /latest commit only/);
+
+  supervisor.workspace = state;
+  supervisor.topPage = { action: 'Review', index: 0, detail: { executionId: 'execution', id: 'open-result' } };
+  const detail = supervisor.actionPageLines().join('\n').replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+  assert.match(detail, /Accepted • Esc back/);
+  assert.doesNotMatch(detail, /a accept|f feedback/);
+
+  supervisor.topPage.detail = { executionId: 'execution', id: 'waiting-result' };
+  const question = supervisor.actionPageLines().join('\n').replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+  assert.match(question, /Which output format should I use\?/);
+  assert.match(question, /f respond • Esc back/);
+});
+
 test('bottom bar checks only unchanged accepted workers and never combines approval with attention', () => {
   const state = {
     schema: 2,
@@ -129,7 +176,14 @@ test('bottom bar checks only unchanged accepted workers and never combines appro
   assert.match(plain, /\(Approved Wor…✓\)/);
 
   state.sessions.find((session) => session.id === 'accepted').updatedAt = '2026-07-22T12:02:00.000Z';
-  const active = supervisor.decorateWorkspace(state);
+  let active = supervisor.decorateWorkspace(state);
+  navigation = new Navigation(active); navigation.selectSession('accepted');
+  plain = new TerminalRenderer().render(active, navigation, { columns: 100, rows: 8 }).replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+  assert.match(plain, /\(W 1✓\)/);
+  assert.doesNotMatch(plain, /W 1\*/);
+
+  state.sessions.find((session) => session.id === 'accepted').conversationAt = '2026-07-22T12:03:00.000Z';
+  active = supervisor.decorateWorkspace(state);
   navigation = new Navigation(active); navigation.selectSession('accepted');
   plain = new TerminalRenderer().render(active, navigation, { columns: 100, rows: 8 }).replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
   assert.match(plain, /\(W 1\*\)/);

@@ -60,7 +60,7 @@ class WorkspaceCatalog {
   renameSession(id, name) { const { root, entry } = this.owner('sessions', id); return this.decorate(entry.store.renameSession(id, name), root); }
   setSessionTaskSnippet(id, input) { const { root, entry } = this.owner('sessions', id); return this.decorate(entry.store.setSessionTaskSnippet(id, input), root); }
   setSessionAttention(id, attention) { return this.owner('sessions', id).entry.store.setSessionAttention(id, attention); }
-  touchSession(id) { const { root, entry } = this.owner('sessions', id); return this.decorate(entry.store.touchSession(id), root); }
+  touchSession(id, conversation = false) { const { root, entry } = this.owner('sessions', id); return this.decorate(entry.store.touchSession(id, conversation), root); }
 }
 
 class LineageCatalog {
