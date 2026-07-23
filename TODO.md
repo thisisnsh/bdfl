@@ -19,6 +19,8 @@ This is the working roadmap for BDFL. Items here are plans, not promises or curr
 ## Experience
 
 - [ ] Add a profile-management UI for saved agent setups.
+- [ ] Simplify the review workflow by moving review options into the status line.
+- [ ] Simplify navigation and replace `Ctrl+]` with a more ergonomic shortcut.
 - [ ] Split plans into more independently revisable worker sections without repeating details, so changing one section does not require unlocking other approved sections.
 - [ ] Add tiled monitoring for active workers.
 - [ ] Explore remote peers and resumable remote sessions.
