@@ -119,7 +119,7 @@ Each worker receives an isolated and focused context, and is aware of their turn
 - Prerequisites and named locks keep dependent or conflicting work in the correct order.
 
 <p align="center">
-  <img src="docs/assets/worker-agent.png" alt="A BDFL worker agent running in its isolated worktree" >
+  <img src="docs/assets/review-verifying.png" alt="BDFL review queue while a fresh verification agent is running" >
 </p>
 
 
@@ -133,9 +133,6 @@ Inspect each worker’s summary, diff, changed paths, checks, and commit metadat
 After worker review, BDFL runs global checks and a fresh verification pass before presenting the consolidated result for integration.
 
 <p align="center">
-  <img src="docs/assets/review-worker.png" alt="Reviewing a worker diff and writing revision feedback in BDFL" >
-  <img src="docs/assets/review.png" alt="BDFL review queue with worker results waiting for review" >
-  <img src="docs/assets/review-verifying.png" alt="BDFL review queue while a fresh verification agent is running" >
   <img src="docs/assets/review-integrate.png" alt="BDFL integration confirmation with verification findings and the consolidated diff visible" >
 </p>
 
