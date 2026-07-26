@@ -114,7 +114,7 @@ Plans use immutable versions with individually managed sections.
 
 Each worker receives an isolated and focused context, and is aware of their turn in the execution workflow.
 
-- Navigate to any worker from the bottom rail to follow its progress or respond when it needs attention.
+- Navigate to any worker, verifier, or conflict-resolution agent from the bottom rail to follow its progress or respond when it needs attention.
 - Independent chunks can run in parallel within the configured worker limit.
 - Prerequisites and named locks keep dependent or conflicting work in the correct order.
 
@@ -129,7 +129,8 @@ Inspect each worker’s summary, diff, changed paths, checks, and commit metadat
 
 - Accept the result or send feedback to the same worker for revision.
 - Review the consolidated result after global checks and a fresh verification pass.
-- If other work has committed to the target branch meanwhile, BDFL reconciles the verified result in a disposable worktree, reruns global checks on the combined tree, and adds one commit on top. Uncommitted target changes, rewritten history, and real conflicts still stop integration without touching the target.
+- Integration requests enter a durable per-repository queue, so only one verified result at a time can reconcile with and advance the target branch.
+- If other work has committed meanwhile, BDFL reconciles the verified result in a disposable worktree. Git conflicts launch a visible resolution agent; the resolved combined tree reruns global checks and a fresh visible verification pass before BDFL adds one commit on top. Uncommitted target changes and rewritten history still stop integration without touching the target.
 
 After worker review, BDFL runs global checks and a fresh verification pass before presenting the consolidated result for integration.
 
