@@ -2,10 +2,13 @@
 
 const { tokenizeCommand } = require('../core/profiles'); const { discoverProviderCatalogs } = require('../providers/models');
 
-const STEPS = ['preset', 'delegatorProvider', 'delegatorModel', 'delegatorEffort', 'delegatorArgs', 'workerProvider', 'workerModel', 'workerEffort', 'workerArgs', 'workerCapacity', 'confirmation'];
+const PLANNING_STEPS = ['delegatorProvider', 'delegatorModel', 'delegatorEffort', 'delegatorArgs', 'workerProvider', 'workerModel', 'workerEffort', 'workerArgs', 'workerCapacity'];
+const DIRECT_STEPS = ['directProvider', 'directModel', 'directEffort', 'directArgs'];
+const STEPS = ['sessionType', 'preset', ...PLANNING_STEPS, ...DIRECT_STEPS, 'confirmation'];
 const COPY = {
   repository: ['Choose a repository', 'Choose the repository for this session. A repository needs at least one Git commit to appear here.'],
-  preset: ['Create a new session', 'Reuse your previous setup or customize a fresh session.'],
+  sessionType: ['Choose how to work', 'Start a planning workflow or work directly with one editable agent.'],
+  preset: ['Configure this session', 'Reuse the last setup for this session type or customize it.'],
   delegatorProvider: ['Choose your planning agent', 'This is the main agent you talk with. It coordinates the work without implementing it.'],
   delegatorModel: ['Choose the planning model', 'Choose a built-in model or enter a model ID manually.'],
   delegatorArgs: ['Planning agent options', 'Optional CLI arguments, such as --search. Safe permission overrides are allowed; dangerous access requires bdfl --dangerous.'],
@@ -15,134 +18,77 @@ const COPY = {
   workerEffort: ['Worker effort', 'How much reasoning each worker should use.'],
   workerArgs: ['Worker agent options', 'Optional CLI arguments, such as --search. Safe permission overrides are allowed; dangerous access requires bdfl --dangerous.'],
   workerCapacity: ['Parallel worker capacity', 'Maximum active workers. Five is the default; dependencies still run in order.'],
-  confirmation: ['Review your session', 'This setup will be saved as “Last used” for your next session.']
+  directProvider: ['Choose your direct agent', 'This is one editable agent working in the selected repository without BDFL planning or worker tools.'],
+  directModel: ['Choose the direct model', 'Choose a built-in model or enter a model ID manually.'],
+  directEffort: ['Direct agent effort', 'How much reasoning the direct agent should use.'],
+  directArgs: ['Direct agent options', 'Optional CLI arguments, such as --search. The agent runs with workspace-write access.'],
+  confirmation: ['Review your session', 'This setup will be saved as “Last used” for this session type.']
 };
-const SETUP_GROUPS = [
-  { label: 'Delegator agent', keys: ['delegatorProvider'] },
-  { label: 'Delegator model', keys: ['delegatorModel', 'delegatorEffort'] },
-  { label: 'Delegator agent options', keys: ['delegatorArgs'] },
-  { label: 'Worker agent', keys: ['workerProvider'] },
-  { label: 'Worker model', keys: ['workerModel', 'workerEffort'] },
-  { label: 'Worker agent options', keys: ['workerArgs'] },
-  { label: 'Max worker count', keys: ['workerCapacity'] }
+const PLANNING_GROUPS = [
+  { label: 'Planning agent', keys: ['delegatorProvider'] }, { label: 'Planning model', keys: ['delegatorModel', 'delegatorEffort'] }, { label: 'Planning agent options', keys: ['delegatorArgs'] },
+  { label: 'Worker agent', keys: ['workerProvider'] }, { label: 'Worker model', keys: ['workerModel', 'workerEffort'] }, { label: 'Worker agent options', keys: ['workerArgs'] }, { label: 'Max worker count', keys: ['workerCapacity'] }
 ];
-const TEXT_STEPS = new Set(['delegatorArgs', 'workerArgs', 'workerCapacity']);
+const DIRECT_GROUPS = [{ label: 'Direct agent', keys: ['directProvider'] }, { label: 'Direct model', keys: ['directModel', 'directEffort'] }, { label: 'Direct agent options', keys: ['directArgs'] }];
+const TEXT_STEPS = new Set(['delegatorArgs', 'workerArgs', 'workerCapacity', 'directArgs']);
 const REASONING_EFFORTS = ['low', 'medium', 'high'];
-const LABELS = { claude: 'Claude Code', codex: 'Codex', ollama: 'Ollama', default: 'Claude current default', medium: 'Medium', low: 'Low', high: 'High', 'workspace-write': 'Accept edits', 'read-only': 'Read only', 'full-access': 'Full access' };
+const LABELS = { claude: 'Claude Code', codex: 'Codex', ollama: 'Ollama', default: 'Claude current default', medium: 'Medium', low: 'Low', high: 'High', planning: 'Plan and delegate', direct: 'Work directly', 'workspace-write': 'Accept edits' };
 const ESC = '\u001b['; const COLOR = process.env.NO_COLOR ? { reset: '', bold: '', dim: '', accent: '', selected: '', input: '', done: '', white: '', black: '', bgYellow: '', bgCyan: '', error: '' } : { reset: `${ESC}0m`, bold: `${ESC}1m`, dim: `${ESC}38;5;245m`, accent: `${ESC}38;5;81m`, selected: `${ESC}38;5;220m`, input: `${ESC}38;5;213m`, done: `${ESC}38;5;114m`, white: `${ESC}38;5;255m`, black: `${ESC}38;5;16m`, bgYellow: `${ESC}48;5;220m`, bgCyan: `${ESC}48;5;81m`, error: `${ESC}38;5;203m` };
 
 function display(value) { return LABELS[value] || `${value}`; }
 function profileSummary(profile) { return `${display(profile.provider)} · ${profile.model} · ${display(profile.effort)}${profile.argv?.length ? ` · ${profile.argv.join(' ')}` : ''}`; }
 
 class WorkstreamWizard {
-  constructor({ catalogs, models, lastUsed = null, repositories = null } = {}) { this.catalogs = catalogs || (models ? Object.fromEntries(Object.entries(models).map(([provider, values]) => [provider, values.map((id) => ({ id, label: id, efforts: [...REASONING_EFFORTS], defaultEffort: 'medium' }))])) : discoverProviderCatalogs()); this.models = Object.fromEntries(Object.entries(this.catalogs).map(([provider, values]) => [provider, values.map((model) => model.id)])); this.repositories = repositories; this.steps = repositories ? ['repository', ...STEPS] : STEPS; const available = (profile) => Array.isArray(this.models[profile?.provider]) && typeof profile.model === 'string' && Boolean(profile.model) && typeof profile.effort === 'string' && Boolean(profile.effort); this.availableProfile = available; this.lastUsed = lastUsed && available(lastUsed.delegatorProfile) && available(lastUsed.workerProfile) ? structuredClone(lastUsed) : null; if (this.lastUsed) this.lastUsed.workerProfile.permissionMode = 'workspace-write'; this.step = repositories ? 0 : this.lastUsed ? 0 : 1; this.selection = 0; this.values = { workerCapacity: 5 }; this.input = ''; this.message = ''; this.history = []; }
+  constructor({ catalogs, models, lastUsed = null, repositories = null, rememberedRepositoryRoot = null } = {}) {
+    this.catalogs = catalogs || (models ? Object.fromEntries(Object.entries(models).map(([provider, values]) => [provider, values.map((id) => ({ id, label: id, efforts: [...REASONING_EFFORTS], defaultEffort: 'medium' }))])) : discoverProviderCatalogs());
+    this.models = Object.fromEntries(Object.entries(this.catalogs).map(([provider, values]) => [provider, values.map((model) => model.id)])); this.repositories = repositories;
+    this.availableProfile = (profile) => Array.isArray(this.models[profile?.provider]) && typeof profile.model === 'string' && Boolean(profile.model) && typeof profile.effort === 'string' && Boolean(profile.effort);
+    this.values = { workerCapacity: 5 }; this.presets = {}; this.setPresets(lastUsed); this.steps = []; this.step = 0; this.selection = 0; this.selections = {}; this.input = ''; this.message = ''; this.history = [];
+    this.rebuildSteps();
+    if (repositories) { const remembered = repositories.findIndex((item) => item.root === rememberedRepositoryRoot); this.selection = remembered >= 0 ? remembered : 0; }
+  }
+  setPresets(lastUsed) { this.presets = {}; if (lastUsed && this.availableProfile(lastUsed.delegatorProfile) && this.availableProfile(lastUsed.workerProfile)) { this.presets.planning = structuredClone({ version: 1, sessionType: 'planning', delegatorProfile: lastUsed.delegatorProfile, workerProfile: { ...lastUsed.workerProfile, permissionMode: 'workspace-write' }, workerCapacity: lastUsed.workerCapacity }); } const direct = lastUsed?.directProfile; if (direct && this.availableProfile(direct)) this.presets.direct = { version: 1, sessionType: 'direct', directProfile: { ...structuredClone(direct), permissionMode: 'workspace-write' } }; }
+  rebuildSteps() { const prefix = this.repositories ? ['repository'] : []; const type = this.values.sessionType; const setup = type === 'direct' ? DIRECT_STEPS : type === 'planning' ? PLANNING_STEPS : []; this.steps = [...prefix, 'sessionType', ...(type && this.presets[type] ? ['preset'] : []), ...setup, ...(type ? ['confirmation'] : [])]; }
   key() { return this.steps[this.step]; }
+  groups() { return this.values.sessionType === 'direct' ? DIRECT_GROUPS : PLANNING_GROUPS; }
   modelOptions(provider) { return this.models[provider] || []; }
   model(provider, id) { return (this.catalogs[provider] || []).find((model) => model.id === id); }
-  prefix() { return this.key().startsWith('delegator') ? 'delegator' : 'worker'; }
+  prefix() { return this.key().startsWith('delegator') ? 'delegator' : this.key().startsWith('direct') ? 'direct' : 'worker'; }
   manualModelOnly() { return this.key().endsWith('Model') && this.modelOptions(this.values[`${this.prefix()}Provider`]).length === 0; }
-  optionLabel(option) { if (this.key().endsWith('Model') && option !== 'Type a model ID…') { const prefix = this.key().startsWith('delegator') ? 'delegator' : 'worker'; const model = this.model(this.values[`${prefix}Provider`], option); if (model?.label && model.label !== option) return `${model.label} · ${option}`; } return display(option); }
-  options() {
-    const key = this.key();
-    if (key === 'repository') return (this.repositories || []).map((item) => item.label);
-    if (key === 'preset') return ['Last used', 'Customize'];
-    if (key === 'delegatorProvider' || key === 'workerProvider') return Object.keys(this.catalogs);
-    if (key === 'delegatorModel') return [...this.modelOptions(this.values.delegatorProvider), 'Type a model ID…'];
-    if (key === 'workerModel') return [...this.modelOptions(this.values.workerProvider), 'Type a model ID…'];
-    if (key === 'delegatorEffort' || key === 'workerEffort') return [...REASONING_EFFORTS];
-    if (key === 'confirmation') return ['Create session', 'Go back'];
-    return [];
-  }
-  move(delta) { const length = this.options().length; if (length) this.selection = (this.selection + delta + length) % length; }
+  optionLabel(option) { if (this.key().endsWith('Model') && option !== 'Type a model ID…') { const model = this.model(this.values[`${this.prefix()}Provider`], option); if (model?.label && model.label !== option) return `${model.label} · ${option}`; } return display(option); }
+  options() { const key = this.key(); if (key === 'repository') return (this.repositories || []).map((item) => item.label); if (key === 'sessionType') return ['planning', 'direct']; if (key === 'preset') return ['Last used', 'Customize']; if (key.endsWith('Provider')) return Object.keys(this.catalogs); if (key.endsWith('Model')) return [...this.modelOptions(this.values[`${this.prefix()}Provider`]), 'Type a model ID…']; if (key.endsWith('Effort')) return [...REASONING_EFFORTS]; if (key === 'confirmation') return ['Create session', 'Go back']; return []; }
+  move(delta) { const length = this.options().length; if (length) { this.selection = (this.selection + delta + length) % length; this.selections[this.key()] = this.selection; } }
   prepareInput() { const key = this.key(); if (key === 'workerCapacity') this.input = `${this.values.workerCapacity || 5}`; else if (key.endsWith('Args')) this.input = (this.values[key] || []).join(' '); else this.input = `${this.values[key] || ''}`; }
-  advance(answer) { if (answer !== undefined) this.history.push({ key: this.key(), title: COPY[this.key()][0], answer }); this.step += 1; this.selection = 0; this.input = ''; this.message = ''; if (TEXT_STEPS.has(this.key())) this.prepareInput(); else if (this.manualModelOnly()) this.message = 'Type the model ID, then press Enter.'; }
-  back() {
-    const firstStep = this.repositories ? 0 : this.lastUsed ? 0 : 1; if (this.step <= firstStep) return;
-    this.step -= 1; if (this.key() === 'preset' && !this.lastUsed) this.step -= 1; this.history.pop(); this.selection = 0; this.message = '';
-    if (TEXT_STEPS.has(this.key())) this.prepareInput();
-    else { const selected = this.options().indexOf(this.values[this.key()]); if (selected >= 0 && !this.manualModelOnly()) this.selection = selected; else if (this.key().endsWith('Model') && (this.values[this.key()] || this.manualModelOnly())) { this.input = this.values[this.key()] || ''; this.message = 'Type the model ID, then press Enter.'; } }
-  }
+  advance(answer) { if (answer !== undefined) this.history.push({ key: this.key(), title: COPY[this.key()][0], answer }); this.selections[this.key()] = this.selection; this.step += 1; this.selection = this.selections[this.key()] || 0; this.input = ''; this.message = ''; if (TEXT_STEPS.has(this.key())) this.prepareInput(); else if (this.manualModelOnly()) this.message = 'Type the model ID, then press Enter.'; }
+  back() { if (this.step <= 0) return; this.selections[this.key()] = this.selection; this.step -= 1; this.history.pop(); this.selection = this.selections[this.key()] || 0; this.message = ''; if (TEXT_STEPS.has(this.key())) this.prepareInput(); else { const selected = this.options().indexOf(this.values[this.key()]); if (selected >= 0 && !this.manualModelOnly()) this.selection = selected; else if (this.key().endsWith('Model') && (this.values[this.key()] || this.manualModelOnly())) { this.input = this.values[this.key()] || ''; this.message = 'Type the model ID, then press Enter.'; } } }
   parseArgs(provider) { if (!this.input.trim()) return []; return tokenizeCommand(`${provider} ${this.input}`).argv; }
-  config() { return { version: 1, ...(this.values.repositoryRoot ? { repositoryRoot: this.values.repositoryRoot } : {}), delegatorProfile: { provider: this.values.delegatorProvider, model: this.values.delegatorModel, effort: this.values.delegatorEffort, ...(this.values.delegatorArgs?.length ? { argv: this.values.delegatorArgs } : {}) }, workerProfile: { provider: this.values.workerProvider, model: this.values.workerModel, effort: this.values.workerEffort, permissionMode: 'workspace-write', ...(this.values.workerArgs?.length ? { argv: this.values.workerArgs } : {}) }, workerCapacity: this.values.workerCapacity }; }
+  config() { const repository = this.values.repositoryRoot ? { repositoryRoot: this.values.repositoryRoot } : {}; if (this.values.sessionType === 'direct') return { version: 1, sessionType: 'direct', ...repository, directProfile: { provider: this.values.directProvider, model: this.values.directModel, effort: this.values.directEffort, permissionMode: 'workspace-write', ...(this.values.directArgs?.length ? { argv: this.values.directArgs } : {}) } }; return { version: 1, sessionType: 'planning', ...repository, delegatorProfile: { provider: this.values.delegatorProvider, model: this.values.delegatorModel, effort: this.values.delegatorEffort, ...(this.values.delegatorArgs?.length ? { argv: this.values.delegatorArgs } : {}) }, workerProfile: { provider: this.values.workerProvider, model: this.values.workerModel, effort: this.values.workerEffort, permissionMode: 'workspace-write', ...(this.values.workerArgs?.length ? { argv: this.values.workerArgs } : {}) }, workerCapacity: this.values.workerCapacity }; }
   choose() {
     const key = this.key(); const value = this.options()[this.selection];
-    if (key === 'repository') { const selected = (this.repositories || [])[this.selection]; if (!selected) { this.message = 'No Git repository with at least one commit was found within two directory levels.'; return null; } this.values.repositoryRoot = selected.root; this.values.repository = selected.label; this.lastUsed = selected.lastUsed && this.availableProfile(selected.lastUsed.delegatorProfile) && this.availableProfile(selected.lastUsed.workerProfile) ? structuredClone(selected.lastUsed) : null; if (this.lastUsed) this.lastUsed.workerProfile.permissionMode = 'workspace-write'; this.advance(selected.label); if (!this.lastUsed && this.key() === 'preset') this.step += 1; return null; }
-    if (key === 'preset') { if (value === 'Last used') return { ...structuredClone(this.lastUsed), ...(this.values.repositoryRoot ? { repositoryRoot: this.values.repositoryRoot } : {}) }; this.advance('Custom setup'); return null; }
+    if (key === 'repository') { const selected = (this.repositories || [])[this.selection]; if (!selected) { this.message = 'No Git repository with at least one commit was found within two directory levels.'; return null; } this.values.repositoryRoot = selected.root; this.values.repository = selected.label; this.setPresets(selected.lastUsed); this.rebuildSteps(); this.advance(selected.label); return null; }
+    if (key === 'sessionType') { this.values.sessionType = value; this.rebuildSteps(); this.advance(display(value)); return null; }
+    if (key === 'preset') { if (value === 'Last used') return { ...structuredClone(this.presets[this.values.sessionType]), ...(this.values.repositoryRoot ? { repositoryRoot: this.values.repositoryRoot } : {}) }; this.advance('Custom setup'); return null; }
     if (key === 'confirmation') { if (value === 'Go back') { this.back(); return null; } return this.config(); }
     if (key.endsWith('Model') && value === 'Type a model ID…') { this.input = ''; this.message = 'Type the model ID, then press Enter.'; return null; }
     if (value === undefined) { this.message = 'Install Claude Code, Codex, or Ollama before continuing.'; return null; }
     this.values[key] = value; this.advance(display(value)); return null;
   }
-  submitText() {
-    const key = this.key();
-    try {
-      if (key === 'workerModel' || key === 'delegatorModel') { if (!this.input.trim()) throw new Error('A model ID is required.'); this.values[key] = this.input.trim(); }
-      else if (key === 'workerCapacity') { const capacity = Number(this.input); if (!Number.isInteger(capacity) || capacity < 1 || capacity > 5) throw new Error('Enter a whole number from 1 to 5.'); this.values[key] = capacity; }
-      else this.values[key] = this.parseArgs(key === 'delegatorArgs' ? this.values.delegatorProvider : this.values.workerProvider);
-      const answer = key.endsWith('Args') ? (this.values[key].length ? this.values[key].join(' ') : 'No extra options') : this.values[key]; this.advance(answer); return null;
-    } catch (error) { this.message = error.message; return null; }
-  }
-  handle(value) {
-    if (value === '\u001b[D') { this.back(); return null; }
-    const typingModel = this.key().endsWith('Model') && (this.manualModelOnly() || this.message.startsWith('Type the model'));
-    if (TEXT_STEPS.has(this.key()) || typingModel) {
-      if (value === '\r') return this.submitText();
-      if (value === '\u007f' || value === '\b') this.input = this.input.slice(0, -1);
-      else if (!value.startsWith('\u001b') && !/[\u0000-\u001f]/.test(value) && (this.key() !== 'workerCapacity' || /^\d$/.test(value))) this.input += value;
-      return null;
-    }
-    if (value === '\u001b[A') this.move(-1); else if (value === '\u001b[B') this.move(1); else if (value === '\r') return this.choose();
-    return null;
-  }
-  summary(config = this.config()) { return [`Delegator agent  ${profileSummary(config.delegatorProfile)}`, `Worker agent     ${profileSummary(config.workerProfile)}`, `Max workers      ${config.workerCapacity}`]; }
+  submitText() { const key = this.key(); try { if (key.endsWith('Model')) { if (!this.input.trim()) throw new Error('A model ID is required.'); this.values[key] = this.input.trim(); } else if (key === 'workerCapacity') { const capacity = Number(this.input); if (!Number.isInteger(capacity) || capacity < 1 || capacity > 5) throw new Error('Enter a whole number from 1 to 5.'); this.values[key] = capacity; } else this.values[key] = this.parseArgs(this.values[`${this.prefix()}Provider`]); const answer = key.endsWith('Args') ? (this.values[key].length ? this.values[key].join(' ') : 'No extra options') : this.values[key]; this.advance(answer); return null; } catch (error) { this.message = error.message; return null; } }
+  handle(value) { if (value === '\u001b[D') { this.back(); return null; } const typingModel = this.key().endsWith('Model') && (this.manualModelOnly() || this.message.startsWith('Type the model')); if (TEXT_STEPS.has(this.key()) || typingModel) { if (value === '\r') return this.submitText(); if (value === '\u007f' || value === '\b') this.input = this.input.slice(0, -1); else if (!value.startsWith('\u001b') && !/[\u0000-\u001f]/.test(value) && (this.key() !== 'workerCapacity' || /^\d$/.test(value))) this.input += value; return null; } if (value === '\u001b[A') this.move(-1); else if (value === '\u001b[B') this.move(1); else if (value === '\r') return this.choose(); return null; }
+  summary(config = this.config()) { return config.sessionType === 'direct' ? [`Direct agent    ${profileSummary(config.directProfile)}`] : [`Planning agent  ${profileSummary(config.delegatorProfile)}`, `Worker agent    ${profileSummary(config.workerProfile)}`, `Max workers     ${config.workerCapacity}`]; }
   answer(key) { const completed = this.history.findLast((item) => item.key === key)?.answer; if (completed !== undefined) return completed; const value = this.values[key]; if (Array.isArray(value)) return value.length ? value.join(' ') : 'No extra options'; return value === undefined || value === '' ? 'Not set' : display(value); }
   groupCompleted(group) { return group.keys.every((groupKey) => this.steps.indexOf(groupKey) < this.step); }
-  groupAnswer(group) {
-    if (group.keys.length === 2) {
-      const model = this.answer(group.keys[0]); const effort = this.answer(group.keys[1]);
-      if (model === 'Not set') return model;
-      return effort === 'Not set' ? model : `${model} · ${effort}`;
-    }
-    const value = this.answer(group.keys[0]);
-    if (group.keys[0] === 'workerCapacity' && !this.groupCompleted(group)) return `${value} (default)`;
-    return value;
-  }
+  groupAnswer(group) { if (group.keys.length === 2) { const model = this.answer(group.keys[0]); const effort = this.answer(group.keys[1]); if (model === 'Not set') return model; return effort === 'Not set' ? model : `${model} · ${effort}`; } const value = this.answer(group.keys[0]); if (group.keys[0] === 'workerCapacity' && !this.groupCompleted(group)) return `${value} (default)`; return value; }
   visibleOptions() { const options = this.options(); if (options.length <= 5) return options.map((option, index) => ({ option, index })); const start = Math.max(0, Math.min(this.selection - 2, options.length - 5)); return options.slice(start, start + 5).map((option, offset) => ({ option, index: start + offset })); }
   render() {
-    const key = this.key(); const [title, baseDescription] = COPY[key]; let description = baseDescription; const provider = this.values[`${this.prefix()}Provider`]; if (this.manualModelOnly()) description = `Enter the model ID you want ${display(provider)} to use.`; else if (key.endsWith('Model') && provider === 'ollama') description = 'Choose an installed Ollama model or enter a model ID manually.'; else if (key.endsWith('Args') && provider === 'ollama') description = 'Optional Codex CLI arguments passed through Ollama, such as --search or --sandbox. Dangerous access requires bdfl --dangerous.'; const lines = [`${COLOR.selected}New session${COLOR.reset}`, `${COLOR.dim}Choose the agents and defaults BDFL should restore with this session.${COLOR.reset}`, ''];
+    const key = this.key(); const [title, baseDescription] = COPY[key]; let description = baseDescription; const provider = this.values[`${this.prefix()}Provider`]; if (this.manualModelOnly()) description = `Enter the model ID you want ${display(provider)} to use.`; else if (key.endsWith('Model') && provider === 'ollama') description = 'Choose an installed Ollama model or enter a model ID manually.'; else if (key.endsWith('Args') && provider === 'ollama') description = 'Optional Codex CLI arguments passed through Ollama, such as --search or --sandbox. Dangerous access requires bdfl --dangerous.'; const lines = [`${COLOR.selected}New session${COLOR.reset}`, `${COLOR.dim}Choose a planning workflow or one direct editable agent.${COLOR.reset}`, ''];
     const optionLine = (option, index) => index === this.selection ? `${COLOR.bgYellow}${COLOR.black}${COLOR.bold} › ${this.optionLabel(option)} ${COLOR.reset}` : `   ${COLOR.white}${COLOR.bold}${this.optionLabel(option)}${COLOR.reset}`;
-    const activeDetails = () => {
-      lines.push(`${COLOR.dim}  ${description}${COLOR.reset}`);
-      if (TEXT_STEPS.has(key) || key.endsWith('Model') && (this.manualModelOnly() || this.message.startsWith('Type the model'))) {
-        const optional = key.endsWith('Args');
-        lines.push(`${COLOR.input}${COLOR.bold} › ${this.input}${COLOR.bgCyan}${COLOR.black} ${COLOR.reset}`, `${COLOR.dim}${optional ? 'Enter skips or continues.' : 'Enter continues.'}${COLOR.reset}`);
-      } else if (key === 'confirmation') {
-        lines.push(...this.visibleOptions().map(({ option, index }) => optionLine(option, index)));
-      } else if (!this.options().length) {
-        const empty = key === 'repository' ? 'No Git repository with at least one commit was found within two directory levels.' : 'No supported agent executable was found on PATH.';
-        lines.push(`${COLOR.error}${COLOR.bold}! ${empty}${COLOR.reset}`);
-      } else {
-        lines.push(...this.visibleOptions().map(({ option, index }) => optionLine(option, index)));
-      }
-    };
+    const activeDetails = () => { lines.push(`${COLOR.dim}  ${description}${COLOR.reset}`); if (key === 'sessionType') lines.push(...this.visibleOptions().flatMap(({ option, index }) => [optionLine(option, index), `${COLOR.dim}     ${option === 'planning' ? 'Use a read-only planning agent and isolated managed workers.' : 'Use one workspace-write agent without BDFL delegation tools.'}${COLOR.reset}`])); else if (TEXT_STEPS.has(key) || key.endsWith('Model') && (this.manualModelOnly() || this.message.startsWith('Type the model'))) { const optional = key.endsWith('Args'); lines.push(`${COLOR.input}${COLOR.bold} › ${this.input}${COLOR.bgCyan}${COLOR.black} ${COLOR.reset}`, `${COLOR.dim}${optional ? 'Enter skips or continues.' : 'Enter continues.'}${COLOR.reset}`); } else if (!this.options().length) { const empty = key === 'repository' ? 'No Git repository with at least one commit was found within two directory levels.' : 'No supported agent executable was found on PATH.'; lines.push(`${COLOR.error}${COLOR.bold}! ${empty}${COLOR.reset}`); } else lines.push(...this.visibleOptions().map(({ option, index }) => optionLine(option, index))); };
     if (key === 'repository') { lines.push(`${COLOR.white}${COLOR.bold}○ Repository${COLOR.reset}`); activeDetails(); }
-    else if (key === 'preset' && this.lastUsed) lines.push(...this.options().flatMap((option, index) => option === 'Last used' ? [optionLine(option, index), ...this.summary(this.lastUsed).map((line) => `${COLOR.dim}    ${line}${COLOR.reset}`)] : [optionLine(option, index)]));
-    else {
-      for (const [index, group] of SETUP_GROUPS.entries()) {
-        const active = group.keys.includes(key); const value = this.groupAnswer(group); const answered = this.groupCompleted(group); const label = `${index + 1}. ${group.label}`;
-        if (index) lines.push('');
-        if (active) lines.push(`${COLOR.white}${COLOR.bold}○ ${label}${COLOR.reset}${value === 'Not set' ? '' : `  ${COLOR.bold}${COLOR.white}${value}${COLOR.reset}`}`);
-        else if (answered) lines.push(`${COLOR.done}✓ ${label}${COLOR.reset}  ${COLOR.bold}${COLOR.white}${value}${COLOR.reset}`);
-        else lines.push(`${COLOR.dim}○ ${label}  ${value}${COLOR.reset}`);
-        if (active) activeDetails();
-      }
-      if (key === 'confirmation') {
-        lines.push('', ...this.visibleOptions().map(({ option, index }) => optionLine(option, index)));
-      }
-    }
-    if (this.message && !this.message.startsWith('Type the model')) lines.push(`${COLOR.error}${COLOR.bold}! ${this.message}${COLOR.reset}`);
-    lines.push('', `${COLOR.accent}↑/↓ choose  •  ← edit previous  •  Enter continue  •  Esc back${COLOR.reset}`); return lines.join('\n');
+    else if (key === 'sessionType') { lines.push(`${COLOR.white}${COLOR.bold}○ Session type${COLOR.reset}`); activeDetails(); }
+    else if (key === 'preset') lines.push(...this.options().flatMap((option, index) => option === 'Last used' ? [optionLine(option, index), ...this.summary(this.presets[this.values.sessionType]).map((line) => `${COLOR.dim}    ${line}${COLOR.reset}`)] : [optionLine(option, index)]));
+    else { for (const [index, group] of this.groups().entries()) { const active = group.keys.includes(key); const value = this.groupAnswer(group); const answered = this.groupCompleted(group); const label = `${index + 1}. ${group.label}`; if (index) lines.push(''); if (active) lines.push(`${COLOR.white}${COLOR.bold}○ ${label}${COLOR.reset}${value === 'Not set' ? '' : `  ${COLOR.bold}${COLOR.white}${value}${COLOR.reset}`}`); else if (answered) lines.push(`${COLOR.done}✓ ${label}${COLOR.reset}  ${COLOR.bold}${COLOR.white}${value}${COLOR.reset}`); else lines.push(`${COLOR.dim}○ ${label}  ${value}${COLOR.reset}`); if (active) activeDetails(); } if (key === 'confirmation') lines.push('', ...this.visibleOptions().map(({ option, index }) => optionLine(option, index))); }
+    if (this.message && !this.message.startsWith('Type the model')) lines.push(`${COLOR.error}${COLOR.bold}! ${this.message}${COLOR.reset}`); lines.push('', `${COLOR.accent}↑/↓ choose  •  ← edit previous  •  Enter continue  •  Esc back${COLOR.reset}`); return lines.join('\n');
   }
 }
 
-module.exports = { COPY, STEPS, WorkstreamWizard, display, profileSummary };
+module.exports = { COPY, STEPS, PLANNING_STEPS, DIRECT_STEPS, WorkstreamWizard, display, profileSummary };

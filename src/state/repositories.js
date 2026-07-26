@@ -33,6 +33,7 @@ class WorkspaceCatalog {
     for (const repository of this.discovery.repositories) this.entries.set(repository.root, { ...repository, store: storeFactory(repository.root) });
   }
   selectableRepositories() { return [...this.entries.values()].filter((entry) => entry.committed).map(({ root, label, store }) => ({ root, label, lastUsed: store.loadConfig() })); }
+  rememberedRepositoryRoot() { let remembered = null; let rememberedAt = ''; for (const [root, entry] of this.entries) for (const stream of entry.store.load().workstreams || []) { const usedAt = `${stream.updatedAt || stream.createdAt || ''}`; if (usedAt > rememberedAt) { remembered = root; rememberedAt = usedAt; } } return remembered; }
   repositoryRoots() { return [...this.entries.keys()]; }
   coordinatorRoot() { return this.discovery.repositoryMode ? this.repositoryRoots()[0] : this.discovery.launchRoot; }
   lockRoots() { return this.repositoryRoots(); }

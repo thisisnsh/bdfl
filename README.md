@@ -38,7 +38,7 @@ cd your-git-repository
 bdfl
 ```
 
-Next, choose separate planning and worker agents, models, effort levels, optional CLI arguments, and a worker capacity to begin planning and delegating. You need a Git repository before BDFL can execute the plan.
+Next, choose a session type. **Plan and delegate** configures separate planning and worker agents plus worker capacity. **Work directly** configures one editable agent without BDFL planning or worker tools. BDFL remembers the most recently used repository and keeps separate last-used presets for both session types.
 
 <details>
 <summary>Want to use the main branch build?</summary>
@@ -86,9 +86,10 @@ Run `ollama ps` in another terminal to see which models are currently loaded.
 
 #### Multiple agents & parallel sessions
 
-Use Codex, Claude Code, or Ollama independently for planning and worker roles.
+Use Codex, Claude Code, or Ollama independently for planning, worker, or direct-agent roles.
 
-- Create a session by selecting work directory, planning and worker models, effort and more.
+- Create a planning session with a read-only planning agent and isolated managed workers, or a direct session with one editable agent in the repository.
+- Each repository remembers planning and direct settings independently.
 
 - Manage running sessions or resume closed ones. Rename or permanently delete them.
 
@@ -148,11 +149,12 @@ After worker review, BDFL runs global checks and a fresh verification pass befor
 
 #### Constrained roles with skills and MCP
 
-BDFL gives each session role-specific `bdfl` MCP tools, while planning sessions also receive the `bdfl-plan` skill.
+BDFL gives managed planning and execution roles session-scoped `bdfl` MCP tools, while planning agents also receive the `bdfl-plan` skill. Direct agents are deliberately outside this bridge.
 
 - A session-scoped MCP bridge exposes only the tools permitted for each role.
 - Planning and verification agents are instructed not to edit; Claude defaults to `manual`, while Codex and Ollama default to a read-only sandbox.
 - Workers can edit only their isolated worktrees.
+- Direct agents run with workspace-write access in the selected repository and receive no BDFL capability descriptor, MCP configuration, Claude plugin, planning skill, role prompt, managed worktree, or execution lifecycle.
 
 #### Local state and safety
 

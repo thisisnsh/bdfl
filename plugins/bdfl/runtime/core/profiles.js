@@ -66,8 +66,11 @@ function validateProfile(profile, { worker = false } = {}) {
 
 function validateWorkstreamConfig(value) {
   if (!value || value.version !== 1) throw new Error('Workstream config version must be 1');
+  const sessionType = value.sessionType || 'planning';
+  if (sessionType === 'direct') return { version: 1, sessionType, directProfile: validateProfile(value.directProfile, { worker: true }) };
+  if (sessionType !== 'planning') throw new Error('Session type must be planning or direct');
   if (!Number.isInteger(value.workerCapacity) || value.workerCapacity < 1 || value.workerCapacity > 5) throw new Error('Worker capacity must be an integer from 1 to 5');
-  return { version: 1, delegatorProfile: validateProfile(value.delegatorProfile), workerProfile: validateProfile(value.workerProfile, { worker: true }), workerCapacity: value.workerCapacity };
+  return { version: 1, sessionType, delegatorProfile: validateProfile(value.delegatorProfile), workerProfile: validateProfile(value.workerProfile, { worker: true }), workerCapacity: value.workerCapacity };
 }
 
 module.exports = { PROVIDERS, PERMISSIONS, tokenizeCommand, validateProfile, validateWorkstreamConfig };

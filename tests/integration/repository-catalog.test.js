@@ -26,6 +26,16 @@ test('writes repository-owned sessions and plans locally while a parent catalog 
   fs.mkdirSync(path.join(claudia, 'src'), { recursive: true }); const local = new WorkspaceCatalog(path.join(claudia, 'src')); assert.equal(local.load().workstreams.length, 1); assert.equal(local.load().workstreams[0].id, first.id);
 });
 
+test('remembers the repository of the most recently updated workstream', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-remembered-repository-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const alpha = repository(path.join(root, 'alpha')); const beta = repository(path.join(root, 'beta')); const catalog = new WorkspaceCatalog(root); const first = catalog.createWorkstream(config(), undefined, alpha); const second = catalog.createWorkstream(config(), undefined, beta);
+  catalog.stateFor(alpha).store.update((state) => { state.workstreams.find((stream) => stream.id === first.id).updatedAt = '2026-07-25T12:00:00.000Z'; return state; }); catalog.stateFor(beta).store.update((state) => { state.workstreams.find((stream) => stream.id === second.id).updatedAt = '2026-07-24T12:00:00.000Z'; return state; }); assert.equal(catalog.rememberedRepositoryRoot(), fs.realpathSync(alpha));
+});
+
+test('preserves independent planning and direct presets in schema-2 configuration', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-independent-presets-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const project = repository(path.join(root, 'project')); const catalog = new WorkspaceCatalog(root); catalog.createWorkstream(config(), undefined, project); const directProfile = { provider: 'ollama', model: 'qwen3:4b', effort: 'high', permissionMode: 'workspace-write', argv: ['--search'] }; catalog.createWorkstream({ version: 1, sessionType: 'direct', directProfile }, undefined, project); const saved = JSON.parse(fs.readFileSync(path.join(project, '.bdfl', 'config.json'), 'utf8')); assert.equal(saved.schema, 2); assert.deepEqual(saved.profiles.delegator, config().delegatorProfile); assert.deepEqual(saved.profiles.worker, config().workerProfile); assert.deepEqual(saved.profiles.direct, directProfile); assert.equal(saved.workerCapacity, 2); const loaded = catalog.loadConfig(project); assert.equal(loaded.sessionType, 'planning'); assert.deepEqual(loaded.directProfile, directProfile);
+  const changed = { ...config(), delegatorProfile: { provider: 'codex', model: 'gpt-new', effort: 'low' }, workerCapacity: 4 }; catalog.createWorkstream(changed, undefined, project); assert.deepEqual(catalog.loadConfig(project).directProfile, directProfile);
+});
+
 test('launches a planning session in its owning repository', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-session-repository-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const claudia = repository(path.join(root, 'claudia')); const catalog = new WorkspaceCatalog(root); const stream = catalog.createWorkstream(config(), undefined, claudia); const session = catalog.createSession(stream.id, 'delegator', config().delegatorProfile); let cwd;
   const manager = new SessionManager(root, catalog, { pty: { spawn(_command, _args, options) { cwd = options.cwd; return { pid: 1, onData() {}, onExit() {}, kill() {} }; } } }); manager.open(session.id); assert.equal(cwd, fs.realpathSync(claudia)); manager.shutdown();
@@ -40,6 +50,7 @@ test('uses the Git top level as coordinator when launched from a repository subd
   const supervisor = new TerminalSupervisor(nested, { sessions: {}, scheduler: {}, integration: {}, bridge: {} });
   assert.equal(supervisor.root, fs.realpathSync(repositoryRoot));
   assert.deepEqual(supervisor.lockFiles(), [path.join(fs.realpathSync(repositoryRoot), '.bdfl', 'run', 'supervisor.lock')]);
+  assert.equal(supervisor.createWizard().key(), 'sessionType');
   assert.equal(fs.existsSync(path.join(nested, '.bdfl')), false);
 });
 
