@@ -103,6 +103,7 @@ class IntegrationCoordinator {
 
   repaired(executionId, report) {
     const execution = this.scheduler.load(executionId); if (execution.status !== 'integration-conflict') throw new Error('Execution is not awaiting integration conflict repair');
+    if (!['pass', 'fail'].includes(report.state)) throw new Error('Integration repair requires state pass or fail');
     if (execution.integration?.conflict?.kind === 'target') {
       const repository = this.repository(execution); const staged = execution.integration.reconciliation;
       if (report.state !== 'pass') { this.git.cleanupReconciliation(staged, repository); const failed = this.failQueued(execution, report.summary || 'Target integration repair failed'); this.drainIntegrationQueue(repository); return failed; }
@@ -126,12 +127,12 @@ class IntegrationCoordinator {
     const execution = this.scheduler.load(executionId); if (execution.status !== 'verification-failed') throw new Error('Verifier remedy requires a failed verification state');
     const integration = execution.integration; if (!integration?.worktree || !integration?.base) throw new Error('Verifier remedy context is missing');
     const requested = new Set(execution.verification?.affectedChunkIds || []); const affected = execution.chunks.filter((chunk) => requested.has(chunk.id)); const chunks = affected.length ? affected : execution.chunks;
-    const chunkIds = chunks.map((chunk) => chunk.id); const allowedPaths = [...new Set(chunks.flatMap((chunk) => chunk.paths || []))]; if (!allowedPaths.length) throw new Error('Verifier remedy has no approved paths');
+    const chunkIds = chunks.map((chunk) => chunk.id); const repairPaths = [...new Set(chunks.flatMap((chunk) => chunk.paths || []))]; const allowedPaths = [...new Set(execution.chunks.flatMap((chunk) => chunk.paths || []))]; if (!repairPaths.length || !allowedPaths.length) throw new Error('Verifier remedy has no approved paths');
     const suggestion = `${message || ''}`.trim(); const findings = execution.verification?.summary || 'Verification failed without a recorded summary.'; const result = { state: 'conflict', kind: 'verification', chunkIds, pendingChunkIds: [], message: `Repair the failed verification findings:\n${findings}${suggestion ? `\n\nUser guidance:\n${suggestion}` : ''}`.slice(0, 12000) };
-    let worker; try { worker = this.integrationLauncher?.({ execution, integration, result, allowedPaths, profile: execution.profile, phase: 'verification-remedy' }); if (!worker?.sessionId) throw new Error('Integration launcher did not return a session ID'); }
+    let worker; try { worker = this.integrationLauncher?.({ execution, integration, result, allowedPaths: repairPaths, profile: execution.profile, phase: 'verification-remedy' }); if (!worker?.sessionId) throw new Error('Integration launcher did not return a session ID'); }
     catch (error) { throw new Error(`Unable to launch verifier-remedy agent: ${error.message}`); }
     const attempts = integration.remedyAttempts?.length ? structuredClone(integration.remedyAttempts) : []; attempts.push({ number: attempts.length + 1, ...worker, startedAt: this.now().toISOString(), findings: findings.slice(0, 800), userGuidance: suggestion.slice(0, 800), affectedChunkIds: chunkIds });
-    execution.status = 'integration-conflict'; execution.integration = { ...integration, conflict: result, worker, allowedPaths, remedyAttempts: attempts }; execution.events ||= []; execution.events.push({ type: 'verification.remedy-started', chunkIds, at: this.now().toISOString() }); this.scheduler.save(execution); this.onChange?.(); return { ...result, requiresIntegrationWorker: true, worker };
+    execution.status = 'integration-conflict'; execution.integration = { ...integration, conflict: result, worker, allowedPaths, repairPaths, remedyAttempts: attempts }; execution.events ||= []; execution.events.push({ type: 'verification.remedy-started', chunkIds, at: this.now().toISOString() }); this.scheduler.save(execution); this.onChange?.(); return { ...result, requiresIntegrationWorker: true, worker };
   }
 
   retryVerification(executionId, { sessionId, reason = 'Verifier exited before reporting' } = {}) {
@@ -147,7 +148,7 @@ class IntegrationCoordinator {
   }
 
   verification(executionId, report) {
-    const execution = this.scheduler.load(executionId); if (execution.status !== 'verifying') throw new Error('Execution is not awaiting global verification'); execution.verification = { state: report.state, summary: `${report.summary || ''}`.slice(0, 12000), affectedChunkIds: report.affectedChunkIds || [], completedAt: this.now().toISOString() };
+    const execution = this.scheduler.load(executionId); if (execution.status !== 'verifying') throw new Error('Execution is not awaiting global verification'); if (!['pass', 'fail'].includes(report.state)) throw new Error('Verification requires state pass or fail'); execution.verification = { state: report.state, summary: `${report.summary || ''}`.slice(0, 12000), affectedChunkIds: report.affectedChunkIds || [], completedAt: this.now().toISOString() };
     const attempts = execution.integration?.verifierAttempts?.length ? structuredClone(execution.integration.verifierAttempts) : []; const current = attempts.findLast((attempt) => attempt.sessionId === execution.integration?.verifier?.sessionId); if (current && !current.completedAt) Object.assign(current, { completedAt: execution.verification.completedAt, result: report.state, summary: execution.verification.summary, affectedChunkIds: execution.verification.affectedChunkIds }); execution.integration = { ...execution.integration, verifierAttempts: attempts };
     if (execution.integration?.verificationPurpose !== 'target-reconciliation') { execution.status = report.state === 'pass' ? 'integration-review' : 'verification-failed'; this.scheduler.save(execution); return execution.verification; }
     const repository = this.repository(execution); if (report.state !== 'pass') { this.git.cleanupReconciliation(execution.integration.reconciliation, repository); execution.status = 'verification-failed'; this.restoreQueueSource(execution); this.releaseQueue(execution); this.scheduler.save(execution); this.drainIntegrationQueue(repository); return execution.verification; }

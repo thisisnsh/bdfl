@@ -49,6 +49,11 @@ test('lets only the verifier hand an explicitly accepted remedy to a repair agen
   await assert.rejects(service.call({ role: 'worker', workstreamId: 'w', executionId: 'e', chunkId: 'a' }, { action: 'remedy' }), /cannot use worker action remedy/);
 });
 
+test('rejects incomplete agent reports instead of recording a missing state as failure', async () => {
+  const calls = []; const scheduler = { load: () => ({ workstreamId: 'w' }) }; const integration = { repaired(...args) { calls.push(args); } }; const service = new WorkerService({ scheduler, integration }); const agent = { role: 'integration', workstreamId: 'w', executionId: 'e' };
+  await assert.rejects(service.call(agent, { action: 'complete', summary: 'done' }), /completion requires state/); assert.deepEqual(calls, []);
+});
+
 test('authenticates loopback bridge requests and exposes only role tools', async (t) => {
   const server = new ControlServer({ planService: { call() {} }, workerService: { call() {} } }).start(); t.after(() => server.close()); const issued = server.issue({ role: 'worker', sessionId: 's', workstreamId: 'w' });
   const listed = await controlRequest(issued.url, issued.token, { method: 'tools' }); assert.deepEqual(listed.tools.map((tool) => tool.name), ['bdfl_workers']);
