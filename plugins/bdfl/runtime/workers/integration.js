@@ -4,8 +4,8 @@ const path = require('node:path');
 const MAX_VERIFIER_ATTEMPTS = 3;
 
 class IntegrationCoordinator {
-  constructor({ scheduler, git, lineage, verifierLauncher, integrationLauncher, now = () => new Date() }) {
-    this.scheduler = scheduler; this.git = git; this.lineage = lineage; this.verifierLauncher = verifierLauncher; this.integrationLauncher = integrationLauncher; this.now = now;
+  constructor({ scheduler, git, lineage, verifierLauncher, integrationLauncher, now = () => new Date(), onChange = null }) {
+    this.scheduler = scheduler; this.git = git; this.lineage = lineage; this.verifierLauncher = verifierLauncher; this.integrationLauncher = integrationLauncher; this.now = now; this.onChange = onChange; this.checkJobs = new Map(); this.checkSequence = 0;
   }
 
   beginVerification(execution, integration, head, checkResults, { purpose = 'initial' } = {}) {
@@ -28,6 +28,23 @@ class IntegrationCoordinator {
   releaseQueue(execution) { if (execution.integration?.queue) execution.integration.queue = { ...execution.integration.queue, active: false, releasedAt: this.now().toISOString() }; }
   completeQueued(execution, commit) { execution.status = 'complete'; execution.finalCommit = commit; execution.completedAt = this.now().toISOString(); this.releaseQueue(execution); this.scheduler.save(execution); return commit; }
   failQueued(execution, summary, checkResults = []) { execution.status = 'verification-failed'; execution.verification = { state: 'fail', summary: `${summary}`.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() }; this.restoreQueueSource(execution); if (checkResults.length) execution.integration.checkResults = checkResults; this.releaseQueue(execution); this.scheduler.save(execution); return execution.verification; }
+  requeueAfterTargetAdvance(execution, repository, reason) { this.git.cleanupReconciliation(execution.integration?.reconciliation, repository); this.restoreQueueSource(execution); execution.status = 'integration-queued'; execution.integration.queue = { ...execution.integration.queue, active: false, requeuedAt: this.now().toISOString(), retryReason: `${reason}`.slice(0, 800) }; this.scheduler.save(execution); return this.drainIntegrationQueue(repository, execution.id); }
+
+  startChecks(execution, integration, head, { purpose = 'initial', resumed = false } = {}) {
+    const runId = `${execution.id}-${++this.checkSequence}`; const startedAt = this.now().toISOString(); execution.status = 'integration-checking'; execution.integration = { ...integration, head, checkRun: { id: runId, state: 'running', purpose, startedAt, ...(resumed ? { resumedAt: startedAt } : {}) } }; this.scheduler.save(execution); this.onChange?.();
+    const runner = this.git.runChecksAsync?.bind(this.git) || ((checks, cwd) => Promise.resolve(this.git.runChecks(checks, cwd)));
+    const job = Promise.resolve().then(() => runner(execution.globalValidation?.checks || [], execution.integration.worktree)).then((results) => this.finishChecks(execution.id, runId, results)).catch((error) => this.finishChecks(execution.id, runId, [{ command: [], ok: false, output: error.message }])).finally(() => { if (this.checkJobs.get(execution.id) === job) this.checkJobs.delete(execution.id); this.onChange?.(); });
+    this.checkJobs.set(execution.id, job); return { state: 'checking', executionId: execution.id, runId };
+  }
+
+  finishChecks(executionId, runId, checkResults) {
+    const execution = this.scheduler.load(executionId); if (execution.status !== 'integration-checking' || execution.integration?.checkRun?.id !== runId) return null; const purpose = execution.integration.checkRun.purpose; execution.integration.checkRun = { ...execution.integration.checkRun, state: 'complete', completedAt: this.now().toISOString() }; execution.integration.checkResults = checkResults;
+    const failed = checkResults.find((check) => !check.ok); if (failed) { const summary = `${purpose === 'target-reconciliation' ? 'Reconciled target' : 'Global'} validation failed${failed.timedOut ? ' because a check timed out' : failed.command?.length ? `: ${failed.command.join(' ')}` : ''}`; if (purpose === 'target-reconciliation') { const repository = this.repository(execution); this.git.cleanupReconciliation(execution.integration.reconciliation, repository); const result = this.failQueued(execution, summary, checkResults); this.drainIntegrationQueue(repository); return result; } execution.status = 'verification-failed'; execution.verification = { state: 'fail', summary: summary.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() }; this.scheduler.save(execution); return execution.verification; }
+    if (purpose === 'target-reconciliation' && this.git.baseline && this.git.baseline('HEAD', this.repository(execution)) !== execution.integration.reconciliation.targetHead) return this.requeueAfterTargetAdvance(execution, this.repository(execution), 'Target advanced while reconciled validation was running');
+    return this.beginVerification(execution, execution.integration, execution.integration.head, checkResults, { purpose });
+  }
+
+  waitForChecks(executionId) { return this.checkJobs.get(executionId) || Promise.resolve(); }
 
   drainIntegrationQueue(repository, preferredId) {
     const executions = this.queueExecutions(repository, preferredId); if (executions.some((execution) => execution.integration?.queue?.active)) return null;
@@ -47,13 +64,17 @@ class IntegrationCoordinator {
       catch (error) { this.git.cleanupReconciliation(staged, repository); const failed = this.failQueued(execution, `Unable to launch conflict-resolution agent: ${error.message}`); this.drainIntegrationQueue(repository); return failed; }
       execution.status = 'integration-conflict'; execution.integration = { ...execution.integration, conflict: result, worker, allowedPaths }; this.scheduler.save(execution); return { state: 'conflict', queued: true, worker };
     }
-    const checkResults = this.git.runChecks(execution.globalValidation?.checks || [], staged.worktree); if (checkResults.some((check) => !check.ok)) { this.git.cleanupReconciliation(staged, repository); const failed = this.failQueued(execution, 'Reconciled target validation failed', checkResults); this.drainIntegrationQueue(repository); return failed; }
-    return this.beginVerification(execution, { ...execution.integration, checkResults }, staged.commit, checkResults, { purpose: 'target-reconciliation' });
+    return this.startChecks(execution, execution.integration, staged.commit, { purpose: 'target-reconciliation' });
   }
 
   resumeIntegrationQueue() {
     const executions = this.scheduler.list?.() || []; const repositories = new Set();
-    for (const current of executions) { repositories.add(this.repository(current)); if (current.status === 'integrating' && current.integration?.queue?.active) { const execution = this.scheduler.load(current.id); execution.status = 'integration-queued'; execution.integration.queue = { ...execution.integration.queue, active: false, resumedAt: this.now().toISOString() }; this.scheduler.save(execution); } }
+    for (const current of executions) {
+      const repository = this.repository(current); repositories.add(repository); const execution = this.scheduler.load(current.id);
+      if (execution.status === 'integrating' && execution.integration?.queue?.active) { execution.status = 'integration-queued'; execution.integration.queue = { ...execution.integration.queue, active: false, resumedAt: this.now().toISOString() }; this.scheduler.save(execution); }
+      else if (execution.status === 'integration-checking') this.startChecks(execution, execution.integration, execution.integration.head, { purpose: execution.integration.checkRun?.purpose || 'initial', resumed: true });
+      else if (execution.status === 'integration-conflict' && execution.integration?.queue?.active && execution.integration?.conflict?.kind === 'target' && this.git.reconciliationResolved?.(execution.integration.reconciliation)) { if (this.git.baseline && this.git.baseline('HEAD', repository) !== execution.integration.reconciliation.targetHead) this.requeueAfterTargetAdvance(execution, repository, 'Target advanced while conflict resolution was interrupted'); else { const reconciled = this.git.finishReconciliation(execution.integration.reconciliation, repository); execution.integration = { ...execution.integration, reconciliation: reconciled, base: reconciled.targetHead, worktree: reconciled.worktree, repairedAt: this.now().toISOString() }; this.startChecks(execution, execution.integration, reconciled.commit, { purpose: 'target-reconciliation', resumed: true }); } }
+    }
     for (const repository of repositories) this.drainIntegrationQueue(repository); return [...repositories];
   }
 
@@ -67,7 +88,7 @@ class IntegrationCoordinator {
       execution.status = 'integration-conflict'; execution.integration = { ...integration, conflict: { ...result, kind: 'consolidation' }, worker, allowedPaths, startedAt: this.now().toISOString() }; this.scheduler.save(execution);
       return { ...result, requiresIntegrationWorker: true, integration, worker };
     }
-    return this.beginVerification(execution, integration, result.head, this.git.runChecks(execution.globalValidation.checks || [], integration.worktree));
+    return this.startChecks(execution, integration, result.head);
   }
 
   repaired(executionId, report) {
@@ -75,10 +96,10 @@ class IntegrationCoordinator {
     if (execution.integration?.conflict?.kind === 'target') {
       const repository = this.repository(execution); const staged = execution.integration.reconciliation;
       if (report.state !== 'pass') { this.git.cleanupReconciliation(staged, repository); const failed = this.failQueued(execution, report.summary || 'Target integration repair failed'); this.drainIntegrationQueue(repository); return failed; }
-      let reconciled; try { reconciled = this.git.finishReconciliation(staged, execution.globalValidation?.checks || [], repository); }
+      let reconciled; try { reconciled = this.git.finishReconciliation(staged, repository); }
       catch (error) { this.git.cleanupReconciliation(staged, repository); const failed = this.failQueued(execution, error.message, error.checkResults || []); this.drainIntegrationQueue(repository); return failed; }
       execution.integration = { ...execution.integration, reconciliation: reconciled, base: reconciled.targetHead, worktree: reconciled.worktree, repairedAt: this.now().toISOString() };
-      return this.beginVerification(execution, execution.integration, reconciled.commit, reconciled.checkResults || [], { purpose: 'target-reconciliation' });
+      return this.startChecks(execution, execution.integration, reconciled.commit, { purpose: 'target-reconciliation' });
     }
     if (report.state !== 'pass') { execution.status = 'verification-failed'; execution.verification = { state: report.state, summary: `${report.summary || 'Integration repair failed'}`.slice(0, 800), completedAt: this.now().toISOString() }; this.scheduler.save(execution); return execution.verification; }
     const integration = execution.integration; let head = this.git.checkpoint(integration.worktree, `Repair integration for ${execution.planId}`); const pending = integration.conflict?.pendingChunkIds || [];
@@ -87,8 +108,8 @@ class IntegrationCoordinator {
       try { this.git.git(['cherry-pick', chunk.commit], integration.worktree); head = this.git.git(['rev-parse', 'HEAD'], integration.worktree); }
       catch (error) { execution.integration.conflict = { state: 'conflict', chunkIds: [chunk.id], pendingChunkIds: pending.slice(index + 1), message: `${error.stderr || error.message}`.slice(0, 800) }; this.scheduler.save(execution); return execution.integration.conflict; }
     }
-    const verified = this.git.verifyResult({ base: integration.base, head, ownedPaths: integration.allowedPaths, checks: [], worktree: integration.worktree });
-    return this.beginVerification(execution, { ...integration, repairedAt: this.now().toISOString() }, head, this.git.runChecks(execution.globalValidation.checks || [], integration.worktree));
+    this.git.verifyResult({ base: integration.base, head, ownedPaths: integration.allowedPaths, checks: [], worktree: integration.worktree });
+    return this.startChecks(execution, { ...integration, repairedAt: this.now().toISOString() }, head);
   }
 
   retryVerification(executionId, { sessionId, reason = 'Verifier exited before reporting' } = {}) {
@@ -108,7 +129,7 @@ class IntegrationCoordinator {
     if (execution.integration?.verificationPurpose !== 'target-reconciliation') { execution.status = report.state === 'pass' ? 'integration-review' : 'verification-failed'; this.scheduler.save(execution); return execution.verification; }
     const repository = this.repository(execution); if (report.state !== 'pass') { this.git.cleanupReconciliation(execution.integration.reconciliation, repository); execution.status = 'verification-failed'; this.restoreQueueSource(execution); this.releaseQueue(execution); this.scheduler.save(execution); this.drainIntegrationQueue(repository); return execution.verification; }
     try { const commit = this.git.completeIntegration(execution.integration.reconciliation, { targetBranch: execution.targetBranch, repository }); this.completeQueued(execution, commit); }
-    catch (error) { this.git.cleanupReconciliation(execution.integration.reconciliation, repository); this.failQueued(execution, error.message); }
+    catch (error) { if (error.code === 'TARGET_CHANGED') return this.requeueAfterTargetAdvance(execution, repository, error.message); this.git.cleanupReconciliation(execution.integration.reconciliation, repository); this.failQueued(execution, error.message); }
     this.drainIntegrationQueue(repository); return execution.verification;
   }
   finalize(executionId, target = {}, { override = false } = {}) {

@@ -138,7 +138,7 @@ Inspect each worker’s summary, diff, changed paths, checks, and commit metadat
 - Accept the result or send feedback to the same worker for revision.
 - Review the consolidated result after global checks and a fresh verification pass.
 - Integration requests enter a durable per-repository queue, so only one verified result at a time can reconcile with and advance the target branch.
-- If other work has committed meanwhile, BDFL reconciles the verified result in a disposable worktree. Git conflicts launch a visible resolution agent; the resolved combined tree reruns global checks and a fresh visible verification pass before BDFL adds one commit on top. Uncommitted target changes and rewritten history still stop integration without touching the target.
+- If other work has committed meanwhile, BDFL reconciles the verified result in a disposable worktree. Git conflicts launch a visible resolution agent; after it reports, bounded global checks run in the background so the supervisor stays responsive. The combined tree then receives a fresh visible verification pass before BDFL adds one commit on top. Interrupted checks resume from durable state. Uncommitted target changes and rewritten history still stop integration without touching the target.
 
 After worker review, BDFL runs global checks and a fresh verification pass before presenting the consolidated result for integration.
 
