@@ -8,6 +8,6 @@ Agent options can explicitly select safe alternatives to these defaults. Claude 
 
 Dangerous provider options cannot be stored in an agent profile. `bdfl --dangerous` is the only bypass opt-in: it launches Claude with `--dangerously-skip-permissions` and launches Codex or Ollama-backed Codex with `--dangerously-bypass-approvals-and-sandbox`. The switch applies to every agent launched or restored during that supervisor process and is not persisted.
 
-Permission is only one boundary. BDFL also verifies actual changed paths against the approved chunk, reruns deterministic argv-based checks, keeps conflicts inside integration worktrees, and refuses final integration when the target branch, HEAD, or cleanliness changed.
+Permission is only one boundary. BDFL also verifies actual changed paths against the approved chunk, reruns deterministic argv-based checks, and keeps conflicts inside generated worktrees. Final integration refuses a changed target branch, uncommitted target changes, or rewritten history. Clean descendant commits are preserved: BDFL reconciles the approved result in a disposable worktree, reruns global checks on the combined tree, and advances the target only when reconciliation succeeds.
 
 Custom profile commands never pass through a shell. BDFL owns provider/profile selection, resume, MCP, model, effort, hook/settings, notification, dangerous access, and role flags; safe provider-native permission, sandbox, and approval options remain user-controlled.

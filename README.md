@@ -129,6 +129,7 @@ Inspect each worker’s summary, diff, changed paths, checks, and commit metadat
 
 - Accept the result or send feedback to the same worker for revision.
 - Review the consolidated result after global checks and a fresh verification pass.
+- If other work has committed to the target branch meanwhile, BDFL reconciles the verified result in a disposable worktree, reruns global checks on the combined tree, and adds one commit on top. Uncommitted target changes, rewritten history, and real conflicts still stop integration without touching the target.
 
 After worker review, BDFL runs global checks and a fresh verification pass before presenting the consolidated result for integration.
 
