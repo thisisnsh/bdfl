@@ -6,16 +6,16 @@ const { URL } = require('node:url');
 const { sha256 } = require('../core/plans');
 
 const PLAN_ACTIONS = ['current', 'publish'];
-const WORKER_ACTIONS = ['execute', 'status', 'wait', 'complete', 'feedback', 'send'];
+const WORKER_ACTIONS = ['execute', 'status', 'wait', 'complete', 'feedback', 'send', 'remedy'];
 const ROLE_ACTIONS = {
   delegator: new Set(['execute', 'status', 'wait', 'feedback', 'send']),
   worker: new Set(['status', 'wait', 'complete']),
-  verifier: new Set(['status', 'complete']),
+  verifier: new Set(['status', 'complete', 'remedy']),
   integration: new Set(['status', 'complete'])
 };
 
 const PLAN_TOOL = { name: 'bdfl_plan', title: 'Publish a durable BDFL plan', description: 'Read or publish the marker-bearing plan for this BDFL workstream.', inputSchema: { type: 'object', properties: { action: { type: 'string', enum: PLAN_ACTIONS }, detail: { type: 'string', enum: ['summary', 'revision'] }, source: { type: 'string' }, planId: { type: 'string' }, convert: { type: 'boolean' } }, required: ['action'], additionalProperties: false } };
-const WORKERS_TOOL = { name: 'bdfl_workers', title: 'Coordinate BDFL-managed workers', description: 'Execute and monitor an approved BDFL plan without provider-native delegation.', inputSchema: { type: 'object', properties: { action: { type: 'string', enum: WORKER_ACTIONS }, planId: { type: 'string' }, version: { type: 'integer' }, executionId: { type: 'string' }, chunkId: { type: 'string' }, cursor: { type: 'integer' }, state: { type: 'string', enum: ['pass', 'blocked', 'fail'] }, summary: { type: 'string', maxLength: 800 }, affectedChunkIds: { type: 'array', items: { type: 'string' } }, message: { type: 'string', maxLength: 800 } }, required: ['action'], additionalProperties: false } };
+const WORKERS_TOOL = { name: 'bdfl_workers', title: 'Coordinate BDFL-managed workers', description: 'Execute and monitor an approved BDFL plan without provider-native delegation.', inputSchema: { type: 'object', properties: { action: { type: 'string', enum: WORKER_ACTIONS }, planId: { type: 'string' }, version: { type: 'integer' }, executionId: { type: 'string' }, chunkId: { type: 'string' }, cursor: { type: 'integer' }, state: { type: 'string', enum: ['pass', 'blocked', 'fail'] }, summary: { type: 'string', maxLength: 12000 }, affectedChunkIds: { type: 'array', items: { type: 'string' } }, message: { type: 'string', maxLength: 800 } }, required: ['action'], additionalProperties: false } };
 
 function mcpResult(value) { return { content: [{ type: 'text', text: value.message || 'BDFL state updated.' }], structuredContent: value }; }
 function sectionLabel(id) { if (id === 'shared') return 'Shared'; if (id === 'global-validation') return 'Global validation'; return id; }
@@ -60,6 +60,7 @@ class WorkerService {
     if (args.action === 'wait') return mcpResult(await this.scheduler.wait(executionId, args.cursor || 0));
     if (args.action === 'send') { this.sender?.(executionId, args.chunkId, args.message); return mcpResult({ executionId, chunkId: args.chunkId, queued: true, message: 'Message queued for the worker.' }); }
     if (args.action === 'feedback') return mcpResult({ chunk: this.scheduler.feedback(executionId, args.chunkId, args.message, this.sender), message: 'Feedback returned the worker to its active attempt.' });
+    if (args.action === 'remedy') return mcpResult({ remedy: this.integration.remedy(executionId, args.message), message: 'Verifier findings were handed to a visible repair agent. BDFL will rerun checks and launch a fresh verifier after the repair.' });
     if (args.action === 'complete' && capability.role === 'verifier') return mcpResult({ verification: this.integration.verification(executionId, args), message: 'Verifier report recorded.' });
     if (args.action === 'complete' && capability.role === 'integration') return mcpResult({ integration: this.integration.repaired(executionId, args), message: 'Integration repair recorded.' });
     if (args.action === 'complete') return mcpResult({ chunk: this.scheduler.complete(executionId, capability.chunkId || args.chunkId, args), message: 'Worker completion recorded.' });

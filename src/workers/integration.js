@@ -16,7 +16,8 @@ class IntegrationCoordinator {
     let verifier = null; let launchError = null;
     if (!failed) { try { verifier = this.verifierLauncher?.({ execution, integration: enriched, context, readOnly: true, profile: execution.profile }); if (!verifier?.sessionId) throw new Error('Verifier launcher did not return a session ID'); } catch (error) { launchError = error; } }
     execution.status = failed || launchError ? 'verification-failed' : 'verifying';
-    const verifierAttempts = verifier ? [{ number: 1, ...verifier, startedAt: this.now().toISOString() }] : [];
+    const verifierAttempts = integration.verifierAttempts?.length ? structuredClone(integration.verifierAttempts) : [];
+    if (verifier) verifierAttempts.push({ number: verifierAttempts.length + 1, ...verifier, startedAt: this.now().toISOString() });
     execution.integration = { ...enriched, finalDiff: this.git.patch(integration.base, head, integration.worktree), verifier, verifierAttempts, context, verificationPurpose: purpose };
     if (launchError) execution.verification = { state: 'fail', summary: `Unable to launch verifier: ${launchError.message}`.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() };
     if (purpose === 'target-reconciliation' && (failed || launchError)) { this.git.cleanupReconciliation(integration.reconciliation, this.repository(execution)); this.restoreQueueSource(execution); this.releaseQueue(execution); }
@@ -121,6 +122,18 @@ class IntegrationCoordinator {
     return this.startChecks(execution, { ...integration, repairedAt: this.now().toISOString() }, head);
   }
 
+  remedy(executionId, message = '') {
+    const execution = this.scheduler.load(executionId); if (execution.status !== 'verification-failed') throw new Error('Verifier remedy requires a failed verification state');
+    const integration = execution.integration; if (!integration?.worktree || !integration?.base) throw new Error('Verifier remedy context is missing');
+    const requested = new Set(execution.verification?.affectedChunkIds || []); const affected = execution.chunks.filter((chunk) => requested.has(chunk.id)); const chunks = affected.length ? affected : execution.chunks;
+    const chunkIds = chunks.map((chunk) => chunk.id); const allowedPaths = [...new Set(chunks.flatMap((chunk) => chunk.paths || []))]; if (!allowedPaths.length) throw new Error('Verifier remedy has no approved paths');
+    const suggestion = `${message || ''}`.trim(); const findings = execution.verification?.summary || 'Verification failed without a recorded summary.'; const result = { state: 'conflict', kind: 'verification', chunkIds, pendingChunkIds: [], message: `Repair the failed verification findings:\n${findings}${suggestion ? `\n\nUser guidance:\n${suggestion}` : ''}`.slice(0, 12000) };
+    let worker; try { worker = this.integrationLauncher?.({ execution, integration, result, allowedPaths, profile: execution.profile, phase: 'verification-remedy' }); if (!worker?.sessionId) throw new Error('Integration launcher did not return a session ID'); }
+    catch (error) { throw new Error(`Unable to launch verifier-remedy agent: ${error.message}`); }
+    const attempts = integration.remedyAttempts?.length ? structuredClone(integration.remedyAttempts) : []; attempts.push({ number: attempts.length + 1, ...worker, startedAt: this.now().toISOString(), findings: findings.slice(0, 800), userGuidance: suggestion.slice(0, 800), affectedChunkIds: chunkIds });
+    execution.status = 'integration-conflict'; execution.integration = { ...integration, conflict: result, worker, allowedPaths, remedyAttempts: attempts }; execution.events ||= []; execution.events.push({ type: 'verification.remedy-started', chunkIds, at: this.now().toISOString() }); this.scheduler.save(execution); this.onChange?.(); return { ...result, requiresIntegrationWorker: true, worker };
+  }
+
   retryVerification(executionId, { sessionId, reason = 'Verifier exited before reporting' } = {}) {
     const execution = this.scheduler.load(executionId); if (execution.status !== 'verifying') return null;
     const integration = execution.integration || {}; const current = integration.verifier;
@@ -134,7 +147,8 @@ class IntegrationCoordinator {
   }
 
   verification(executionId, report) {
-    const execution = this.scheduler.load(executionId); if (execution.status !== 'verifying') throw new Error('Execution is not awaiting global verification'); execution.verification = { state: report.state, summary: `${report.summary || ''}`.slice(0, 800), affectedChunkIds: report.affectedChunkIds || [], completedAt: this.now().toISOString() };
+    const execution = this.scheduler.load(executionId); if (execution.status !== 'verifying') throw new Error('Execution is not awaiting global verification'); execution.verification = { state: report.state, summary: `${report.summary || ''}`.slice(0, 12000), affectedChunkIds: report.affectedChunkIds || [], completedAt: this.now().toISOString() };
+    const attempts = execution.integration?.verifierAttempts?.length ? structuredClone(execution.integration.verifierAttempts) : []; const current = attempts.findLast((attempt) => attempt.sessionId === execution.integration?.verifier?.sessionId); if (current && !current.completedAt) Object.assign(current, { completedAt: execution.verification.completedAt, result: report.state, summary: execution.verification.summary, affectedChunkIds: execution.verification.affectedChunkIds }); execution.integration = { ...execution.integration, verifierAttempts: attempts };
     if (execution.integration?.verificationPurpose !== 'target-reconciliation') { execution.status = report.state === 'pass' ? 'integration-review' : 'verification-failed'; this.scheduler.save(execution); return execution.verification; }
     const repository = this.repository(execution); if (report.state !== 'pass') { this.git.cleanupReconciliation(execution.integration.reconciliation, repository); execution.status = 'verification-failed'; this.restoreQueueSource(execution); this.releaseQueue(execution); this.scheduler.save(execution); this.drainIntegrationQueue(repository); return execution.verification; }
     try { const commit = this.git.completeIntegration(execution.integration.reconciliation, { targetBranch: execution.targetBranch, repository }); this.completeQueued(execution, commit); }

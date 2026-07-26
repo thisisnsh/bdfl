@@ -43,6 +43,12 @@ test('enforces role-scoped worker actions before calling the scheduler', async (
   await assert.rejects(service.call({ role: 'worker', workstreamId: 'w', executionId: 'e', chunkId: 'chunk' }, { action: 'complete', executionId: 'other', state: 'pass' }), /different execution/);
 });
 
+test('lets only the verifier hand an explicitly accepted remedy to a repair agent', async () => {
+  const calls = []; const scheduler = { load: () => ({ workstreamId: 'w' }) }; const integration = { remedy(...args) { calls.push(args); return { worker: { sessionId: 'repair' } }; } }; const service = new WorkerService({ scheduler, integration });
+  const verifier = { role: 'verifier', workstreamId: 'w', executionId: 'e' }; const result = await service.call(verifier, { action: 'remedy', message: 'Keep the resumed child' }); assert.deepEqual(calls, [['e', 'Keep the resumed child']]); assert.equal(result.structuredContent.remedy.worker.sessionId, 'repair');
+  await assert.rejects(service.call({ role: 'worker', workstreamId: 'w', executionId: 'e', chunkId: 'a' }, { action: 'remedy' }), /cannot use worker action remedy/);
+});
+
 test('authenticates loopback bridge requests and exposes only role tools', async (t) => {
   const server = new ControlServer({ planService: { call() {} }, workerService: { call() {} } }).start(); t.after(() => server.close()); const issued = server.issue({ role: 'worker', sessionId: 's', workstreamId: 'w' });
   const listed = await controlRequest(issued.url, issued.token, { method: 'tools' }); assert.deepEqual(listed.tools.map((tool) => tool.name), ['bdfl_workers']);

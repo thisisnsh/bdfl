@@ -158,7 +158,7 @@ test('Review retains accepted workers only while their sessions remain open and 
   assert.match(question, /f respond • Esc back/);
 });
 
-test('Review offers a separately confirmed integration override after verification fails', () => {
+test('Review can accept or amend verifier remedies and keeps override separate', () => {
   const state = {
     schema: 2,
     activeWorkstreamId: 'one',
@@ -168,12 +168,13 @@ test('Review offers a separately confirmed integration override after verificati
   const execution = { id: 'execution', planId: 'plan', workstreamId: 'one', status: 'verification-failed', verification: { state: 'fail', summary: 'Tests failed' }, integration: { finalDiff: '+result', checkResults: [] }, chunks: [] };
   const handlers = new Map();
   const finalized = [];
+  const remedies = [];
   const supervisor = new TerminalSupervisor('/tmp/bdfl-override-review-test', {
     store: { load: () => state, setSessionAttention() {} },
     lineage: { list: () => [{ planId: 'plan', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] },
     sessions: { restore: () => ({ opened: [], errors: [] }), shutdown() {} },
     scheduler: { list: () => [execution], resume() {} },
-    integration: { finalize(...args) { finalized.push(args); } },
+    integration: { finalize(...args) { finalized.push(args); }, remedy(...args) { remedies.push(args); } },
     bridge: { start() {}, close() {} },
     input: { on(event, fn) { handlers.set(event, fn); }, off() {}, setRawMode() {}, resume() {}, pause() {} },
     output: { columns: 80, rows: 22, write() {} },
@@ -185,7 +186,17 @@ test('Review offers a separately confirmed integration override after verificati
   supervisor.start();
   supervisor.activate('Review');
   handlers.get('data')('\r');
+  assert.match(supervisor.actionPageLines().join('\n'), /r accept remedy/);
+  assert.match(supervisor.actionPageLines().join('\n'), /f suggest repair/);
   assert.match(supervisor.actionPageLines().join('\n'), /o override/);
+  handlers.get('data')('r');
+  assert.match(supervisor.actionPageLines().join('\n'), /Start a visible repair agent using the verifier findings/);
+  assert.deepEqual(remedies, []);
+  handlers.get('data')('\r');
+  assert.deepEqual(remedies, [['execution']]);
+  supervisor.activate('Review'); handlers.get('data')('\r'); handlers.get('data')('fPreserve the active terminal\r');
+  assert.deepEqual(remedies, [['execution'], ['execution', 'Preserve the active terminal']]);
+  supervisor.activate('Review'); handlers.get('data')('\r');
   handlers.get('data')('o');
   assert.match(supervisor.actionPageLines().join('\n'), /Override failed global verification/);
   assert.deepEqual(finalized, []);
