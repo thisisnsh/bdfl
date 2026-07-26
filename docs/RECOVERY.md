@@ -16,4 +16,8 @@ When recovery or another startup step fails, BDFL prints a stable error code and
 
 Treat `.bdfl/` as sensitive and never commit it. Agent task snippets include the latest substantive planning prompt and worker assignment summaries. Before manually deleting state, inspect the associated plans, private branches, worktrees, and provider transcripts. Integrated Git history and provider-retained transcripts are independent of BDFL's local records and may outlive session deletion.
 
+Deleting one plan or all plans removes only the selected repository-owned `.bdfl/plans/` lineage, version, approval, and feedback files. It does not remove executions, workstream/session records, snapshots, worktrees, branches, integrated Git history, or provider-retained transcripts.
+
+Deleting one workstream removes that workstream and its session records after BDFL has stopped and removed the affected managed processes and snapshots. Deleting all sessions performs that runtime cleanup across every repository first, then clears all workstream/session records and resets local selection and numbering. Saved `.bdfl/config.json`, plans, execution records, events, worktrees, Git history, and provider-retained transcripts survive. If process or snapshot cleanup fails, BDFL retains the workspace metadata so the operation can be inspected and retried safely.
+
 If a provider process survives a supervisor crash, confirm its identity before terminating it. Resume through BDFL so the durable record remains the source of truth.

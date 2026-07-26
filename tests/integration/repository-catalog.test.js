@@ -42,3 +42,12 @@ test('uses the Git top level as coordinator when launched from a repository subd
   assert.deepEqual(supervisor.lockFiles(), [path.join(fs.realpathSync(repositoryRoot), '.bdfl', 'run', 'supervisor.lock')]);
   assert.equal(fs.existsSync(path.join(nested, '.bdfl')), false);
 });
+
+test('fans out bulk record and plan deletion while selected plans route to their owning repository', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-delete-catalog-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const claudia = repository(path.join(root, 'claudia')); const mango = repository(path.join(root, 'mango'));
+  const catalog = new WorkspaceCatalog(root); const first = catalog.createWorkstream(config(), undefined, claudia); const firstSession = catalog.createSession(first.id, 'delegator', config().delegatorProfile); const second = catalog.createWorkstream(config(), undefined, mango); const secondSession = catalog.createSession(second.id, 'delegator', config().delegatorProfile);
+  const lineages = new LineageCatalog(catalog); const firstPlan = lineages.create(plan(), { workstreamId: first.id, sessionId: firstSession.id }); const secondPlan = lineages.create(plan(), { workstreamId: second.id, sessionId: secondSession.id, planId: 'plan-mango' });
+  const selected = lineages.delete(secondPlan.lineage.planId); assert.equal(selected.deleted, 1); assert.equal(selected.repositoryRoot, fs.realpathSync(mango)); assert.equal(fs.existsSync(path.join(mango, '.bdfl', 'plans', secondPlan.lineage.planId)), false); assert.equal(fs.existsSync(path.join(claudia, '.bdfl', 'plans', firstPlan.lineage.planId)), true);
+  const allPlans = lineages.deleteAll(); assert.equal(allPlans.deleted, 1); assert.deepEqual(allPlans.repositories.map((item) => item.deleted), [1, 0]); assert.equal(fs.existsSync(path.join(claudia, '.bdfl', 'plans')), false);
+  assert.deepEqual(catalog.deleteAllWorkstreams(), { workstreams: 2, sessions: 2 }); assert.deepEqual(catalog.load().workstreams, []); assert.deepEqual(catalog.load().sessions, []); assert.ok(fs.existsSync(path.join(claudia, '.bdfl', 'config.json'))); assert.ok(fs.existsSync(path.join(mango, '.bdfl', 'config.json'))); assert.deepEqual(catalog.deleteAllWorkstreams(), { workstreams: 0, sessions: 0 });
+});

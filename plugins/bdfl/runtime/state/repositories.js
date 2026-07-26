@@ -56,6 +56,7 @@ class WorkspaceCatalog {
   closeWorkstream(id) { const { root, entry } = this.owner('workstreams', id); return this.decorate(entry.store.closeWorkstream(id), root); }
   reopenWorkstream(id) { const { root, entry } = this.owner('workstreams', id); return this.decorate(entry.store.reopenWorkstream(id), root); }
   deleteWorkstream(id) { return this.owner('workstreams', id).entry.store.deleteWorkstream(id); }
+  deleteAllWorkstreams() { const deleted = { workstreams: 0, sessions: 0 }; for (const entry of this.entries.values()) { const result = entry.store.deleteAllWorkstreams(); deleted.workstreams += result.workstreams; deleted.sessions += result.sessions; } return deleted; }
   createSession(workstreamId, role, profile, fields = {}) { const { root, entry } = this.owner('workstreams', workstreamId); return this.decorate(entry.store.createSession(workstreamId, role, profile, cleanRecord(fields)), root); }
   renameSession(id, name) { const { root, entry } = this.owner('sessions', id); return this.decorate(entry.store.renameSession(id, name), root); }
   setSessionTaskSnippet(id, input) { const { root, entry } = this.owner('sessions', id); return this.decorate(entry.store.setSessionTaskSnippet(id, input), root); }
@@ -80,6 +81,8 @@ class LineageCatalog {
   removeApproval(id, version, section) { return this.find(id).store.removeApproval(id, version, section); }
   executable(id, version) { return this.find(id).store.executable(id, version); }
   revise(id, source) { return this.find(id).store.revise(id, source); }
+  delete(id) { const found = this.find(id); return { ...found.store.delete(id), repositoryRoot: found.root, repository: this.workspaces.entries.get(found.root)?.label }; }
+  deleteAll() { const repositories = []; let deleted = 0; for (const [root, store] of this.stores) { const result = store.deleteAll(); deleted += result.deleted; repositories.push({ ...result, repositoryRoot: root, repository: this.workspaces.entries.get(root)?.label }); } return { deleted, repositories }; }
 }
 
 module.exports = { git, gitRepository, discoverRepositories, WorkspaceCatalog, LineageCatalog };

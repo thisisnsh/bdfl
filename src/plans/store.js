@@ -57,6 +57,40 @@ class LineageStore {
     return entries.filter((entry) => entry.isDirectory()).flatMap((entry) => { try { return [this.load(entry.name)]; } catch { return []; } });
   }
 
+  assertSafeDeletionRoot() {
+    let current = this.root;
+    for (const part of ['.bdfl', 'plans']) {
+      current = path.join(current, part);
+      if (!this.io.existsSync(current)) return;
+      const stat = this.io.lstatSync(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`Unsafe plan deletion root: ${this.directory}`);
+    }
+  }
+
+  deletionTarget(id) {
+    safePlanId(id); this.assertSafeDeletionRoot();
+    const target = path.resolve(this.directory, id); const relative = path.relative(this.directory, target);
+    if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) throw new Error(`Invalid plan ID: ${id}`);
+    if (!this.io.existsSync(target)) throw new Error(`Unknown plan: ${id}`);
+    const stat = this.io.lstatSync(target);
+    if (stat.isSymbolicLink()) throw new Error(`Unsafe plan deletion target: ${id}`);
+    if (!stat.isDirectory() || !this.io.existsSync(path.join(target, 'lineage.json'))) throw new Error(`Unknown plan: ${id}`);
+    return target;
+  }
+
+  delete(id) {
+    const target = this.deletionTarget(id); this.io.rmSync(target, { recursive: true, force: false });
+    return { planId: id, deleted: 1 };
+  }
+
+  deleteAll() {
+    this.assertSafeDeletionRoot();
+    if (!this.io.existsSync(this.directory)) return { planIds: [], deleted: 0 };
+    const planIds = this.io.readdirSync(this.directory, { withFileTypes: true }).filter((entry) => entry.isDirectory() && /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(entry.name)).map((entry) => entry.name).sort();
+    this.io.rmSync(this.directory, { recursive: true, force: false });
+    return { planIds, deleted: planIds.length };
+  }
+
   current({ workstreamId, sessionId } = {}) {
     return this.list().filter((lineage) => (!workstreamId || lineage.workstreamId === workstreamId) && (!sessionId || lineage.originSessionId === sessionId)).sort((left, right) => `${right.updatedAt}`.localeCompare(`${left.updatedAt}`))[0] || null;
   }
