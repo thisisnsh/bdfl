@@ -1,5 +1,8 @@
 'use strict';
 
+const { spawn: spawnProcess } = require('node:child_process');
+
+const REPOSITORY_URL = 'https://github.com/thisisnsh/bdfl';
 const ISSUE_URL = 'https://github.com/thisisnsh/bdfl/issues/new';
 const RESTORE_TERMINAL = '\u001b[?1006l\u001b[?1000l\u001b[?25h\u001b[?1049l';
 
@@ -17,4 +20,34 @@ function restoreTerminal(output) { if (output?.isTTY) output.write(RESTORE_TERMI
 function reportError(error, io = process, { version = 'unknown', restore = true, nodeVersion = process.version } = {}) { if (restore) restoreTerminal(io.stdout); const report = formatErrorReport(error, { version, nodeVersion, color: Boolean(io.stderr?.isTTY && !io.env?.NO_COLOR) }); io.stderr.write(`${report}\n`); return errorDetails(error); }
 function installFatalErrorHandlers(io = process, { version = 'unknown', exit = (code) => process.exit(code) } = {}) { let handling = false; const fatal = (error) => { if (handling) return exit(1); handling = true; reportError(error, io, { version }); exit(1); }; io.on('uncaughtException', fatal); io.on('unhandledRejection', fatal); return () => { io.off('uncaughtException', fatal); io.off('unhandledRejection', fatal); }; }
 
-module.exports = { ISSUE_URL, RESTORE_TERMINAL, clean, errorDetails, formatErrorReport, restoreTerminal, reportError, installFatalErrorHandlers };
+function externalOpenCommand(url, platform = process.platform) {
+  let value;
+  try { value = new URL(url); } catch (cause) { throw Object.assign(new Error('External links must use a valid HTTPS URL.', { cause }), { code: 'INVALID_EXTERNAL_URL' }); }
+  if (value.protocol !== 'https:') throw Object.assign(new Error('External links must use HTTPS.'), { code: 'INVALID_EXTERNAL_URL' });
+  if (platform === 'darwin') return { command: 'open', args: [value.href] };
+  if (platform === 'win32') return { command: 'cmd.exe', args: ['/d', '/s', '/c', 'start', '', value.href] };
+  return { command: 'xdg-open', args: [value.href] };
+}
+
+function openExternal(url, { platform = process.platform, spawn = spawnProcess } = {}) {
+  const invocation = externalOpenCommand(url, platform);
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn(invocation.command, invocation.args, { detached: true, shell: false, stdio: 'ignore', windowsHide: true });
+    } catch (cause) {
+      const error = new Error(`Unable to open ${url}: ${cause.message}`, { cause }); error.code = 'OPEN_EXTERNAL_FAILED'; reject(error); return;
+    }
+    const failed = (cause) => { const error = new Error(`Unable to open ${url}: ${cause.message}`, { cause }); error.code = 'OPEN_EXTERNAL_FAILED'; reject(error); };
+    child.once?.('error', failed);
+    child.once?.('spawn', () => resolve(child));
+    child.unref?.();
+    // Small injected launchers used by callers and tests may not expose events.
+    if (typeof child.once !== 'function') resolve(child);
+  });
+}
+
+function openIssue(options) { return openExternal(ISSUE_URL, options); }
+function openRepository(options) { return openExternal(REPOSITORY_URL, options); }
+
+module.exports = { REPOSITORY_URL, ISSUE_URL, RESTORE_TERMINAL, clean, errorDetails, formatErrorReport, restoreTerminal, reportError, installFatalErrorHandlers, externalOpenCommand, openExternal, openIssue, openRepository };

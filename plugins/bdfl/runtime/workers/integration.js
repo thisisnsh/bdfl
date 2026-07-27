@@ -12,6 +12,10 @@ class IntegrationCoordinator {
 
   persist(execution) { const saved = this.scheduler.save(execution); this.onChange?.(); return saved; }
   launchAgent(execution, integration, { phase, context = integration.context, result = null, allowedPaths = integration.allowedPaths, fallback = null } = {}) { const agent = integration.agent || fallback; const launched = this.agentLauncher?.({ execution, integration, agent, context, result, allowedPaths, profile: execution.profile, phase }); if (!launched?.sessionId) throw new Error('Execution agent launcher did not return a session ID'); if (agent?.sessionId && launched.sessionId !== agent.sessionId && launched.replacesSessionId !== agent.sessionId) throw new Error('Execution agent launcher replaced the durable execution session without an explicit legacy migration'); return launched; }
+  repairAttempts(integration = {}) { if (integration.repairAttempts?.length) return structuredClone(integration.repairAttempts); if (integration.worker?.sessionId) return [{ number: 1, ...integration.worker, startedAt: integration.startedAt }]; return []; }
+  startRepairAttempt(integration, worker, phase) { const attempts = this.repairAttempts(integration); const previous = attempts.findLast((attempt) => attempt.sessionId === integration.worker?.sessionId); if (previous && !previous.completedAt) Object.assign(previous, { completedAt: this.now().toISOString(), result: 'superseded', summary: 'Superseded by a newer integration repair attempt' }); attempts.push({ number: attempts.length + 1, ...worker, phase, startedAt: this.now().toISOString() }); return attempts; }
+  completeRepairAttempt(execution, report, fallback = 'Integration repair attempt completed') { const integration = execution.integration || {}; const attempts = this.repairAttempts(integration); const current = attempts.findLast((attempt) => attempt.sessionId === integration.worker?.sessionId); if (current && !current.completedAt) Object.assign(current, { completedAt: this.now().toISOString(), result: `${report?.state || 'failed'}`, summary: `${report?.summary || fallback}`.slice(0, 800) }); execution.integration = { ...integration, repairAttempts: attempts }; return current; }
+  supersedeRepairAttempt(execution, summary) { return this.completeRepairAttempt(execution, { state: 'superseded', summary }, summary); }
 
   beginVerification(execution, integration, head, checkResults, { purpose = 'initial' } = {}) {
     const startedAt = integration.startedAt || this.now().toISOString(); const enriched = { ...integration, head, checkResults, startedAt, verificationPurpose: purpose };
@@ -34,13 +38,13 @@ class IntegrationCoordinator {
   releaseQueue(execution) { if (execution.integration?.queue) execution.integration.queue = { ...execution.integration.queue, active: false, releasedAt: this.now().toISOString() }; }
   completeQueued(execution, commit) { execution.status = 'complete'; execution.finalCommit = commit; execution.completedAt = this.now().toISOString(); this.releaseQueue(execution); this.persist(execution); return commit; }
   failQueued(execution, summary, checkResults = []) { execution.status = 'verification-failed'; execution.verification = { state: 'fail', summary: `${summary}`.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() }; this.restoreQueueSource(execution); if (checkResults.length) execution.integration.checkResults = checkResults; this.releaseQueue(execution); this.persist(execution); return execution.verification; }
-  requeueAfterTargetAdvance(execution, repository, reason) { this.git.cleanupReconciliation(execution.integration?.reconciliation, repository); this.restoreQueueSource(execution); execution.status = 'integration-queued'; execution.integration.queue = { ...execution.integration.queue, active: false, requeuedAt: this.now().toISOString(), retryReason: `${reason}`.slice(0, 800) }; this.persist(execution); return this.drainIntegrationQueue(repository, execution.id); }
+  requeueAfterTargetAdvance(execution, repository, reason) { if (execution.integration?.conflict?.kind === 'target') this.supersedeRepairAttempt(execution, reason); this.git.cleanupReconciliation(execution.integration?.reconciliation, repository); this.restoreQueueSource(execution); execution.status = 'integration-queued'; execution.integration.queue = { ...execution.integration.queue, active: false, requeuedAt: this.now().toISOString(), retryReason: `${reason}`.slice(0, 800) }; this.persist(execution); return this.drainIntegrationQueue(repository, execution.id); }
   requestValidationRepair(execution, failed, checkResults) {
     const repository = this.repository(execution); const integration = execution.integration; const attempts = (integration.validationRepairAttempts || 0) + 1; const command = failed.command?.length ? failed.command.join(' ') : 'global validation'; const result = { state: 'conflict', kind: 'target', chunkIds: execution.chunks.map((chunk) => chunk.id), pendingChunkIds: [], message: `The reconciled target failed ${command}. Repair the combined tree using this validation output:\n${failed.output || '(no output captured)'}`.slice(0, 12000) };
     if (failed.timedOut || attempts > MAX_RECONCILIATION_REPAIR_ATTEMPTS) { this.git.cleanupReconciliation(integration.reconciliation, repository); const summary = failed.timedOut ? `Reconciled target validation timed out: ${command}` : `Reconciled target validation still failed after ${MAX_RECONCILIATION_REPAIR_ATTEMPTS} repair attempts: ${command}`; const failure = this.failQueued(execution, summary, checkResults); this.drainIntegrationQueue(repository); return failure; }
     const allowedPaths = integration.allowedPaths || [...new Set(execution.chunks.flatMap((chunk) => chunk.paths))]; let worker; try { worker = this.launchAgent(execution, integration, { phase: 'target-validation', result, allowedPaths }); }
     catch (error) { this.git.cleanupReconciliation(integration.reconciliation, repository); const failure = this.failQueued(execution, `Unable to launch validation-repair agent: ${error.message}`, checkResults); this.drainIntegrationQueue(repository); return failure; }
-    execution.status = 'integration-conflict'; execution.integration = { ...integration, agent: worker, conflict: result, worker, allowedPaths, validationRepairAttempts: attempts, checkResults }; execution.verification = { state: 'fail', summary: `Reconciled target validation failed; visible execution agent is fixing attempt ${attempts}/${MAX_RECONCILIATION_REPAIR_ATTEMPTS} for ${command}`.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() }; this.persist(execution); return { state: 'conflict', queued: true, worker, validationRepair: true };
+    execution.status = 'integration-conflict'; execution.integration = { ...integration, agent: worker, conflict: result, worker, repairAttempts: this.startRepairAttempt(integration, worker, 'target-validation'), allowedPaths, validationRepairAttempts: attempts, checkResults }; execution.verification = { state: 'fail', summary: `Reconciled target validation failed; visible execution agent is fixing attempt ${attempts}/${MAX_RECONCILIATION_REPAIR_ATTEMPTS} for ${command}`.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() }; this.persist(execution); return { state: 'conflict', queued: true, worker, validationRepair: true };
   }
 
   startChecks(execution, integration, head, { purpose = 'initial', resumed = false } = {}) {
@@ -75,7 +79,7 @@ class IntegrationCoordinator {
       const allowedPaths = integration.allowedPaths || [...new Set(execution.chunks.flatMap((chunk) => chunk.paths))]; const result = { state: 'conflict', kind: 'target', chunkIds: execution.chunks.map((chunk) => chunk.id), pendingChunkIds: [], message: staged.message };
       let worker; try { worker = this.launchAgent(execution, execution.integration, { phase: 'target', result, allowedPaths }); }
       catch (error) { this.git.cleanupReconciliation(staged, repository); const failed = this.failQueued(execution, `Unable to launch conflict-resolution agent: ${error.message}`); this.drainIntegrationQueue(repository); return failed; }
-      execution.status = 'integration-conflict'; execution.integration = { ...execution.integration, agent: worker, conflict: result, worker, allowedPaths }; this.persist(execution); return { state: 'conflict', queued: true, worker };
+      execution.status = 'integration-conflict'; execution.integration = { ...execution.integration, agent: worker, conflict: result, worker, repairAttempts: this.startRepairAttempt(execution.integration, worker, 'target'), allowedPaths }; this.persist(execution); return { state: 'conflict', queued: true, worker };
     }
     return this.startChecks(execution, execution.integration, staged.commit, { purpose: 'target-reconciliation' });
   }
@@ -86,7 +90,13 @@ class IntegrationCoordinator {
       const repository = this.repository(current); repositories.add(repository); const execution = this.scheduler.load(current.id);
       if (execution.status === 'integrating' && execution.integration?.queue?.active) { execution.status = 'integration-queued'; execution.integration.queue = { ...execution.integration.queue, active: false, resumedAt: this.now().toISOString() }; this.persist(execution); }
       else if (execution.status === 'integration-checking') this.startChecks(execution, execution.integration, execution.integration.head, { purpose: execution.integration.checkRun?.purpose || 'initial', resumed: true });
-      else if (execution.status === 'integration-conflict' && execution.integration?.queue?.active && execution.integration?.conflict?.kind === 'target' && this.git.reconciliationResolved?.(execution.integration.reconciliation)) { if (this.git.baseline && this.git.baseline('HEAD', repository) !== execution.integration.reconciliation.targetHead) this.requeueAfterTargetAdvance(execution, repository, 'Target advanced while conflict resolution was interrupted'); else { const reconciled = this.git.finishReconciliation(execution.integration.reconciliation, repository); execution.integration = { ...execution.integration, reconciliation: reconciled, base: reconciled.targetHead, worktree: reconciled.worktree, repairedAt: this.now().toISOString() }; this.startChecks(execution, execution.integration, reconciled.commit, { purpose: 'target-reconciliation', resumed: true }); } }
+      else if (execution.status === 'integration-conflict' && execution.integration?.queue?.active && execution.integration?.conflict?.kind === 'target' && this.git.reconciliationResolved?.(execution.integration.reconciliation)) {
+        if (this.git.baseline && this.git.baseline('HEAD', repository) !== execution.integration.reconciliation.targetHead) this.requeueAfterTargetAdvance(execution, repository, 'Target advanced while conflict resolution was interrupted');
+        else {
+          try { const reconciled = this.git.finishReconciliation(execution.integration.reconciliation, repository); this.completeRepairAttempt(execution, { state: 'pass', summary: 'Recovered a resolved target repair after supervisor restart' }); execution.integration = { ...execution.integration, reconciliation: reconciled, base: reconciled.targetHead, worktree: reconciled.worktree, repairedAt: this.now().toISOString() }; this.startChecks(execution, execution.integration, reconciled.commit, { purpose: 'target-reconciliation', resumed: true }); }
+          catch (error) { this.completeRepairAttempt(execution, { state: 'fail', summary: error.message }); this.git.cleanupReconciliation(execution.integration.reconciliation, repository); this.failQueued(execution, error.message, error.checkResults || []); }
+        }
+      }
       else if (execution.status === 'verification-failed' && execution.integration?.queue && execution.integration?.lastReconciliation?.commit && /^Reconciled target validation failed/.test(execution.verification?.summary || '') && (execution.integration.validationRepairAttempts || 0) < MAX_RECONCILIATION_REPAIR_ATTEMPTS) { execution.status = 'integration-queued'; execution.integration.queue = { ...execution.integration.queue, active: false, resumedAt: this.now().toISOString(), retryReason: 'Retrying a reconciled validation failure with a visible repair agent' }; this.persist(execution); }
     }
     for (const repository of repositories) this.drainIntegrationQueue(repository); return [...repositories];
@@ -98,8 +108,10 @@ class IntegrationCoordinator {
     const integration = this.git.createIntegration(executionId, execution.baseline, execution.repositoryRoot); const result = this.git.consolidate(integration, execution.chunks);
     if (result.state === 'conflict') {
       const allowedPaths = [...new Set(execution.chunks.flatMap((chunk) => chunk.paths))];
-      const worker = this.launchAgent(execution, integration, { phase: 'consolidation', result, allowedPaths });
-      execution.status = 'integration-conflict'; execution.integration = { ...integration, agent: worker, conflict: { ...result, kind: 'consolidation' }, worker, allowedPaths, startedAt: this.now().toISOString() }; this.persist(execution);
+      const conflict = { ...result, kind: 'consolidation' }; let worker;
+      try { worker = this.launchAgent(execution, integration, { phase: 'consolidation', result: conflict, allowedPaths }); }
+      catch (error) { execution.status = 'verification-failed'; execution.integration = { ...integration, conflict, allowedPaths, startedAt: this.now().toISOString() }; execution.verification = { state: 'fail', summary: `Unable to launch conflict-resolution agent: ${error.message}`.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() }; this.persist(execution); return execution.verification; }
+      execution.status = 'integration-conflict'; execution.integration = { ...integration, agent: worker, conflict, worker, repairAttempts: this.startRepairAttempt(integration, worker, 'consolidation'), allowedPaths, startedAt: this.now().toISOString() }; this.persist(execution);
       return { ...result, requiresIntegrationWorker: true, integration, worker };
     }
     return this.startChecks(execution, integration, result.head);
@@ -109,6 +121,7 @@ class IntegrationCoordinator {
     const execution = this.scheduler.load(executionId); if (execution.status !== 'integration-conflict') throw new Error('Execution is not awaiting integration conflict repair');
     if (!['pass', 'fail'].includes(report.state)) throw new Error('Integration repair requires state pass or fail');
     if (execution.integration?.conflict?.kind === 'target') {
+      this.completeRepairAttempt(execution, report, 'Target integration repair failed');
       const repository = this.repository(execution); const staged = execution.integration.reconciliation;
       if (report.state !== 'pass') { this.git.cleanupReconciliation(staged, repository); const failed = this.failQueued(execution, report.summary || 'Target integration repair failed'); this.drainIntegrationQueue(repository); return failed; }
       let reconciled; try { reconciled = this.git.finishReconciliation(staged, repository); }
@@ -116,16 +129,16 @@ class IntegrationCoordinator {
       execution.integration = { ...execution.integration, reconciliation: reconciled, base: reconciled.targetHead, worktree: reconciled.worktree, repairedAt: this.now().toISOString() };
       return this.startChecks(execution, execution.integration, reconciled.commit, { purpose: 'target-reconciliation' });
     }
-    if (report.state !== 'pass') { execution.status = 'verification-failed'; execution.verification = { state: report.state, summary: `${report.summary || 'Integration repair failed'}`.slice(0, 800), completedAt: this.now().toISOString() }; this.persist(execution); return execution.verification; }
+    if (report.state !== 'pass') { this.completeRepairAttempt(execution, report); execution.status = 'verification-failed'; execution.verification = { state: report.state, summary: `${report.summary || 'Integration repair failed'}`.slice(0, 800), completedAt: this.now().toISOString() }; this.persist(execution); return execution.verification; }
     const integration = execution.integration; let head = this.git.checkpoint(integration.worktree, `Repair integration for ${execution.planId}`); const pending = integration.conflict?.pendingChunkIds || [];
     for (let index = 0; index < pending.length; index += 1) {
       const chunk = execution.chunks.find((item) => item.id === pending[index]);
       try { this.git.git(['cherry-pick', chunk.commit], integration.worktree); head = this.git.git(['rev-parse', 'HEAD'], integration.worktree); }
       catch (error) { execution.integration.conflict = { state: 'conflict', chunkIds: [chunk.id], pendingChunkIds: pending.slice(index + 1), message: `${error.stderr || error.message}`.slice(0, 800) }; this.persist(execution); return execution.integration.conflict; }
     }
-    this.git.verifyResult({ base: integration.base, head, ownedPaths: integration.allowedPaths, checks: [], worktree: integration.worktree });
+    this.git.verifyResult({ base: integration.base, head, ownedPaths: integration.allowedPaths, checks: [], worktree: integration.worktree }); this.completeRepairAttempt(execution, report);
     const purpose = integration.conflict?.kind === 'verification' ? REMEDY_VERIFICATION_PURPOSE : 'initial';
-    return this.startChecks(execution, { ...integration, repairedAt: this.now().toISOString() }, head, { purpose });
+    return this.startChecks(execution, { ...execution.integration, repairedAt: this.now().toISOString() }, head, { purpose });
   }
 
   remedy(executionId, message = '') {
@@ -138,8 +151,39 @@ class IntegrationCoordinator {
     catch (error) { throw new Error(`Unable to continue the execution agent for verifier remedies: ${error.message}`); }
     const attempts = integration.remedyAttempts?.length ? structuredClone(integration.remedyAttempts) : []; attempts.push({ number: attempts.length + 1, ...worker, startedAt: this.now().toISOString(), findings: findings.slice(0, 800), userGuidance: suggestion.slice(0, 800), affectedChunkIds: chunkIds });
     const verificationRemedyRound = (integration.verificationRemedyRound || 0) + 1;
-    execution.status = 'integration-conflict'; execution.integration = { ...integration, agent: worker, conflict: result, worker, allowedPaths, repairPaths, remedyAttempts: attempts, verificationRemedyRound }; execution.events ||= []; execution.events.push({ type: 'verification.remedy-started', round: verificationRemedyRound, chunkIds, at: this.now().toISOString() }); this.persist(execution); return { ...result, requiresIntegrationWorker: true, worker };
+    execution.status = 'integration-conflict'; execution.integration = { ...integration, agent: worker, conflict: result, worker, allowedPaths, repairPaths, remedyAttempts: attempts, repairAttempts: this.startRepairAttempt(integration, worker, 'verification-remedy'), verificationRemedyRound }; execution.events ||= []; execution.events.push({ type: 'verification.remedy-started', round: verificationRemedyRound, chunkIds, at: this.now().toISOString() }); this.persist(execution); return { ...result, requiresIntegrationWorker: true, worker };
   }
+
+  retry(executionId) {
+    const execution = this.scheduler.load(executionId);
+    if (['complete', 'cancelled'].includes(execution.status)) throw new Error('Terminal executions cannot be retried');
+    if (execution.status !== 'verification-failed') throw new Error('Integration retry requires a failed verification state');
+    const integration = execution.integration; if (!integration) throw new Error('Integration retry context is missing');
+    if (execution.integrationOverride && !integration.queue) throw new Error('Integration retry cannot implicitly reuse an override');
+
+    if (integration.queue) {
+      if (integration.queue.active) throw new Error('Integration retry is already active');
+      if (!integration.worktree || !integration.base || !integration.queue.message) throw new Error('Queued integration retry context is missing');
+      if (integration.reconciliation) { this.git.cleanupReconciliation(integration.reconciliation, this.repository(execution)); this.restoreQueueSource(execution); }
+      delete execution.verification; execution.status = 'integration-queued'; execution.integration.queue = { ...execution.integration.queue, active: false, retriedAt: this.now().toISOString(), retryReason: 'Retrying the preserved target integration after a recoverable failure' }; this.persist(execution); return this.drainIntegrationQueue(this.repository(execution), execution.id);
+    }
+
+    if (integration.conflict?.kind === 'consolidation') {
+      if (!integration.worktree || !integration.base || !Array.isArray(integration.allowedPaths)) throw new Error('Consolidation repair retry context is missing');
+      const attempts = integration.repairAttempts?.length ? structuredClone(integration.repairAttempts) : integration.worker ? [{ number: 1, ...integration.worker, startedAt: integration.startedAt || execution.createdAt }] : [];
+      const previous = attempts.findLast((attempt) => attempt.sessionId === integration.worker?.sessionId); if (previous && !previous.completedAt) { previous.completedAt = this.now().toISOString(); previous.result = 'failed'; previous.summary = `${execution.verification?.summary || 'Integration repair failed'}`.slice(0, 800); }
+      let worker; try { worker = this.launchAgent(execution, integration, { phase: 'consolidation-retry', result: integration.conflict, allowedPaths: integration.allowedPaths }); }
+      catch (error) { execution.verification = { state: 'fail', summary: `Unable to retry conflict-resolution agent: ${error.message}`.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() }; execution.integration = { ...integration, repairAttempts: attempts }; this.persist(execution); return execution.verification; }
+      attempts.push({ number: attempts.length + 1, ...worker, startedAt: this.now().toISOString(), retryReason: 'Retrying preserved consolidation conflict' }); delete execution.verification; execution.status = 'integration-conflict'; execution.integration = { ...integration, worker, repairAttempts: attempts, retriedAt: this.now().toISOString() }; this.persist(execution); return { ...integration.conflict, requiresIntegrationWorker: true, integration: execution.integration, worker };
+    }
+
+    if (integration.verificationPurpose === 'target-reconciliation') throw new Error('Target reconciliation retry context is missing');
+    if (!integration.worktree || !integration.base || !integration.head) throw new Error('Consolidated integration retry context is missing');
+    const preserved = { ...integration, retryAttempts: (integration.retryAttempts || 0) + 1, retriedAt: this.now().toISOString() }; delete preserved.verifier; delete preserved.context; delete preserved.checkResults; delete preserved.checkRun; delete execution.verification;
+    return this.startChecks(execution, preserved, integration.head, { purpose: 'initial' });
+  }
+
+  retryIntegration(executionId) { return this.retry(executionId); }
 
   retryVerification(executionId, { sessionId, reason = 'Verifier exited before reporting' } = {}) {
     const execution = this.scheduler.load(executionId); if (execution.status !== 'verifying') return null;

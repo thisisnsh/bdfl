@@ -2,10 +2,10 @@
 
 BDFL runs in the foreground, but its work survives a closed pane or supervisor restart. Each repository's schema-2 `.bdfl/workspace.json` records its agents' stable names, role sequences, task snippets, attention state, and provider resume identities; plan lineages, executions, worker contexts, worktrees, events, and terminal snapshots live beside it in that repository's `.bdfl/` directory.
 
-- **Close** stops a session's PTYs and hides it. Its provider session IDs, roles, profiles, custom argv, branches, worktrees, plan relationships, and snapshots remain; **Sessions** can reopen it later.
+- **Close** pauses only the selected child session. Its provider session IDs, roles, profiles, custom argv, branches, worktrees, plan relationships, and snapshots remain; its paused badge or **Sessions** can resume that exact child later without relaunching completed history.
 - Reopening uses the provider's exact interactive resume identity: `claude --resume <id>`, `codex resume <id>`, or the underlying `codex resume <id>` passed through `ollama launch codex`. The saved model, effort, custom permission options, other arguments, fresh session capability, and canonical role instructions are restored with it.
 - Dangerous access is never saved with a session. Restored sessions receive provider bypass flags only when the new supervisor process was started with `bdfl --dangerous`.
-- **Quit** stops all PTYs without marking their sessions closed. Every agent in those sessions launches automatically when BDFL starts again.
+- Pressing `Ctrl+C` twice stops the supervisor and its PTYs without marking active sessions closed. Those sessions restore from durable state when BDFL starts again.
 - Native Plan and Review panes reconstruct themselves from files, not model context.
 - A launch coordinator lock plus sorted repository locks prevent parent and repository-scoped supervisors from mutating the same state. If any repository is already owned, startup releases locks it acquired and stops.
 - Development schema 1 state is not migrated. Stop the active supervisor, remove only this repository's `.bdfl/` directory, and start BDFL again to create fresh schema-2 state.

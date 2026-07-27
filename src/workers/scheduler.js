@@ -7,6 +7,37 @@ const { normalizeTaskSnippet } = require('../state/workspace');
 const ACTIVE = new Set(['running', 'waiting']);
 const FEEDBACK = new Set(['running', 'waiting', 'review', 'failed']);
 const TERMINAL_EXECUTIONS = new Set(['complete', 'cancelled']);
+const MAX_FEEDBACK_MESSAGE = 800;
+const MAX_FEEDBACK_SELECTIONS = 20;
+const MAX_SELECTION_TEXT = 4000;
+const MAX_WORKER_FEEDBACK = 12000;
+
+function boundedText(value, maximum, { trim = false } = {}) {
+  const text = `${value ?? ''}`.replace(/\r\n?/gu, '\n');
+  return (trim ? text.trim() : text).slice(0, maximum);
+}
+
+function normalizeFeedback(value) {
+  const input = typeof value === 'string' ? { message: value } : value && typeof value === 'object' ? value : {};
+  const message = boundedText(input.message, MAX_FEEDBACK_MESSAGE, { trim: true });
+  if (!message) throw new Error('Worker feedback is required');
+  const selections = (Array.isArray(input.selections) ? input.selections : []).slice(0, MAX_FEEDBACK_SELECTIONS).map((selection, index) => {
+    const source = selection && typeof selection === 'object' ? selection : {};
+    const startLine = Number.isSafeInteger(source.startLine) ? source.startLine : Number.isSafeInteger(source.sourceStartLine) ? source.sourceStartLine : Number.isSafeInteger(source.start) ? source.start : 0;
+    const endLine = Number.isSafeInteger(source.endLine) ? source.endLine : Number.isSafeInteger(source.sourceEndLine) ? source.sourceEndLine : Number.isSafeInteger(source.end) ? source.end : startLine;
+    const normalized = { file: boundedText(source.file, 200, { trim: true }), hunk: boundedText(source.hunk, 200, { trim: true }), startLine, endLine, text: boundedText(source.text ?? source.selectedText, MAX_SELECTION_TEXT) };
+    if (!normalized.file || !normalized.hunk || !normalized.text.trim() || startLine < 1 || endLine < startLine) throw new Error(`Worker feedback selection ${index + 1} requires file, hunk, text, and positive ordered source lines`);
+    return Object.freeze(normalized);
+  });
+  return Object.freeze({ message, selections: Object.freeze(selections) });
+}
+
+function workerFeedbackMessage(feedback) {
+  if (!feedback.selections.length) return feedback.message;
+  const prefix = `${feedback.message}\n\nSelected diff excerpts:\n\n`; const headers = feedback.selections.map((selection, index) => `Selection ${index + 1}: ${selection.file || '(unknown file)'} | ${selection.hunk || '(unknown hunk)'} | source lines ${selection.startLine}-${selection.endLine}`); const fixedLength = prefix.length + headers.reduce((length, header) => length + header.length + 1, 0) + Math.max(0, headers.length - 1) * 2; const excerptLimit = Math.max(0, Math.floor((MAX_WORKER_FEEDBACK - fixedLength) / headers.length));
+  const excerpts = feedback.selections.map((selection, index) => `${headers[index]}\n${selection.text.slice(0, excerptLimit)}`);
+  return boundedText(`${prefix}${excerpts.join('\n\n')}`, MAX_WORKER_FEEDBACK);
+}
 
 function workerTaskSnippet(source, fallback) {
   const title = source.match(/^##\s+(.+?)\s*$/mu)?.[1]; const outcomeStart = source.match(/^###\s+Outcome\s*$/imu); const outcome = outcomeStart ? source.slice(outcomeStart.index + outcomeStart[0].length).split(/^###\s+/mu)[0] : null;
@@ -19,7 +50,7 @@ class WorkerScheduler {
   roots() { return this.store?.repositoryRoots?.() || [this.root]; }
   executionFile(id, repository = this.root) { return path.join(repository, '.bdfl', 'executions', id, 'execution.json'); }
   load(id) { for (const repository of this.roots()) { try { return { ...JSON.parse(fs.readFileSync(this.executionFile(id, repository), 'utf8')), repositoryRoot: repository }; } catch {} } throw new Error(`Unknown execution: ${id}`); }
-  save(execution) { const repository = execution.repositoryRoot || this.root; const stored = { ...execution }; delete stored.repositoryRoot; atomicWrite(this.executionFile(execution.id, repository), `${JSON.stringify(stored, null, 2)}\n`); this.emitter.emit(execution.id); return execution; }
+  save(execution) { const repository = execution.repositoryRoot || this.root; const stored = { ...execution }; delete stored.repositoryRoot; atomicWrite(this.executionFile(execution.id, repository), `${JSON.stringify(stored, null, 2)}\n`); this.emitter.emit(execution.id); this.onChange?.(execution); return execution; }
   list() { return this.roots().flatMap((repository) => { const directory = path.join(repository, '.bdfl', 'executions'); let entries; try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { return []; } return entries.filter((entry) => entry.isDirectory()).flatMap((entry) => { try { return [{ ...JSON.parse(fs.readFileSync(path.join(directory, entry.name, 'execution.json'), 'utf8')), repositoryRoot: repository }]; } catch { return []; } }); }); }
   freeze(planId, version, workstreamId, baseline = 'HEAD') {
     if (!this.lineage.executable(planId, version)) throw new Error('Execution requires approval of every plan section');
@@ -52,11 +83,11 @@ class WorkerScheduler {
   materializeContext(execution, chunk) { const directory = path.join(execution.repositoryRoot || this.root, '.bdfl', 'workers', execution.id, chunk.id, 'context'); fs.mkdirSync(path.join(directory, 'dependency-results'), { recursive: true }); atomicWrite(path.join(directory, 'shared.md'), this.lineage.readSection(execution.planId, execution.version, 'shared')); atomicWrite(path.join(directory, 'chunk.md'), this.lineage.readSection(execution.planId, execution.version, chunk.id)); for (const predecessor of this.ancestors(execution, chunk)) atomicWrite(path.join(directory, 'dependency-results', `${predecessor.id}.json`), `${JSON.stringify({ id: predecessor.id, commit: predecessor.commit, summary: predecessor.summary }, null, 2)}\n`); atomicWrite(path.join(directory, 'execution.json'), `${JSON.stringify({ executionId: execution.id, planId: execution.planId, version: execution.version, chunkId: chunk.id, paths: chunk.paths, checks: chunk.checks, base: chunk.attempts.at(-1).base }, null, 2)}\n`); return directory; }
   complete(id, chunkId, result) { const execution = this.load(id); const chunk = execution.chunks.find((item) => item.id === chunkId); if (!chunk || !ACTIVE.has(chunk.status)) throw new Error(`Chunk is not active: ${chunkId}`); let summary = `${result.summary || ''}`.slice(0, 800); const attempt = chunk.attempts.at(-1); let verified = result; if (result.state === 'pass' && this.validator) { try { verified = { ...result, ...this.validator({ execution, chunk, attempt, result }) }; } catch (error) { verified = { state: 'fail', error: error.message }; summary = error.message.slice(0, 800); } } Object.assign(attempt, { completedAt: this.now().toISOString(), result: verified.state, summary, error: verified.error }); Object.assign(chunk, { status: verified.state === 'pass' ? 'review' : verified.state === 'blocked' ? 'waiting' : 'failed', summary, commit: verified.commit || attempt.commit, changedPaths: verified.changedPaths || [], checkResults: verified.checks || [], diff: verified.diff || '' }); execution.events.push({ type: `worker.${chunk.status}`, chunkId, at: this.now().toISOString() }); this.save(execution); this.recalculate(id); return chunk; }
   accept(id, chunkId) { const execution = this.load(id); const chunk = execution.chunks.find((item) => item.id === chunkId); if (!chunk || chunk.status !== 'review') throw new Error(`Chunk is not ready for acceptance: ${chunkId}`); chunk.status = 'accepted'; chunk.acceptedAt = this.now().toISOString(); execution.integrationHead = chunk.commit || execution.integrationHead; execution.events.push({ type: 'worker.accepted', chunkId, at: chunk.acceptedAt }); this.save(execution); const updated = this.recalculate(id); if (updated.chunks.every((item) => item.status === 'accepted')) this.onAllAccepted?.(id); return this.load(id); }
-  feedback(id, chunkId, message, sender) { if (!message?.trim()) throw new Error('Worker feedback is required'); const execution = this.load(id); const chunk = execution.chunks.find((item) => item.id === chunkId); if (!chunk || !FEEDBACK.has(chunk.status)) throw new Error(`Chunk is not ready for feedback: ${chunkId}`); chunk.status = 'running'; chunk.feedback ||= []; chunk.feedback.push({ message: message.trim().slice(0, 800), at: this.now().toISOString() }); execution.events.push({ type: 'worker.feedback', chunkId, at: this.now().toISOString() }); this.save(execution); sender?.(id, chunkId, message.trim()); return chunk; }
+  feedback(id, chunkId, value, sender) { const feedback = normalizeFeedback(value); const execution = this.load(id); const chunk = execution.chunks.find((item) => item.id === chunkId); if (!chunk || !FEEDBACK.has(chunk.status)) throw new Error(`Chunk is not ready for feedback: ${chunkId}`); sender?.(id, chunkId, workerFeedbackMessage(feedback)); const at = this.now().toISOString(); chunk.status = 'running'; chunk.feedback ||= []; chunk.feedback.push({ message: feedback.message, selections: feedback.selections.map((selection) => ({ ...selection })), at }); execution.events.push({ type: 'worker.feedback', chunkId, at }); this.save(execution); return chunk; }
   setCapacity(id, capacity) { if (!Number.isInteger(capacity) || capacity < 1 || capacity > 5) throw new Error('Worker capacity must be an integer from 1 to 5'); const execution = this.load(id); execution.capacity = capacity; this.save(execution); return this.recalculate(id); }
   status(id) { const execution = this.load(id); return { id, planId: execution.planId, version: execution.version, status: execution.status, capacity: execution.capacity, chunks: execution.chunks.map(({ id: chunkId, status, commit, dependsOn, taskSnippet, attempts }) => ({ id: chunkId, status, commit, dependsOn, taskSnippet: taskSnippet || null, sessionId: attempts.at(-1)?.sessionId || null })), paths: { execution: this.executionFile(id, execution.repositoryRoot) } }; }
   events(id, cursor = 0) { const events = this.load(id).events.slice(cursor, cursor + 20); return { cursor: cursor + events.length, events: events.map(({ type, chunkId, at }) => ({ type, chunkId, at })) }; }
   wait(id, cursor = 0, timeout = 55000) { const immediate = this.events(id, cursor); if (immediate.events.length) return Promise.resolve(immediate); return new Promise((resolve) => { const finish = () => { clearTimeout(timer); this.emitter.off(id, finish); resolve(this.events(id, cursor)); }; const timer = setTimeout(finish, timeout); this.emitter.once(id, finish); }); }
 }
 
-module.exports = { WorkerScheduler, ACTIVE, FEEDBACK, TERMINAL_EXECUTIONS, workerTaskSnippet };
+module.exports = { WorkerScheduler, ACTIVE, FEEDBACK, TERMINAL_EXECUTIONS, workerTaskSnippet, normalizeFeedback, workerFeedbackMessage };

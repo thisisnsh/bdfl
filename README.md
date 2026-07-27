@@ -93,9 +93,9 @@ Use Codex, Claude Code, or Ollama independently for planning, worker, or direct-
 
 - Manage running sessions or resume closed ones. Rename or permanently delete them.
 
-- Agents accept typing immediately. Switch with `Ctrl+PageUp` / `Ctrl+PageDown`, jump with `Alt+1` through `Alt+9`, or click an agent badge.
+- Agents accept typing and terminal editing keys immediately. Click a parent or child badge to switch agents without stealing provider keystrokes.
 
-- The bottom action rail supports `Alt+N` New, `Alt+P` Plans, `Alt+S` Sessions, `Alt+R` Review, and `Alt+C` Close. Actions can also be clicked.
+- The bottom action rail is mouse-first: click New, Plans, Sessions, Review, or Close. Close pauses only the selected child, and clicking its paused badge or opening it from Sessions resumes that exact provider conversation. Press `Ctrl+C` twice to quit BDFL.
 
 - On the Plans and Sessions overview pages, press `d` to permanently delete the selected plan or session group, or `D` to delete all. Press Enter a second time to confirm or Esc to cancel. Active plan executions block plan deletion; session cleanup failures leave the durable catalog intact.
 
