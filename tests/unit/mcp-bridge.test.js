@@ -43,10 +43,16 @@ test('enforces role-scoped worker actions before calling the scheduler', async (
   await assert.rejects(service.call({ role: 'worker', workstreamId: 'w', executionId: 'e', chunkId: 'chunk' }, { action: 'complete', executionId: 'other', state: 'pass' }), /different execution/);
 });
 
-test('lets only the verifier hand an explicitly accepted remedy to a repair agent', async () => {
+test('lets the legacy verifier or durable execution agent continue an explicitly accepted remedy', async () => {
   const calls = []; const scheduler = { load: () => ({ workstreamId: 'w' }) }; const integration = { remedy(...args) { calls.push(args); return { worker: { sessionId: 'repair' } }; } }; const service = new WorkerService({ scheduler, integration });
   const verifier = { role: 'verifier', workstreamId: 'w', executionId: 'e' }; const result = await service.call(verifier, { action: 'remedy', message: 'Keep the resumed child' }); assert.deepEqual(calls, [['e', 'Keep the resumed child']]); assert.equal(result.structuredContent.remedy.worker.sessionId, 'repair');
+  const agent = { role: 'integration', workstreamId: 'w', executionId: 'e' }; await service.call(agent, { action: 'remedy', message: 'Preserve both fixes' }); assert.deepEqual(calls[1], ['e', 'Preserve both fixes']);
   await assert.rejects(service.call({ role: 'worker', workstreamId: 'w', executionId: 'e', chunkId: 'a' }, { action: 'remedy' }), /cannot use worker action remedy/);
+});
+
+test('routes durable execution-agent completion by its current phase', async () => {
+  let status = 'verifying'; const calls = []; const scheduler = { load: () => ({ workstreamId: 'w', status }) }; const integration = { verification(...args) { calls.push(['verification', ...args]); return { state: 'pass' }; }, repaired(...args) { calls.push(['repair', ...args]); return { state: 'checking' }; } }; const service = new WorkerService({ scheduler, integration }); const agent = { role: 'integration', workstreamId: 'w', executionId: 'e' };
+  const verified = await service.call(agent, { action: 'complete', state: 'pass', summary: 'reviewed' }); assert.equal(verified.structuredContent.verification.state, 'pass'); status = 'integration-conflict'; const repaired = await service.call(agent, { action: 'complete', state: 'pass', summary: 'fixed' }); assert.equal(repaired.structuredContent.integration.state, 'checking'); assert.deepEqual(calls.map(([kind]) => kind), ['verification', 'repair']);
 });
 
 test('rejects incomplete agent reports instead of recording a missing state as failure', async () => {

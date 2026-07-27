@@ -121,9 +121,9 @@ Plans use immutable versions with individually managed sections.
 
 #### DAG-based isolated execution
 
-Each worker receives an isolated and focused context, and is aware of their turn in the execution workflow.
+Each implementation worker receives an isolated and focused context. One durable execution agent then owns verification, accepted repairs, and final reconciliation in the same provider conversation.
 
-- Navigate to any worker, verifier, or conflict-resolution agent from the bottom rail to follow its progress or respond when it needs attention.
+- Navigate to any worker or the execution agent from the bottom rail to follow its progress or respond when it needs attention.
 - Independent chunks can run in parallel within the configured worker limit.
 - Prerequisites and named locks keep dependent or conflicting work in the correct order.
 
@@ -137,10 +137,10 @@ Each worker receives an isolated and focused context, and is aware of their turn
 Inspect each worker’s summary, diff, changed paths, checks, and commit metadata.
 
 - Accept the result or send feedback to the same worker for revision.
-- Review the consolidated result after global checks and a fresh verification pass.
-- If verification fails, accept its recorded remedy or add repair guidance from Review. BDFL launches a visible writable repair agent limited to the affected chunks, reruns global checks, and starts a fresh read-only verifier. You can also explicitly ask the verifier session to start the same remedy.
+- Review the consolidated result after global checks and an explicit verification phase.
+- If verification fails, accept its recorded remedy or add repair guidance from Review. The same visible execution agent continues in the integration worktree, fixes the accepted findings, audits the full result, reruns focused checks, and then receives the next verification phase with its earlier reasoning intact.
 - Integration requests enter a durable per-repository queue, so only one verified result at a time can reconcile with and advance the target branch.
-- If other work has committed meanwhile, BDFL reconciles the verified result in a disposable worktree. Git conflicts launch a visible resolution agent; after it reports, bounded global checks run in the background so the supervisor stays responsive. If the combined tree fails a check, BDFL keeps it and gives a visible repair agent the captured failure before checking again. The combined tree then receives a fresh visible verification pass before BDFL adds one commit on top. Interrupted checks and legacy reconciliation failures resume from durable state. Uncommitted target changes and rewritten history still stop integration without touching the target.
+- If other work has committed meanwhile, BDFL reconciles the verified result in a disposable worktree. The execution agent retains its verification and repair context while resolving conflicts or validation failures. Bounded global checks run in the background so the supervisor stays responsive, and a passing combined tree receives another verification phase in that same conversation before BDFL adds one commit on top. Interrupted checks and legacy reconciliation failures resume from durable state. Uncommitted target changes and rewritten history still stop integration without touching the target.
 
 After worker review, BDFL runs global checks and a fresh verification pass before presenting the consolidated result for integration.
 

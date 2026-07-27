@@ -11,7 +11,7 @@ const ROLE_ACTIONS = {
   delegator: new Set(['execute', 'status', 'wait', 'feedback', 'send']),
   worker: new Set(['status', 'wait', 'complete']),
   verifier: new Set(['status', 'complete', 'remedy']),
-  integration: new Set(['status', 'complete'])
+  integration: new Set(['status', 'complete', 'remedy'])
 };
 
 const PLAN_TOOL = { name: 'bdfl_plan', title: 'Publish a durable BDFL plan', description: 'Read or publish the marker-bearing plan for this BDFL workstream.', inputSchema: { type: 'object', properties: { action: { type: 'string', enum: PLAN_ACTIONS }, detail: { type: 'string', enum: ['summary', 'revision'] }, source: { type: 'string' }, planId: { type: 'string' }, convert: { type: 'boolean' } }, required: ['action'], additionalProperties: false } };
@@ -54,16 +54,16 @@ class WorkerService {
   async call(capability, args) {
     this.assert(capability, args);
     if (args.action === 'complete') { const states = capability.role === 'worker' ? ['pass', 'blocked', 'fail'] : ['pass', 'fail']; if (!states.includes(args.state)) throw new Error(`${capability.role} completion requires state ${states.join(', ')}`); }
-    if (args.action === 'execute') { const execution = this.scheduler.freeze(args.planId, args.version, capability.workstreamId); return mcpResult({ executionId: execution.id, duplicate: Boolean(execution.duplicate), workload: execution.workload, message: execution.duplicate ? `Execution for v${execution.version} already exists.` : `Execution v${execution.version} started: ${execution.workload.implementationWorkers} implementation worker${execution.workload.implementationWorkers === 1 ? '' : 's'} + 1 verifier · max ${execution.capacity} concurrent.` }); }
+    if (args.action === 'execute') { const execution = this.scheduler.freeze(args.planId, args.version, capability.workstreamId); return mcpResult({ executionId: execution.id, duplicate: Boolean(execution.duplicate), workload: execution.workload, message: execution.duplicate ? `Execution for v${execution.version} already exists.` : `Execution v${execution.version} started: ${execution.workload.implementationWorkers} isolated implementation worker${execution.workload.implementationWorkers === 1 ? '' : 's'} + 1 durable execution agent · max ${execution.capacity} concurrent.` }); }
     const executionId = args.executionId || capability.executionId; if (!executionId) throw new Error('executionId is required');
     if (this.scheduler.load(executionId).workstreamId !== capability.workstreamId) throw new Error('Execution belongs to a different workstream');
     if (args.action === 'status') return mcpResult(this.scheduler.status(executionId));
     if (args.action === 'wait') return mcpResult(await this.scheduler.wait(executionId, args.cursor || 0));
     if (args.action === 'send') { this.sender?.(executionId, args.chunkId, args.message); return mcpResult({ executionId, chunkId: args.chunkId, queued: true, message: 'Message queued for the worker.' }); }
     if (args.action === 'feedback') return mcpResult({ chunk: this.scheduler.feedback(executionId, args.chunkId, args.message, this.sender), message: 'Feedback returned the worker to its active attempt.' });
-    if (args.action === 'remedy') return mcpResult({ remedy: this.integration.remedy(executionId, args.message), message: 'Verifier findings were handed to a visible repair agent. BDFL will rerun checks and launch a fresh verifier after the repair.' });
+    if (args.action === 'remedy') return mcpResult({ remedy: this.integration.remedy(executionId, args.message), message: 'Verifier findings were accepted. The same durable execution agent will continue with repair, checks, and verification.' });
     if (args.action === 'complete' && capability.role === 'verifier') return mcpResult({ verification: this.integration.verification(executionId, args), message: 'Verifier report recorded.' });
-    if (args.action === 'complete' && capability.role === 'integration') return mcpResult({ integration: this.integration.repaired(executionId, args), message: 'Integration repair recorded.' });
+    if (args.action === 'complete' && capability.role === 'integration') { const execution = this.scheduler.load(executionId); if (execution.status === 'verifying') return mcpResult({ verification: this.integration.verification(executionId, args), message: 'Execution-agent verification report recorded.' }); return mcpResult({ integration: this.integration.repaired(executionId, args), message: 'Execution-agent repair or reconciliation report recorded.' }); }
     if (args.action === 'complete') return mcpResult({ chunk: this.scheduler.complete(executionId, capability.chunkId || args.chunkId, args), message: 'Worker completion recorded.' });
     throw new Error(`Unknown worker action: ${args.action}`);
   }

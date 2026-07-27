@@ -6,22 +6,23 @@ const MAX_RECONCILIATION_REPAIR_ATTEMPTS = 3;
 const REMEDY_VERIFICATION_PURPOSE = 'remedy-verification';
 
 class IntegrationCoordinator {
-  constructor({ scheduler, git, lineage, verifierLauncher, integrationLauncher, now = () => new Date(), onChange = null }) {
-    this.scheduler = scheduler; this.git = git; this.lineage = lineage; this.verifierLauncher = verifierLauncher; this.integrationLauncher = integrationLauncher; this.now = now; this.onChange = onChange; this.checkJobs = new Map(); this.checkSequence = 0;
+  constructor({ scheduler, git, lineage, agentLauncher, verifierLauncher, integrationLauncher, now = () => new Date(), onChange = null }) {
+    this.scheduler = scheduler; this.git = git; this.lineage = lineage; this.agentLauncher = agentLauncher || ((value) => ['verification', 'verification-retry'].includes(value.phase) ? verifierLauncher?.(value) : integrationLauncher?.(value)); this.now = now; this.onChange = onChange; this.checkJobs = new Map(); this.checkSequence = 0;
   }
 
   persist(execution) { const saved = this.scheduler.save(execution); this.onChange?.(); return saved; }
+  launchAgent(execution, integration, { phase, context = integration.context, result = null, allowedPaths = integration.allowedPaths, fallback = null } = {}) { const agent = integration.agent || fallback; const launched = this.agentLauncher?.({ execution, integration, agent, context, result, allowedPaths, profile: execution.profile, phase }); if (!launched?.sessionId) throw new Error('Execution agent launcher did not return a session ID'); if (agent?.sessionId && launched.sessionId !== agent.sessionId && launched.replacesSessionId !== agent.sessionId) throw new Error('Execution agent launcher replaced the durable execution session without an explicit legacy migration'); return launched; }
 
   beginVerification(execution, integration, head, checkResults, { purpose = 'initial' } = {}) {
     const startedAt = integration.startedAt || this.now().toISOString(); const enriched = { ...integration, head, checkResults, startedAt, verificationPurpose: purpose };
     const context = this.git.verifierContext(execution, enriched, this.lineage);
     const failed = checkResults.some((check) => !check.ok);
     let verifier = null; let launchError = null;
-    if (!failed) { try { verifier = this.verifierLauncher?.({ execution, integration: enriched, context, readOnly: true, profile: execution.profile }); if (!verifier?.sessionId) throw new Error('Verifier launcher did not return a session ID'); } catch (error) { launchError = error; } }
+    if (!failed) { try { verifier = this.launchAgent(execution, enriched, { phase: 'verification', context, fallback: integration.worker }); } catch (error) { launchError = error; } }
     execution.status = failed || launchError ? 'verification-failed' : 'verifying';
     const verifierAttempts = integration.verifierAttempts?.length ? structuredClone(integration.verifierAttempts) : [];
     if (verifier) verifierAttempts.push({ number: verifierAttempts.length + 1, ...verifier, startedAt: this.now().toISOString() });
-    execution.integration = { ...enriched, finalDiff: this.git.patch(integration.base, head, integration.worktree), verifier, verifierAttempts, context, verificationPurpose: purpose };
+    execution.integration = { ...enriched, finalDiff: this.git.patch(integration.base, head, integration.worktree), agent: verifier || integration.agent, verifier, verifierAttempts, context, verificationPurpose: purpose };
     if (launchError) execution.verification = { state: 'fail', summary: `Unable to launch verifier: ${launchError.message}`.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() };
     if (purpose === 'target-reconciliation' && (failed || launchError)) { this.git.cleanupReconciliation(integration.reconciliation, this.repository(execution)); this.restoreQueueSource(execution); this.releaseQueue(execution); }
     this.persist(execution); if (purpose === 'target-reconciliation' && (failed || launchError)) this.drainIntegrationQueue(this.repository(execution)); return execution.integration;
@@ -37,9 +38,9 @@ class IntegrationCoordinator {
   requestValidationRepair(execution, failed, checkResults) {
     const repository = this.repository(execution); const integration = execution.integration; const attempts = (integration.validationRepairAttempts || 0) + 1; const command = failed.command?.length ? failed.command.join(' ') : 'global validation'; const result = { state: 'conflict', kind: 'target', chunkIds: execution.chunks.map((chunk) => chunk.id), pendingChunkIds: [], message: `The reconciled target failed ${command}. Repair the combined tree using this validation output:\n${failed.output || '(no output captured)'}`.slice(0, 12000) };
     if (failed.timedOut || attempts > MAX_RECONCILIATION_REPAIR_ATTEMPTS) { this.git.cleanupReconciliation(integration.reconciliation, repository); const summary = failed.timedOut ? `Reconciled target validation timed out: ${command}` : `Reconciled target validation still failed after ${MAX_RECONCILIATION_REPAIR_ATTEMPTS} repair attempts: ${command}`; const failure = this.failQueued(execution, summary, checkResults); this.drainIntegrationQueue(repository); return failure; }
-    const allowedPaths = integration.allowedPaths || [...new Set(execution.chunks.flatMap((chunk) => chunk.paths))]; let worker; try { worker = this.integrationLauncher?.({ execution, integration, result, allowedPaths, profile: execution.profile, phase: 'target-validation' }); if (!worker?.sessionId) throw new Error('Integration launcher did not return a session ID'); }
+    const allowedPaths = integration.allowedPaths || [...new Set(execution.chunks.flatMap((chunk) => chunk.paths))]; let worker; try { worker = this.launchAgent(execution, integration, { phase: 'target-validation', result, allowedPaths }); }
     catch (error) { this.git.cleanupReconciliation(integration.reconciliation, repository); const failure = this.failQueued(execution, `Unable to launch validation-repair agent: ${error.message}`, checkResults); this.drainIntegrationQueue(repository); return failure; }
-    execution.status = 'integration-conflict'; execution.integration = { ...integration, conflict: result, worker, allowedPaths, validationRepairAttempts: attempts, checkResults }; execution.verification = { state: 'fail', summary: `Reconciled target validation failed; visible repair agent ${attempts}/${MAX_RECONCILIATION_REPAIR_ATTEMPTS} is fixing ${command}`.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() }; this.persist(execution); return { state: 'conflict', queued: true, worker, validationRepair: true };
+    execution.status = 'integration-conflict'; execution.integration = { ...integration, agent: worker, conflict: result, worker, allowedPaths, validationRepairAttempts: attempts, checkResults }; execution.verification = { state: 'fail', summary: `Reconciled target validation failed; visible execution agent is fixing attempt ${attempts}/${MAX_RECONCILIATION_REPAIR_ATTEMPTS} for ${command}`.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() }; this.persist(execution); return { state: 'conflict', queued: true, worker, validationRepair: true };
   }
 
   startChecks(execution, integration, head, { purpose = 'initial', resumed = false } = {}) {
@@ -72,9 +73,9 @@ class IntegrationCoordinator {
     execution.integration = { ...integration, queueSource: { branch: integration.branch, worktree: integration.worktree, base: integration.base }, reconciliation: staged, base: staged.targetHead, worktree: staged.worktree };
     if (staged.state === 'conflict') {
       const allowedPaths = integration.allowedPaths || [...new Set(execution.chunks.flatMap((chunk) => chunk.paths))]; const result = { state: 'conflict', kind: 'target', chunkIds: execution.chunks.map((chunk) => chunk.id), pendingChunkIds: [], message: staged.message };
-      let worker; try { worker = this.integrationLauncher?.({ execution, integration: execution.integration, result, allowedPaths, profile: execution.profile, phase: 'target' }); if (!worker?.sessionId) throw new Error('Integration launcher did not return a session ID'); }
+      let worker; try { worker = this.launchAgent(execution, execution.integration, { phase: 'target', result, allowedPaths }); }
       catch (error) { this.git.cleanupReconciliation(staged, repository); const failed = this.failQueued(execution, `Unable to launch conflict-resolution agent: ${error.message}`); this.drainIntegrationQueue(repository); return failed; }
-      execution.status = 'integration-conflict'; execution.integration = { ...execution.integration, conflict: result, worker, allowedPaths }; this.persist(execution); return { state: 'conflict', queued: true, worker };
+      execution.status = 'integration-conflict'; execution.integration = { ...execution.integration, agent: worker, conflict: result, worker, allowedPaths }; this.persist(execution); return { state: 'conflict', queued: true, worker };
     }
     return this.startChecks(execution, execution.integration, staged.commit, { purpose: 'target-reconciliation' });
   }
@@ -97,8 +98,8 @@ class IntegrationCoordinator {
     const integration = this.git.createIntegration(executionId, execution.baseline, execution.repositoryRoot); const result = this.git.consolidate(integration, execution.chunks);
     if (result.state === 'conflict') {
       const allowedPaths = [...new Set(execution.chunks.flatMap((chunk) => chunk.paths))];
-      const worker = this.integrationLauncher?.({ execution, integration, result, allowedPaths, profile: execution.profile });
-      execution.status = 'integration-conflict'; execution.integration = { ...integration, conflict: { ...result, kind: 'consolidation' }, worker, allowedPaths, startedAt: this.now().toISOString() }; this.persist(execution);
+      const worker = this.launchAgent(execution, integration, { phase: 'consolidation', result, allowedPaths });
+      execution.status = 'integration-conflict'; execution.integration = { ...integration, agent: worker, conflict: { ...result, kind: 'consolidation' }, worker, allowedPaths, startedAt: this.now().toISOString() }; this.persist(execution);
       return { ...result, requiresIntegrationWorker: true, integration, worker };
     }
     return this.startChecks(execution, integration, result.head);
@@ -133,11 +134,11 @@ class IntegrationCoordinator {
     const requested = new Set(execution.verification?.affectedChunkIds || []); const affected = execution.chunks.filter((chunk) => requested.has(chunk.id)); const chunks = affected.length ? affected : execution.chunks;
     const chunkIds = chunks.map((chunk) => chunk.id); const allowedPaths = [...new Set(execution.chunks.flatMap((chunk) => chunk.paths || []))]; const repairPaths = allowedPaths; if (!repairPaths.length) throw new Error('Verifier remedy has no approved paths');
     const suggestion = `${message || ''}`.trim(); const findings = execution.verification?.summary || 'Verification failed without a recorded summary.'; const result = { state: 'conflict', kind: 'verification', chunkIds, pendingChunkIds: [], message: `Repair the failed verification findings:\n${findings}${suggestion ? `\n\nUser guidance:\n${suggestion}` : ''}`.slice(0, 12000) };
-    let worker; try { worker = this.integrationLauncher?.({ execution, integration, result, allowedPaths: repairPaths, profile: execution.profile, phase: 'verification-remedy' }); if (!worker?.sessionId) throw new Error('Integration launcher did not return a session ID'); }
-    catch (error) { throw new Error(`Unable to launch verifier-remedy agent: ${error.message}`); }
+    let worker; try { worker = this.launchAgent(execution, integration, { phase: 'verification-remedy', result, allowedPaths: repairPaths, fallback: integration.verifier || integration.worker }); }
+    catch (error) { throw new Error(`Unable to continue the execution agent for verifier remedies: ${error.message}`); }
     const attempts = integration.remedyAttempts?.length ? structuredClone(integration.remedyAttempts) : []; attempts.push({ number: attempts.length + 1, ...worker, startedAt: this.now().toISOString(), findings: findings.slice(0, 800), userGuidance: suggestion.slice(0, 800), affectedChunkIds: chunkIds });
     const verificationRemedyRound = (integration.verificationRemedyRound || 0) + 1;
-    execution.status = 'integration-conflict'; execution.integration = { ...integration, conflict: result, worker, allowedPaths, repairPaths, remedyAttempts: attempts, verificationRemedyRound }; execution.events ||= []; execution.events.push({ type: 'verification.remedy-started', round: verificationRemedyRound, chunkIds, at: this.now().toISOString() }); this.persist(execution); return { ...result, requiresIntegrationWorker: true, worker };
+    execution.status = 'integration-conflict'; execution.integration = { ...integration, agent: worker, conflict: result, worker, allowedPaths, repairPaths, remedyAttempts: attempts, verificationRemedyRound }; execution.events ||= []; execution.events.push({ type: 'verification.remedy-started', round: verificationRemedyRound, chunkIds, at: this.now().toISOString() }); this.persist(execution); return { ...result, requiresIntegrationWorker: true, worker };
   }
 
   retryVerification(executionId, { sessionId, reason = 'Verifier exited before reporting' } = {}) {
@@ -147,9 +148,9 @@ class IntegrationCoordinator {
     const attempts = integration.verifierAttempts?.length ? structuredClone(integration.verifierAttempts) : current ? [{ number: 1, ...current, startedAt: integration.startedAt || execution.createdAt }] : [];
     const previous = attempts.findLast((attempt) => attempt.sessionId === current?.sessionId); if (previous && !previous.completedAt) { previous.completedAt = this.now().toISOString(); previous.result = 'interrupted'; previous.summary = `${reason}`.slice(0, 800); }
     if (attempts.length >= MAX_VERIFIER_ATTEMPTS) { execution.status = 'verification-failed'; execution.verification = { state: 'fail', summary: `Verification could not complete after ${attempts.length} attempts: ${reason}`.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() }; execution.integration = { ...integration, verifierAttempts: attempts }; if (integration.verificationPurpose === 'target-reconciliation') { this.git.cleanupReconciliation(integration.reconciliation, this.repository(execution)); this.restoreQueueSource(execution); } this.releaseQueue(execution); this.persist(execution); if (integration.verificationPurpose === 'target-reconciliation') this.drainIntegrationQueue(this.repository(execution)); return null; }
-    let verifier; try { verifier = this.verifierLauncher?.({ execution, integration, context: integration.context, readOnly: true, profile: execution.profile }); if (!verifier?.sessionId) throw new Error('Verifier launcher did not return a session ID'); }
+    let verifier; try { verifier = this.launchAgent(execution, integration, { phase: 'verification-retry', fallback: current }); }
     catch (error) { execution.status = 'verification-failed'; execution.verification = { state: 'fail', summary: `Unable to retry verifier: ${error.message}`.slice(0, 800), affectedChunkIds: [], completedAt: this.now().toISOString() }; execution.integration = { ...integration, verifierAttempts: attempts }; if (integration.verificationPurpose === 'target-reconciliation') { this.git.cleanupReconciliation(integration.reconciliation, this.repository(execution)); this.restoreQueueSource(execution); } this.releaseQueue(execution); this.persist(execution); if (integration.verificationPurpose === 'target-reconciliation') this.drainIntegrationQueue(this.repository(execution)); return null; }
-    attempts.push({ number: attempts.length + 1, ...verifier, startedAt: this.now().toISOString(), retryReason: `${reason}`.slice(0, 800) }); execution.integration = { ...integration, verifier, verifierAttempts: attempts }; this.persist(execution); return verifier;
+    attempts.push({ number: attempts.length + 1, ...verifier, startedAt: this.now().toISOString(), retryReason: `${reason}`.slice(0, 800) }); execution.integration = { ...integration, agent: verifier, verifier, verifierAttempts: attempts }; this.persist(execution); return verifier;
   }
 
   verification(executionId, report) {

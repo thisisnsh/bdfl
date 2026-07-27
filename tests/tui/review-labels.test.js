@@ -190,7 +190,7 @@ test('Review can accept or amend verifier remedies and keeps override separate',
   assert.match(supervisor.actionPageLines().join('\n'), /f suggest repair/);
   assert.match(supervisor.actionPageLines().join('\n'), /o override/);
   handlers.get('data')('r');
-  assert.match(supervisor.actionPageLines().join('\n'), /Start a visible repair agent using the verifier findings/);
+  assert.match(supervisor.actionPageLines().join('\n'), /Continue the execution agent with the accepted verifier findings/);
   assert.deepEqual(remedies, []);
   handlers.get('data')('\r');
   assert.deepEqual(remedies, [['execution']]);
