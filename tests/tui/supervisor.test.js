@@ -130,6 +130,12 @@ test('Sessions resumes exactly the selected paused child without reopening sibli
   assert.equal(supervisor.navigation.sessionId, 'w'); assert.deepEqual(opened.filter((id) => id === 'w'), ['w']); assert.equal(state.sessions.find((item) => item.id === 'w').explicitlyClosed, false); supervisor.stop();
 });
 
+test('Sessions arrows select exact agents and Enter opens only that agent', () => {
+  const state = workspace(); const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions');
+  assert.equal(supervisor.sessionPicker.sessionId, 'd'); handlers.get('data')('\u001b[B'); assert.equal(supervisor.sessionPicker.sessionId, 'w'); handlers.get('data')('\r'); assert.equal(supervisor.navigation.sessionId, 'w'); assert.deepEqual(opened, ['w']);
+  opened.length = 0; supervisor.activate('Sessions'); handlers.get('data')('\u001b[D'); assert.equal(supervisor.sessionPicker.sessionId, 'd'); handlers.get('data')('\u001b[C'); assert.equal(supervisor.sessionPicker.sessionId, 'w'); handlers.get('data')('\u001b[D'); handlers.get('data')('\r'); assert.equal(supervisor.navigation.sessionId, 'd'); assert.deepEqual(opened, ['d']); supervisor.stop();
+});
+
 test('Sessions keeps legacy explicitly closed non-terminal children resumable', () => {
   const state = workspace(); const worker = state.sessions.find((item) => item.id === 'w'); worker.explicitlyClosed = true; worker.status = 'closed'; const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions'); const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => row.session.id === 'w'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'w'; handlers.get('data')('\r'); assert.deepEqual(opened, ['w']); assert.equal(worker.status, 'running'); supervisor.stop();
 });
@@ -168,6 +174,13 @@ test('Plans and Reviews group by session with persistent expansion and exact cli
   hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'groups-expand'); click(handlers, hit); hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'plan-item' && item.planId === 'p1'); click(handlers, hit); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /Worker: Codex gpt-5 · high effort/); assert.match(plain, /Execution: Complete/); assert.match(plain, /Worker chunk · Implement API/);
   hit = supervisor.renderer.lastLayout.hits.filter((item) => item.type === 'plan-section')[1]; click(handlers, hit); assert.equal(supervisor.topPage.detail.sectionIndex, 1); handlers.get('data')('\u001b[A'); assert.equal(supervisor.topPage.detail.sectionIndex, 1); hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'page-action' && item.key === '\r'); click(handlers, hit); assert.equal(supervisor.topPage.detail.reader, true);
   supervisor.activate('Reviews'); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /▾ Build API \(2\)/); assert.match(plain, /▸ Fix CLI \(1\)/); assert.doesNotMatch(plain, /CLI ready/); hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'group-toggle' && item.workstreamId === 'two'); click(handlers, hit); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /CLI ready/); supervisor.stop();
+});
+
+test('grouped pages support arrow selection and individual or global keyboard expansion', () => {
+  const state = workspace(); state.workstreams[0].name = 'Alpha'; state.workstreams[1].name = 'Beta'; const plans = [{ planId: 'alpha', title: 'Alpha plan', workstreamId: 'one', currentVersion: 1 }, { planId: 'beta', title: 'Beta plan', workstreamId: 'two', currentVersion: 1 }]; const manifest = (id) => ({ title: `${id} plan`, version: 1, workstreamId: id === 'alpha' ? 'one' : 'two', shared: { id: 'shared', sha: 's' }, chunks: [], globalValidation: { id: 'global-validation', sha: 'g' }, approvals: {} }); const lineage = { list: () => plans, readManifest: (id) => manifest(id) };
+  const { supervisor, handlers } = harness(state, { lineage }); supervisor.start(); supervisor.activate('Plans'); const page = supervisor.groupPageState('Plans'); assert.match(page.selectedKey, /^item:alpha/);
+  handlers.get('data')('\u001b[A'); assert.equal(page.selectedKey, 'group:one'); handlers.get('data')('\r'); assert.equal(page.expanded.has('one'), false); handlers.get('data')('\u001b[C'); assert.equal(page.expanded.has('one'), true); handlers.get('data')('\u001b[B'); assert.match(page.selectedKey, /^item:alpha/);
+  handlers.get('data')('C'); assert.equal(page.expanded.size, 0); assert.match(page.selectedKey, /^group:/); handlers.get('data')('E'); assert.deepEqual([...page.expanded].sort(), ['one', 'two']); handlers.get('data')('c'); assert.equal(page.expanded.has(page.selectedKey.replace('group:', '')), false); handlers.get('data')('e'); assert.equal(page.expanded.has(page.selectedKey.replace('group:', '')), true); supervisor.stop();
 });
 
 test('execution state labels cover durable planning and execution phases', () => {
