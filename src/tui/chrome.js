@@ -122,7 +122,7 @@ function layoutChrome(workspace = {}, options = {}) {
   for (const stream of streams) {
     const group = childOrder((workspace.sessions || []).filter((session) => session.workstreamId === stream.id)); const primary = group.find((session) => ['delegator', 'direct'].includes(session.role));
     candidates.push({ kind: 'parent', stream, primary, text: badge(label(stream.name || primary?.name || stream.title, 'Session')) });
-    for (const child of group.filter((session) => !['delegator', 'direct'].includes(session.role))) candidates.push({ kind: 'worker', stream, child, text: badge(workerName(child)) });
+    if (stream.id === options.expandedWorkstreamId) for (const child of group.filter((session) => !['delegator', 'direct'].includes(session.role))) candidates.push({ kind: 'worker', stream, child, text: badge(workerName(child)) });
   }
   const focusIndex = Math.max(0, candidates.findIndex((item) => item.kind === 'worker' ? item.child.id === activeSessionId : item.primary?.id === activeSessionId || item.stream.id === options.expandedWorkstreamId)); let visible = visibleWindow(candidates, Math.max(0, inner - 2), focusIndex);
   if (visible.length === 1 && textWidth(visible[0].text) > inner - 2) visible = [{ ...visible[0], text: railBadge(visible[0], Math.max(0, inner - 2)) }];

@@ -73,6 +73,12 @@ test('uses exclusive active highlighting and connected creation-stable parent an
   const childLayout = layoutChrome(state, { columns: 100, rows: 10, expandedWorkstreamId: 'one', activeSessionId: 'worker' }); assert.equal(childLayout.children.find((item) => item.sessionId === 'worker').state, 'active'); assert.equal(childLayout.actions.some((item) => item.state === 'active'), false); assert.notEqual(childLayout.parents.find((item) => item.workstreamId === 'one').state, 'active');
 });
 
+test('bottom rail shows workers only for the active session group', () => {
+  const state = fixture(); state.sessions.push({ id: 'other-worker', workstreamId: 'two', name: 'Worker 2', role: 'worker', paneNumber: 5, status: 'running' });
+  let layout = layoutChrome(state, { columns: 100, rows: 10, expandedWorkstreamId: 'one', activeSessionId: 'worker' }); assert.deepEqual(layout.parents.map((item) => item.workstreamId), ['two', 'one']); assert.deepEqual(layout.children.map((item) => item.sessionId), ['worker', 'verifier']);
+  layout = layoutChrome(state, { columns: 100, rows: 10, expandedWorkstreamId: 'two', activeSessionId: 'other-worker' }); assert.deepEqual(layout.parents.map((item) => item.workstreamId), ['two', 'one']); assert.deepEqual(layout.children.map((item) => item.sessionId), ['other-worker']);
+});
+
 test('all visible badges have exact hitboxes and narrow layouts stay inside the frame', () => {
   for (const columns of [100, 42, 20, 12]) {
     const layout = layoutChrome(fixture(), { columns, rows: 8, expandedWorkstreamId: 'one', activeSessionId: 'lead' });
