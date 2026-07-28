@@ -57,23 +57,22 @@ test('chrome renders creation-stable parent sessions and only the expanded sessi
   const state = workspace(); const navigation = new Navigation(state); navigation.selectSession('w');
   const renderer = new TerminalRenderer({ version: '1.2.3' }); const output = renderer.render(state, navigation, { columns: 100, rows: 12 }); const layout = renderer.lastLayout; const plain = stripAnsi(output);
   assert.deepEqual(layout.parents.map((item) => item.workstreamId), ['two', 'one']);
-  assert.deepEqual(layout.children.map((item) => item.sessionId), ['d', 'w', 'v']);
+  assert.deepEqual(layout.children.map((item) => item.sessionId), ['w', 'v']);
   assert.equal(layout.children.find((item) => item.sessionId === 'w').state, 'active');
   assert.notEqual(layout.parents.find((item) => item.workstreamId === 'one').state, 'active');
-  assert.match(plain, /\[New\].*\[0 Plans\].*\[2 Sessions\].*\[0 Review\].*\[Close\]/);
-  assert.match(plain, /\[Report Issue\].*\[Star on GitHub\].*bdfl 1\.2\.3/);
+  assert.match(plain, /bdfl 1\.2\.3.*\[Star\].*\[Report\].*\[New\].*\[Plans\].*\[Sessions\].*\[Reviews\].*\[Close\]/);
   assert.doesNotMatch(plain, /Quit|\*|✓/);
 });
 
 test('native action and child highlights are exclusive across redraws', () => {
-  const state = workspace(); const navigation = new Navigation(state); navigation.selectSession('w'); navigation.activeAction = 'Review';
+  const state = workspace(); const navigation = new Navigation(state); navigation.selectSession('w'); navigation.activeAction = 'Reviews';
   const renderer = new TerminalRenderer(); renderer.render(state, navigation, { columns: 90, rows: 12 });
-  assert.equal(renderer.lastLayout.actions.find((item) => item.action === 'Review').state, 'active');
+  assert.equal(renderer.lastLayout.actions.find((item) => item.action === 'Reviews').state, 'active');
   assert.equal(renderer.lastLayout.children.some((item) => item.state === 'active'), false);
   navigation.activeAction = null; renderer.render(state, navigation, { columns: 90, rows: 12 });
   assert.equal(renderer.lastLayout.actions.some((item) => item.state === 'active'), false);
   assert.equal(renderer.lastLayout.children.find((item) => item.sessionId === 'w').state, 'active');
-  assert.deepEqual(availableActions(state), ['New', 'Plans', 'Sessions', 'Review', 'Close']);
+  assert.deepEqual(availableActions(state), ['New', 'Plans', 'Sessions', 'Reviews', 'Close']);
 });
 
 test('New exposes Back and global actions, children, parents, and links remain immediately clickable', () => {
@@ -94,19 +93,19 @@ test('frame shortcuts are retired and provider editing and arrow input pass thro
   assert.deepEqual(forwarded.map((entry) => entry[1]), ['\u001bp', '\u001b3', '\u001b[6;5~', '\u001b[A', '\u001b[D']); supervisor.stop();
 });
 
-test('clicking a parent focuses its last-focused open child then falls back to planning', () => {
+test('clicking a parent always opens its planning or direct agent', () => {
   const state = workspace(); const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.focusAgent('w'); supervisor.activate('Plans');
-  let layout = supervisor.renderer.lastLayout; click(handlers, layout.parents.find((item) => item.workstreamId === 'one')); assert.equal(supervisor.navigation.sessionId, 'w');
+  let layout = supervisor.renderer.lastLayout; click(handlers, layout.parents.find((item) => item.workstreamId === 'one')); assert.equal(supervisor.navigation.sessionId, 'd');
   state.sessions.find((item) => item.id === 'w').explicitlyClosed = true; supervisor.activate('Plans'); layout = supervisor.renderer.lastLayout; click(handlers, layout.parents.find((item) => item.workstreamId === 'one'));
   assert.equal(supervisor.navigation.sessionId, 'd'); assert.ok(opened.includes('d')); supervisor.stop();
 });
 
-test('focusing marks only that child viewed and pulse redraw exists only for visible running state', () => {
+test('focusing marks only that child viewed and starts no animation timer', () => {
   const state = workspace(); let active = false; const intervals = []; const cleared = [];
   const { supervisor, viewed } = harness(state, { sessions: { isSessionActive(id) { return active && id === 'w'; } }, setInterval(fn, ms) { const timer = { fn, ms, unref() {} }; intervals.push(timer); return timer; }, clearInterval(timer) { cleared.push(timer); } }); supervisor.renderer.reducedMotion = false; supervisor.renderer.chrome.options.reducedMotion = false;
   supervisor.start(); viewed.length = 0; supervisor.focusAgent('w'); assert.deepEqual(viewed, ['w']); assert.equal(intervals.length, 0);
-  active = true; supervisor.draw(); assert.equal(intervals.at(-1).ms, 240); intervals.at(-1).fn(); assert.ok(supervisor.frame > 0);
-  active = false; supervisor.draw(); assert.ok(cleared.length >= 1); supervisor.stop();
+  active = true; supervisor.draw(); assert.equal(intervals.length, 0);
+  active = false; supervisor.draw(); assert.equal(cleared.length, 0); supervisor.stop();
 });
 
 test('Close pauses only the focused child and selects a sibling fallback', () => {
@@ -154,7 +153,7 @@ test('Plans and Sessions remain ordered by immutable creation time', () => {
 test('Review keeps durable entries and applies feedback and acceptance without leaving detail', () => {
   const state = workspace(); const execution = { id: 'e', planId: 'p', workstreamId: 'one', status: 'running', chunks: [{ id: 'chunk', status: 'review', summary: 'Ready', diff: '+new', attempts: [{ sessionId: 'w' }] }] }; const feedback = [];
   const scheduler = { list: () => [execution], resume() {}, feedback(_e, _c, payload) { feedback.push(payload); execution.chunks[0].status = 'running'; execution.chunks[0].feedback = [{ ...payload, at: 'now' }]; return execution.chunks[0]; }, accept() { execution.chunks[0].status = 'accepted'; return execution; } };
-  const { supervisor, handlers } = harness(state, { scheduler, lineage: { list: () => [{ planId: 'p', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] } }); supervisor.start(); supervisor.activate('Review'); handlers.get('data')('\r');
+  const { supervisor, handlers } = harness(state, { scheduler, lineage: { list: () => [{ planId: 'p', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] } }); supervisor.start(); supervisor.activate('Reviews'); handlers.get('data')('\r');
   handlers.get('data')('fFix it\r'); assert.ok(supervisor.topPage.detail); assert.equal(feedback[0].message, 'Fix it'); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /Feedback sent · Revising/);
   execution.chunks[0].status = 'review'; supervisor.draw(); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /Ready for review/);
   handlers.get('data')('a'); assert.ok(supervisor.topPage.detail); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /Accepted/);
@@ -165,20 +164,20 @@ test('Review keeps durable entries and applies feedback and acceptance without l
 test('feedback resumes the exact worker after Close before recording the revision', () => {
   const state = workspace(); const execution = { id: 'e', planId: 'p', workstreamId: 'one', status: 'running', chunks: [{ id: 'chunk', status: 'review', summary: 'Ready', diff: '+new', attempts: [{ sessionId: 'w' }] }], events: [] }; const writes = [];
   const scheduler = { list: () => [execution], load: () => execution, resume() {}, feedback(executionId, chunkId, payload, sender) { sender(executionId, chunkId, payload.message); execution.chunks[0].status = 'running'; execution.chunks[0].feedback = [{ ...payload, at: 'now' }]; } };
-  const { supervisor, handlers, opened } = harness(state, { scheduler, sessions: { isOpen(id) { return state.sessions.find((item) => item.id === id)?.status === 'running'; }, write(id, value) { assert.equal(state.sessions.find((item) => item.id === id).status, 'running'); writes.push([id, value]); } }, lineage: { list: () => [{ planId: 'p', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] } }); supervisor.start(); supervisor.focusAgent('w'); supervisor.activate('Close'); assert.equal(state.sessions.find((item) => item.id === 'w').status, 'paused'); supervisor.activate('Review'); handlers.get('data')('\r'); handlers.get('data')('fResume this\r');
+  const { supervisor, handlers, opened } = harness(state, { scheduler, sessions: { isOpen(id) { return state.sessions.find((item) => item.id === id)?.status === 'running'; }, write(id, value) { assert.equal(state.sessions.find((item) => item.id === id).status, 'running'); writes.push([id, value]); } }, lineage: { list: () => [{ planId: 'p', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] } }); supervisor.start(); supervisor.focusAgent('w'); supervisor.activate('Close'); assert.equal(state.sessions.find((item) => item.id === 'w').status, 'paused'); supervisor.activate('Reviews'); handlers.get('data')('\r'); handlers.get('data')('fResume this\r');
   assert.deepEqual(opened.filter((id) => id === 'w'), ['w', 'w']); assert.deepEqual(writes, [['w', '\u001b[200~Resume this\u001b[201~'], ['w', '\r']]); assert.equal(execution.chunks[0].status, 'running'); assert.equal(supervisor.topPage.feedback, null); supervisor.stop();
 });
 
 test('failed closed-worker feedback stays visible and can be retried', () => {
   const state = workspace(); const execution = { id: 'e', planId: 'p', workstreamId: 'one', status: 'running', chunks: [{ id: 'chunk', status: 'review', summary: 'Ready', diff: '+new', attempts: [{ sessionId: 'w' }] }] }; let resumes = 0; const scheduler = { list: () => [execution], load: () => execution, resume() {}, feedback(executionId, chunkId, payload, sender) { sender(executionId, chunkId, payload.message); execution.chunks[0].status = 'running'; execution.chunks[0].feedback = [{ ...payload, at: 'now' }]; } }; const sessions = { isOpen(id) { return state.sessions.find((item) => item.id === id)?.status === 'running'; }, resume(id) { resumes += 1; if (resumes === 1) throw new Error('provider resume failed'); const session = state.sessions.find((item) => item.id === id); session.explicitlyClosed = false; session.status = 'running'; }, write() {} };
-  const { supervisor, handlers } = harness(state, { scheduler, sessions, lineage: { list: () => [{ planId: 'p', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] } }); supervisor.start(); supervisor.focusAgent('w'); supervisor.activate('Close'); supervisor.activate('Review'); handlers.get('data')('\r'); handlers.get('data')('fRetry me\r'); assert.equal(execution.chunks[0].status, 'review'); assert.match(supervisor.topPage.feedback.error, /provider resume failed/); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /Enter retry/); handlers.get('data')('\r'); assert.equal(execution.chunks[0].status, 'running'); assert.equal(supervisor.topPage.feedback, null); assert.equal(resumes, 2); supervisor.stop();
+  const { supervisor, handlers } = harness(state, { scheduler, sessions, lineage: { list: () => [{ planId: 'p', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] } }); supervisor.start(); supervisor.focusAgent('w'); supervisor.activate('Close'); supervisor.activate('Reviews'); handlers.get('data')('\r'); handlers.get('data')('fRetry me\r'); assert.equal(execution.chunks[0].status, 'review'); assert.match(supervisor.topPage.feedback.error, /provider resume failed/); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /Enter retry/); handlers.get('data')('\r'); assert.equal(execution.chunks[0].status, 'running'); assert.equal(supervisor.topPage.feedback, null); assert.equal(resumes, 2); supervisor.stop();
 });
 
 test('long Review diffs keep every action visible inside narrow and normal rendered frames', () => {
   for (const dimensions of [{ columns: 52, rows: 14 }, { columns: 100, rows: 22 }]) {
     const state = workspace(); const diff = ['diff --git a/a.js b/a.js', '--- a/a.js', '+++ b/a.js', '@@ -1 +1,80 @@', ...Array.from({ length: 80 }, (_, index) => `+line ${index}`)].join('\n'); const execution = { id: 'e', planId: 'p', workstreamId: 'one', status: 'running', chunks: [{ id: 'chunk', status: 'review', summary: 'Ready', diff, attempts: [{ sessionId: 'w' }] }] };
-    const { supervisor, handlers } = harness(state, { ...dimensions, scheduler: { list: () => [execution], resume() {} }, lineage: { list: () => [{ planId: 'p', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] } }); supervisor.start(); supervisor.activate('Review'); handlers.get('data')('\r'); const rendered = stripAnsi(supervisor.renderer.lastLayout.output); assert.match(rendered, /a accept/); assert.match(rendered, /f feedback/); assert.match(rendered, /Esc back/); assert.match(rendered, /of \d+/); supervisor.stop();
-    const finalState = workspace(); const finalExecution = { id: 'e', planId: 'p', workstreamId: 'one', status: 'verification-failed', verification: { state: 'fail', summary: 'Verifier rejected this result' }, integration: { finalDiff: diff, checkResults: [] }, chunks: [] }; const finalHarness = harness(finalState, { ...dimensions, scheduler: { list: () => [finalExecution], resume() {} }, lineage: { list: () => [{ planId: 'p', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] } }); finalHarness.supervisor.start(); finalHarness.supervisor.activate('Review'); finalHarness.handlers.get('data')('\r'); const finalRendered = stripAnsi(finalHarness.supervisor.renderer.lastLayout.output); assert.match(finalRendered, /r accept remedies/); assert.match(finalRendered, /f suggest/); assert.match(finalRendered, /o override/); assert.match(finalRendered, /Esc back/); assert.match(finalRendered, /of \d+/); finalHarness.supervisor.stop();
+    const { supervisor, handlers } = harness(state, { ...dimensions, scheduler: { list: () => [execution], resume() {} }, lineage: { list: () => [{ planId: 'p', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] } }); supervisor.start(); supervisor.activate('Reviews'); handlers.get('data')('\r'); const rendered = stripAnsi(supervisor.renderer.lastLayout.output); assert.match(rendered, /a accept/); assert.match(rendered, /f feedback/); assert.match(rendered, /Esc back/); assert.match(rendered, /of \d+/); supervisor.stop();
+    const finalState = workspace(); const finalExecution = { id: 'e', planId: 'p', workstreamId: 'one', status: 'verification-failed', verification: { state: 'fail', summary: 'Verifier rejected this result' }, integration: { finalDiff: diff, checkResults: [] }, chunks: [] }; const finalHarness = harness(finalState, { ...dimensions, scheduler: { list: () => [finalExecution], resume() {} }, lineage: { list: () => [{ planId: 'p', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] } }); finalHarness.supervisor.start(); finalHarness.supervisor.activate('Reviews'); finalHarness.handlers.get('data')('\r'); const finalRendered = stripAnsi(finalHarness.supervisor.renderer.lastLayout.output); assert.match(finalRendered, /r accept remedies/); assert.match(finalRendered, /f suggest/); assert.match(finalRendered, /o override/); assert.match(finalRendered, /Esc back/); assert.match(finalRendered, /of \d+/); finalHarness.supervisor.stop();
   }
 });
 
@@ -215,7 +214,7 @@ test('startup reconciles terminal managed attempts before restore can relaunch t
 test('Review keeps remedy, integration, and override confirmations separate', () => {
   const state = workspace(); const execution = { id: 'e', planId: 'p', workstreamId: 'one', status: 'verification-failed', verification: { state: 'fail', summary: 'Failed' }, integration: { finalDiff: '+result', checkResults: [] }, chunks: [] }; const remedies = []; const finalized = [];
   const { supervisor, handlers } = harness(state, { scheduler: { list: () => [execution], resume() {} }, integration: { remedy(id) { remedies.push(id); execution.status = 'integration-conflict'; }, finalize(...args) { finalized.push(args); execution.status = 'integrating'; } }, lineage: { list: () => [{ planId: 'p', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] } });
-  supervisor.start(); supervisor.activate('Review'); handlers.get('data')('\r'); handlers.get('data')('r'); assert.equal(supervisor.reviewView.state().confirmation, 'remedy'); handlers.get('data')('\r'); assert.deepEqual(remedies, ['e']);
+  supervisor.start(); supervisor.activate('Reviews'); handlers.get('data')('\r'); handlers.get('data')('r'); assert.equal(supervisor.reviewView.state().confirmation, 'remedy'); handlers.get('data')('\r'); assert.deepEqual(remedies, ['e']);
   assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /Integration repair/); execution.status = 'integration-checking'; supervisor.draw(); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /Checking/); execution.status = 'verifying'; supervisor.draw(); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /Verifying/);
   execution.status = 'verification-failed'; supervisor.draw(); handlers.get('data')('o'); assert.equal(supervisor.reviewView.state().confirmation, 'override'); handlers.get('data')('\r'); assert.equal(finalized[0][2].override, true); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /Integrating/);
   execution.status = 'complete'; supervisor.draw(); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /Complete/); supervisor.stop();

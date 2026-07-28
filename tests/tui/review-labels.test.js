@@ -28,7 +28,7 @@ function fixture(overrides = {}) {
 }
 
 test('Review uses human plan and agent labels while hiding internal IDs', () => {
-  const { supervisor, handlers } = fixture(); supervisor.start(); supervisor.activate('Review'); handlers.get('data')('\r');
+  const { supervisor, handlers } = fixture(); supervisor.start(); supervisor.activate('Reviews'); handlers.get('data')('\r');
   const plain = supervisor.actionPageLines().join('\n').replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
   assert.match(plain, /Make Bash Script \(Worker #1\) · Planet lookup\n\s*scripts/);
   assert.match(plain, /Added strict validation for every argument/);
@@ -72,7 +72,7 @@ test('Review retains durable accepted workers and shows their squashed diff', ()
   assert.doesNotMatch(items[0].diff, /latest commit only/);
 
   supervisor.workspace = state;
-  supervisor.topPage = { action: 'Review', index: 0, detail: { executionId: 'execution', id: 'open-result' } };
+  supervisor.topPage = { action: 'Reviews', index: 0, detail: { executionId: 'execution', id: 'open-result' } };
   const detail = supervisor.actionPageLines().join('\n').replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
   assert.match(detail, /Accepted • Esc back/);
   assert.doesNotMatch(detail, /a accept|f feedback/);
@@ -115,7 +115,7 @@ test('Review can accept or amend verifier remedies and keeps override separate',
   supervisor.acquire = () => {};
   supervisor.release = () => {};
   supervisor.start();
-  supervisor.activate('Review');
+  supervisor.activate('Reviews');
   handlers.get('data')('\r');
   assert.match(supervisor.actionPageLines().join('\n'), /r accept remedies/);
   assert.match(supervisor.actionPageLines().join('\n'), /f suggest repair/);
@@ -125,9 +125,9 @@ test('Review can accept or amend verifier remedies and keeps override separate',
   assert.deepEqual(remedies, []);
   handlers.get('data')('\r');
   assert.deepEqual(remedies, [['execution']]);
-  supervisor.activate('Review'); handlers.get('data')('\r'); handlers.get('data')('fPreserve the active terminal\r');
+  supervisor.activate('Reviews'); handlers.get('data')('\r'); handlers.get('data')('fPreserve the active terminal\r');
   assert.deepEqual(remedies, [['execution'], ['execution', 'Preserve the active terminal']]);
-  supervisor.activate('Review'); handlers.get('data')('\r');
+  supervisor.activate('Reviews'); handlers.get('data')('\r');
   handlers.get('data')('o');
   assert.match(supervisor.actionPageLines().join('\n'), /Override failed global verification/);
   assert.deepEqual(finalized, []);
@@ -137,7 +137,7 @@ test('Review can accept or amend verifier remedies and keeps override separate',
 });
 
 test('Review colors file metadata, hunks, removals, and additions through narrow wrapping', () => {
-  const { supervisor, handlers } = fixture({ columns: 30 }); supervisor.start(); supervisor.activate('Review'); handlers.get('data')('\r');
+  const { supervisor, handlers } = fixture({ columns: 30 }); supervisor.start(); supervisor.activate('Reviews'); handlers.get('data')('\r');
   const lines = supervisor.actionPageLines();
   assert.ok(lines.some((line) => line.startsWith(COLORS.blue)));
   assert.ok(lines.some((line) => line.startsWith(COLORS.cyan) && line.includes('@@')));
@@ -147,7 +147,7 @@ test('Review colors file metadata, hunks, removals, and additions through narrow
 });
 
 test('Review mouse selections are additive and every ordered excerpt is sent with feedback', () => {
-  const { supervisor, handlers, feedback } = fixture({ columns: 60, rows: 34 }); supervisor.start(); supervisor.activate('Review'); handlers.get('data')('\r'); supervisor.draw();
+  const { supervisor, handlers, feedback } = fixture({ columns: 60, rows: 34 }); supervisor.start(); supervisor.activate('Reviews'); handlers.get('data')('\r'); supervisor.draw();
   let frame = supervisor.reviewView.lastFrame; const removal = frame.rows.find((row) => row.patch && row.sourceLine === 5); const addition = frame.rows.find((row) => row.patch && row.sourceLine === 6);
   handlers.get('data')(`\u001b[<0;4;${removal.screenRow}M\u001b[<32;4;${addition.screenRow}M\u001b[<0;4;${addition.screenRow}m`);
   frame = supervisor.reviewView.lastFrame; const hunk = frame.rows.find((row) => row.patch && row.sourceLine === 4);
@@ -158,7 +158,7 @@ test('Review mouse selections are additive and every ordered excerpt is sent wit
 });
 
 test('Review exposes selection removal controls and omits removed ranges from feedback', () => {
-  const { supervisor, handlers, feedback } = fixture({ columns: 60, rows: 34 }); supervisor.start(); supervisor.activate('Review'); handlers.get('data')('\r'); supervisor.draw();
+  const { supervisor, handlers, feedback } = fixture({ columns: 60, rows: 34 }); supervisor.start(); supervisor.activate('Reviews'); handlers.get('data')('\r'); supervisor.draw();
   let frame = supervisor.reviewView.lastFrame; const removal = frame.rows.find((row) => row.patch && row.sourceLine === 5); const addition = frame.rows.find((row) => row.patch && row.sourceLine === 6);
   handlers.get('data')(`\u001b[<0;4;${removal.screenRow}M\u001b[<32;4;${addition.screenRow}M\u001b[<0;4;${addition.screenRow}m`);
   frame = supervisor.reviewView.lastFrame; const hunk = frame.rows.find((row) => row.patch && row.sourceLine === 4);
@@ -170,7 +170,7 @@ test('Review exposes selection removal controls and omits removed ranges from fe
   assert.equal(feedback[0].selections.some(({ startLine }) => startLine === 4), false);
   supervisor.stop();
 
-  const cleared = fixture({ columns: 60, rows: 34 }); cleared.supervisor.start(); cleared.supervisor.activate('Review'); cleared.handlers.get('data')('\r'); cleared.supervisor.draw();
+  const cleared = fixture({ columns: 60, rows: 34 }); cleared.supervisor.start(); cleared.supervisor.activate('Reviews'); cleared.handlers.get('data')('\r'); cleared.supervisor.draw();
   frame = cleared.supervisor.reviewView.lastFrame; const selected = frame.rows.find((row) => row.patch && row.sourceLine === 5);
   cleared.handlers.get('data')(`\u001b[<0;4;${selected.screenRow}M\u001b[<0;4;${selected.screenRow}m`); cleared.handlers.get('data')('c');
   assert.deepEqual(cleared.supervisor.reviewView.selections(), []); cleared.handlers.get('data')('fNo excerpt\r'); assert.deepEqual(cleared.feedback[0].selections, []); cleared.supervisor.stop();
@@ -178,7 +178,7 @@ test('Review exposes selection removal controls and omits removed ranges from fe
 
 test('Review scrolling is bounded after wheel, page, width, and status changes', () => {
   const { supervisor, handlers, execution } = fixture({ columns: 32, rows: 16 }); execution.chunks[0].diff += `\n${Array.from({ length: 30 }, (_, index) => ` context ${index}`).join('\n')}`;
-  supervisor.start(); supervisor.activate('Review'); handlers.get('data')('\r'); handlers.get('data')('\u001b[6~\u001b[6~'); assert.ok(supervisor.reviewView.state().scroll <= supervisor.reviewView.maximumScroll());
+  supervisor.start(); supervisor.activate('Reviews'); handlers.get('data')('\r'); handlers.get('data')('\u001b[6~\u001b[6~'); assert.ok(supervisor.reviewView.state().scroll <= supervisor.reviewView.maximumScroll());
   handlers.get('data')('\u001b[<65;10;8M'); assert.ok(supervisor.reviewView.state().scroll <= supervisor.reviewView.maximumScroll());
   execution.chunks[0].status = 'accepted'; execution.chunks[0].diff = '+short'; supervisor.draw(); assert.equal(supervisor.reviewView.state().scroll, supervisor.reviewView.maximumScroll()); supervisor.stop();
 });

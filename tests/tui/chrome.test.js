@@ -34,43 +34,42 @@ function fixture() {
 test('classifies every child state and aggregates parents without active styling', () => {
   const state = fixture(); const [lead, worker, verifier] = state.sessions;
   assert.equal(childVisualState(lead, { activeSessionId: 'lead' }), 'active');
-  assert.equal(childVisualState(lead, { runningSessionIds: new Set(['lead']) }), 'running');
-  assert.equal(childVisualState(worker), 'idle-unviewed');
+  assert.equal(childVisualState(lead, { runningSessionIds: new Set(['lead']) }), 'working');
+  assert.equal(childVisualState(worker), 'working');
   assert.equal(childVisualState(lead), 'idle-viewed');
-  assert.equal(childVisualState(verifier), 'done');
-  assert.equal(parentVisualState([lead, worker], { runningSessionIds: new Set(['lead']), activeSessionId: 'lead' }), 'running');
-  assert.equal(parentVisualState([lead, worker]), 'idle-unviewed');
+  assert.equal(childVisualState(verifier), 'idle-viewed');
+  assert.equal(parentVisualState([lead, worker], { runningSessionIds: new Set(['lead']), activeSessionId: 'lead' }), 'working');
+  assert.equal(parentVisualState([lead, worker]), 'idle-viewed');
   assert.equal(parentVisualState([lead, verifier]), 'idle-viewed');
 });
 
 test('failed attempts remain feedback-capable and use active worker visual states', () => {
   const failed = { id: 'failed', status: 'running', attemptStatus: 'failed', activityAt: '2026-01-04T00:00:00.000Z', viewedAt: '2026-01-03T00:00:00.000Z' };
   assert.equal(childVisualState(failed, { activeSessionId: failed.id }), 'active');
-  assert.equal(childVisualState(failed, { runningSessionIds: new Set([failed.id]) }), 'running');
-  assert.equal(childVisualState(failed), 'idle-unviewed');
+  assert.equal(childVisualState(failed, { runningSessionIds: new Set([failed.id]) }), 'working');
+  assert.equal(childVisualState(failed), 'working');
   assert.equal(childVisualState({ ...failed, viewedAt: '2026-01-05T00:00:00.000Z' }), 'idle-viewed');
 });
 
-test('running pulse is deterministic and reduced motion remains steady bold yellow', () => {
-  assert.notEqual(visualStyle('running', { phase: 0 }).ansi, visualStyle('running', { phase: 1 }).ansi);
-  assert.equal(visualStyle('running', { phase: 0, reducedMotion: true }).ansi, visualStyle('running', { phase: 1, reducedMotion: true }).ansi);
-  assert.match(visualStyle('running', { phase: 1, reducedMotion: true }).ansi, new RegExp(STYLE.bold.replace('[', '\\[')));
+test('working and focus styles remain steady without animation', () => {
+  assert.equal(visualStyle('working', { phase: 0 }).ansi, visualStyle('working', { phase: 1 }).ansi);
+  assert.match(visualStyle('working').ansi, new RegExp(STYLE.bold.replace('[', '\\[')));
+  assert.match(visualStyle('active').ansi, new RegExp(STYLE.underline.replace('[', '\\[')));
 });
 
-test('renders framed count-first actions, exact top-right links, version, close, tips, and no Quit', () => {
+test('renders one-row top chrome, a right-aligned internal tip, and one-row bottom badges', () => {
   const layout = layoutChrome(fixture(), { columns: 100, rows: 12, version: '1.2.3', expandedWorkstreamId: 'one', activeAction: 'Plans' }); const plain = layout.plainLines.join('\n');
-  assert.match(plain, /\[New\] \[2 Plans\] \[2 Sessions\] \[4 Review\] \[Close\]/); assert.doesNotMatch(plain, /Quit/);
-  assert.match(plain, /\[Report Issue\] \[Star on GitHub\] bdfl 1\.2\.3/); assert.match(plain, /Ctrl\+C twice quits/); assert.equal(layout.tipRow < layout.frame.bottom, true);
+  assert.match(plain, /bdfl 1\.2\.3 \[Star\] \[Report\].*\[New\] \[Plans\] \[Sessions\] \[Reviews\] \[Close\]/); assert.doesNotMatch(plain, /Quit/);
+  assert.match(plain, /Ctrl\+C twice quits/); assert.equal(layout.tipRow, layout.frame.bottom - 1); assert.equal(layout.parentRow, layout.frame.bottom); assert.equal(layout.childRow, layout.frame.bottom);
   assert.equal(layout.links.find((item) => item.link === 'report').url, ISSUE_URL); assert.equal(layout.links.find((item) => item.link === 'repository').url, REPOSITORY_URL);
-  assert.match(layout.lines[1], new RegExp(`${STYLE.black.replace('[', '\\[')}${STYLE.bgYellow.replace('[', '\\[')}`)); assert.match(layout.lines[1], new RegExp(STYLE.red.replace('[', '\\[')));
+  assert.match(layout.lines[0], new RegExp(STYLE.underline.replace('[', '\\[')));
   assert.equal(renderChrome(fixture(), { columns: 100, rows: 12 }).split('\n').length, 12);
 });
 
 test('uses exclusive active highlighting and connected creation-stable parent and child rows', () => {
-  const state = fixture(); const layout = layoutChrome(state, { columns: 100, rows: 10, expandedWorkstreamId: 'one', activeSessionId: 'worker', activeAction: 'Review', runningSessionIds: new Set(['lead']) });
-  assert.equal(layout.activeSessionId, null); assert.equal(layout.actions.find((item) => item.action === 'Review').state, 'active'); assert.equal(layout.children.some((item) => item.state === 'active'), false);
-  assert.deepEqual(layout.parents.map((item) => item.workstreamId), ['two', 'one']); assert.deepEqual(layout.children.map((item) => item.sessionId), ['lead', 'worker', 'verifier']);
-  const parent = layout.parents.find((item) => item.workstreamId === 'one'); assert.equal(layout.plainLines[layout.childRow - 1][parent.connectorColumn - 1], '├'); assert.equal(layout.plainLines[layout.parentRow - 1][parent.connectorColumn - 1], '│');
+  const state = fixture(); const layout = layoutChrome(state, { columns: 100, rows: 10, expandedWorkstreamId: 'one', activeSessionId: 'worker', activeAction: 'Reviews', runningSessionIds: new Set(['lead']) });
+  assert.equal(layout.activeSessionId, null); assert.equal(layout.actions.find((item) => item.action === 'Reviews').state, 'active'); assert.equal(layout.children.some((item) => item.state === 'active'), false);
+  assert.deepEqual(layout.parents.map((item) => item.workstreamId), ['two', 'one']); assert.deepEqual(layout.children.map((item) => item.sessionId), ['worker', 'verifier']);
   const childLayout = layoutChrome(state, { columns: 100, rows: 10, expandedWorkstreamId: 'one', activeSessionId: 'worker' }); assert.equal(childLayout.children.find((item) => item.sessionId === 'worker').state, 'active'); assert.equal(childLayout.actions.some((item) => item.state === 'active'), false); assert.notEqual(childLayout.parents.find((item) => item.workstreamId === 'one').state, 'active');
 });
 
