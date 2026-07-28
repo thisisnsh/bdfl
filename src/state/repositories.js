@@ -59,9 +59,10 @@ class WorkspaceCatalog {
   deleteWorkstream(id) { return this.owner('workstreams', id).entry.store.deleteWorkstream(id); }
   deleteAllWorkstreams() { const deleted = { workstreams: 0, sessions: 0 }; for (const entry of this.entries.values()) { const result = entry.store.deleteAllWorkstreams(); deleted.workstreams += result.workstreams; deleted.sessions += result.sessions; } return deleted; }
   createSession(workstreamId, role, profile, fields = {}) { const { root, entry } = this.owner('workstreams', workstreamId); return this.decorate(entry.store.createSession(workstreamId, role, profile, cleanRecord(fields)), root); }
-  renameSession(id, name) { const { root, entry } = this.owner('sessions', id); return this.decorate(entry.store.renameSession(id, name), root); }
+  renameWorkstream(id, name) { const { root, entry } = this.owner('workstreams', id); return this.decorate(entry.store.renameWorkstream(id, name), root); }
   setSessionTaskSnippet(id, input) { const { root, entry } = this.owner('sessions', id); return this.decorate(entry.store.setSessionTaskSnippet(id, input), root); }
   setSessionAttention(id, attention) { return this.owner('sessions', id).entry.store.setSessionAttention(id, attention); }
+  setSessionTurnState(id, state, reason) { return this.owner('sessions', id).entry.store.setSessionTurnState(id, state, reason); }
   touchSession(id, conversation = false) { const { root, entry } = this.owner('sessions', id); return this.decorate(entry.store.touchSession(id, conversation), root); }
 }
 

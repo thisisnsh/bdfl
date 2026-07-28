@@ -10,6 +10,7 @@ test('parses marker source into clean sections and deterministic capacity waves'
   const parsed = parsePlan(plan([chunk('foundation'), chunk('api', ['foundation']), chunk('ui', ['foundation']), chunk('migration', ['foundation'])].join('\n')));
   assert.doesNotMatch(parsed.consolidated, /bdfl-/);
   assert.match(parsed.source, /bdfl-chunk/);
+  assert.equal(parsed.chunks[0].title, 'foundation');
   assert.deepEqual(scheduleWaves(parsed.chunks, 5), [['foundation'], ['api', 'ui', 'migration']]);
   assert.deepEqual(scheduleWaves(parsed.chunks, 2), [['foundation'], ['api', 'ui'], ['migration']]);
   assert.deepEqual(scheduleWaves(parsed.chunks, 1), [['foundation'], ['api'], ['ui'], ['migration']]);
@@ -27,6 +28,7 @@ test('rejects unknown dependencies, cycles, unsafe paths, and incomplete chunks'
   assert.throws(() => parsePlan(plan(`${chunk('one', ['two'])}\n${chunk('two', ['one'])}`)), /cycle/);
   assert.throws(() => parsePlan(plan(chunk('one', [], ['.bdfl/**']))), /Unsafe owned path/);
   assert.throws(() => parsePlan(plan(chunk('one').replace('### Acceptance conditions', '### Nope'))), /missing Acceptance/);
+  assert.throws(() => parsePlan(plan(chunk('one').replace('## one', 'one'))), /missing its ## title/);
 });
 
 test('validates argv-array checks and includes them in approval SHAs', () => {
