@@ -66,6 +66,12 @@ test('authenticates loopback bridge requests and exposes only role tools', async
   await assert.rejects(controlRequest(issued.url, 'wrong-token', { method: 'tools' }, { retries: 0 }), /Unauthorized/);
 });
 
+test('reports only authenticated successful tool completions to lifecycle observers', async (t) => {
+  const successes = []; const server = new ControlServer({ planService: { call(_capability, args) { if (args.source === 'bad') throw new Error('publish failed'); return { ok: true }; } }, workerService: {}, onToolSuccess: (event) => successes.push(event) }).start(); t.after(() => server.close()); const issued = server.issue({ role: 'delegator', sessionId: 'planning', workstreamId: 'workstream' });
+  await controlRequest(issued.url, issued.token, { method: 'call', name: 'bdfl_plan', arguments: { action: 'publish', source: 'good' } }); assert.equal(successes.length, 1); assert.deepEqual({ name: successes[0].name, sessionId: successes[0].capability.sessionId, action: successes[0].arguments.action }, { name: 'bdfl_plan', sessionId: 'planning', action: 'publish' });
+  await assert.rejects(controlRequest(issued.url, issued.token, { method: 'call', name: 'bdfl_plan', arguments: { action: 'publish', source: 'bad' } }, { retries: 0 }), /publish failed/); await assert.rejects(controlRequest(issued.url, 'wrong', { method: 'call', name: 'bdfl_plan', arguments: { action: 'publish', source: 'good' } }, { retries: 0 }), /Unauthorized/); assert.equal(successes.length, 1);
+});
+
 test('capability rotation removes stale proxies without losing a healthy replacement', () => {
   const lost = []; const server = new ControlServer({ planService: {}, workerService: {}, heartbeatTimeout: 100, onProxyLost: (...args) => lost.push(args) }); const capability = { sessionId: 'session', workstreamId: 'workstream' };
   server.proxies.set('old', { capability, lastSeen: 0, registeredAt: 0 }); server.issue(capability); assert.equal(server.proxies.size, 0);
