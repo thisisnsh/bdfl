@@ -108,6 +108,10 @@ test('focusing marks only that child viewed and starts no animation timer', () =
   active = false; supervisor.draw(); assert.equal(cleared.length, 0); supervisor.stop();
 });
 
+test('hidden output does not draw, visible bursts coalesce, and unchanged rows are not rewritten', () => {
+  const state = workspace(); const timers = []; const { supervisor, writes } = harness(state, { sessions: { presentation() { return { lines: ['native'], cursor: { row: 1, column: 2 } }; } }, setTimeout(fn, ms) { const timer = { fn, ms, unref() {} }; timers.push(timer); return timer; }, clearTimeout() {} }); supervisor.start(); const initialWrites = writes.length; supervisor.sessions.onOutput('c'); assert.equal(timers.length, 0); assert.equal(writes.length, initialWrites); supervisor.sessions.onOutput('d'); supervisor.sessions.onOutput('d'); supervisor.sessions.onOutput('d'); assert.equal(timers.length, 1); assert.equal(timers[0].ms, 50); timers[0].fn(); assert.equal(writes.length, initialWrites + 1); assert.match(writes.at(-1), /\u001b\[\?25h\u001b\[3;6H/); assert.doesNotMatch(writes.at(-1), /\u001b\[\d+;1H/); supervisor.stop();
+});
+
 test('Close pauses only the focused child and selects a sibling fallback', () => {
   const state = workspace(); const { supervisor, paused } = harness(state); supervisor.start(); supervisor.focusAgent('w'); supervisor.activate('Close');
   assert.deepEqual(paused, ['w']); assert.equal(state.sessions.find((item) => item.id === 'w').status, 'paused');
