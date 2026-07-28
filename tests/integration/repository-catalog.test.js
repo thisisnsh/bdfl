@@ -50,7 +50,7 @@ test('uses the Git top level as coordinator when launched from a repository subd
   const supervisor = new TerminalSupervisor(nested, { sessions: {}, scheduler: {}, integration: {}, bridge: {} });
   assert.equal(supervisor.root, fs.realpathSync(repositoryRoot));
   assert.deepEqual(supervisor.lockFiles(), [path.join(fs.realpathSync(repositoryRoot), '.bdfl', 'run', 'supervisor.lock')]);
-  assert.equal(supervisor.createWizard().key(), 'sessionType');
+  const wizard = supervisor.createWizard(); assert.equal(wizard.key(), 'repository'); wizard.choose(); assert.equal(wizard.key(), 'sessionType');
   assert.equal(fs.existsSync(path.join(nested, '.bdfl')), false);
 });
 
