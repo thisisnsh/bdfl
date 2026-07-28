@@ -2,8 +2,9 @@
 const test = require('node:test'); const assert = require('node:assert/strict'); const { WorkstreamWizard } = require('../../src/tui/wizard');
 
 function enter(wizard, value = '') { for (const character of value) wizard.handle(character); return wizard.handle('\r'); }
-function planning(wizard) { assert.equal(wizard.key(), 'sessionType'); enter(wizard); }
-function direct(wizard) { assert.equal(wizard.key(), 'sessionType'); wizard.handle('\u001b[B'); enter(wizard); }
+function select(wizard, index) { wizard.selection = index; return enter(wizard); }
+function planning(wizard) { if (wizard.key() === 'repository') enter(wizard); assert.equal(wizard.key(), 'sessionType'); enter(wizard); assert.equal(wizard.key(), 'preset'); enter(wizard); }
+function direct(wizard) { if (wizard.key() === 'repository') enter(wizard); assert.equal(wizard.key(), 'sessionType'); select(wizard, 1); assert.equal(wizard.key(), 'preset'); enter(wizard); }
 const models = { claude: ['opus'], codex: ['gpt-5.4'], ollama: [] };
 const planningPreset = { version: 1, delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high', argv: ['--chrome'] }, workerProfile: { provider: 'codex', model: 'gpt-5.4', effort: 'medium', permissionMode: 'workspace-write', argv: ['--search'] }, workerCapacity: 3 };
 const directProfile = { provider: 'codex', model: 'gpt-5.4', effort: 'high', permissionMode: 'workspace-write', argv: ['--search'] };
@@ -16,33 +17,38 @@ test('preselects the remembered committed repository and asks for session type n
 
 test('falls back to the first repository and explains an empty picker', () => {
   const one = new WorkstreamWizard({ models, repositories: [{ root: '/one', label: 'one', lastUsed: null }], rememberedRepositoryRoot: '/missing' }); assert.equal(one.selection, 0);
+  assert.equal(one.key(), 'repository'); enter(one); enter(one); assert.equal(one.key(), 'preset'); assert.deepEqual(one.options(), ['Customize']);
   const empty = new WorkstreamWizard({ models, repositories: [] }); assert.match(empty.render(), /No Git repository with at least one commit/);
 });
 
+test('arrows scroll wizard options, left goes back, and exact option hits choose', () => {
+  const repositories = Array.from({ length: 7 }, (_, index) => ({ root: `/repo/${index}`, label: `repo-${index}`, lastUsed: null })); const wizard = new WorkstreamWizard({ models, repositories }); wizard.render(); const selection = wizard.selection; wizard.handle('\u001b[B'); assert.equal(wizard.selection, selection); assert.equal(wizard.scrolls.repository, 1); wizard.render(); const target = wizard.lastHits.find((hit) => hit.index === 3); wizard.click(target.row, target.start); assert.equal(wizard.values.repositoryRoot, '/repo/3'); assert.equal(wizard.key(), 'sessionType'); wizard.handle('\u001b[C'); assert.equal(wizard.key(), 'sessionType'); wizard.handle('\u001b[D'); assert.equal(wizard.key(), 'repository');
+});
+
 test('distinguishes planning and direct sessions before agent setup', () => {
-  const wizard = new WorkstreamWizard({ models }); const screen = wizard.render().replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
-  assert.match(screen, /Plan and delegate/); assert.match(screen, /read-only planning agent and isolated managed workers/); assert.match(screen, /Work directly/); assert.match(screen, /workspace-write agent without BDFL delegation tools/);
-  planning(wizard); assert.equal(wizard.key(), 'delegatorProvider'); wizard.back(); direct(wizard); assert.equal(wizard.key(), 'directProvider');
+  const wizard = new WorkstreamWizard({ models }); enter(wizard); const screen = wizard.render().replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+  assert.match(screen, /Planning agent/); assert.match(screen, /read-only planning agent and isolated managed workers/); assert.match(screen, /Worker agent/); assert.match(screen, /workspace-write agent without BDFL delegation tools/);
+  planning(wizard); assert.equal(wizard.key(), 'delegatorProvider'); wizard.back(); wizard.back(); direct(wizard); assert.equal(wizard.key(), 'directProvider');
 });
 
 test('creates a planning configuration with read-only planning and editable worker presets', () => {
   const wizard = new WorkstreamWizard({ models: { claude: ['opus'], codex: ['gpt-5.4'] } }); planning(wizard);
-  enter(wizard); enter(wizard); wizard.handle('\u001b[B'); enter(wizard); enter(wizard, '--chrome'); wizard.handle('\u001b[B'); enter(wizard); enter(wizard); enter(wizard); enter(wizard, '--search'); wizard.input = ''; enter(wizard, '3'); const result = enter(wizard);
+  enter(wizard); enter(wizard); select(wizard, 1); enter(wizard, '--chrome'); select(wizard, 1); enter(wizard); enter(wizard); enter(wizard, '--search'); wizard.input = ''; enter(wizard, '3'); const result = enter(wizard);
   assert.equal(result.sessionType, 'planning'); assert.equal(result.delegatorProfile.model, 'opus'); assert.deepEqual(result.delegatorProfile.argv, ['--chrome']); assert.equal(result.workerProfile.provider, 'codex'); assert.equal(result.workerProfile.permissionMode, 'workspace-write'); assert.deepEqual(result.workerProfile.argv, ['--search']); assert.equal(result.workerCapacity, 3);
 });
 
 test('creates a direct configuration with only one editable profile', () => {
-  const wizard = new WorkstreamWizard({ models: { codex: ['gpt-5.4'] } }); direct(wizard); enter(wizard); enter(wizard); wizard.handle('\u001b[B'); enter(wizard); enter(wizard, '--search'); const result = enter(wizard);
+  const wizard = new WorkstreamWizard({ models: { codex: ['gpt-5.4'] } }); direct(wizard); enter(wizard); enter(wizard); select(wizard, 1); enter(wizard, '--search'); const result = enter(wizard);
   assert.deepEqual(result, { version: 1, sessionType: 'direct', directProfile: { provider: 'codex', model: 'gpt-5.4', effort: 'medium', permissionMode: 'workspace-write', argv: ['--search'] } }); assert.equal(result.delegatorProfile, undefined); assert.equal(result.workerProfile, undefined); assert.match(wizard.summary(result).join('\n'), /Direct agent/);
 });
 
 test('offers independent last-used presets for each session type', () => {
-  const lastUsed = { ...planningPreset, directProfile }; const planningWizard = new WorkstreamWizard({ models, lastUsed }); planning(planningWizard); assert.equal(planningWizard.key(), 'preset'); assert.match(planningWizard.render(), /Planning agent.*Claude Code/); const restoredPlanning = enter(planningWizard); assert.equal(restoredPlanning.sessionType, 'planning'); assert.equal(restoredPlanning.workerCapacity, 3);
-  const directWizard = new WorkstreamWizard({ models, lastUsed }); direct(directWizard); assert.equal(directWizard.key(), 'preset'); assert.match(directWizard.render(), /Direct agent.*Codex/); assert.deepEqual(enter(directWizard).directProfile, directProfile);
+  const lastUsed = { ...planningPreset, directProfile }; const planningWizard = new WorkstreamWizard({ models, lastUsed }); enter(planningWizard); enter(planningWizard); assert.equal(planningWizard.key(), 'preset'); assert.match(planningWizard.render(), /Planning agent.*Claude Code/); const restoredPlanning = enter(planningWizard); assert.equal(restoredPlanning.sessionType, 'planning'); assert.equal(restoredPlanning.workerCapacity, 3);
+  const directWizard = new WorkstreamWizard({ models, lastUsed }); enter(directWizard); select(directWizard, 1); assert.equal(directWizard.key(), 'preset'); assert.match(directWizard.render(), /Direct agent.*Codex/); assert.deepEqual(enter(directWizard).directProfile, directProfile);
 });
 
 test('preserves type-specific values and cursor choices when going back', () => {
-  const wizard = new WorkstreamWizard({ models: { claude: ['opus'], codex: ['gpt-5.4'] } }); direct(wizard); wizard.handle('\u001b[B'); enter(wizard); assert.equal(wizard.values.directProvider, 'codex'); wizard.back(); assert.equal(wizard.key(), 'directProvider'); assert.equal(wizard.selection, 1); wizard.back(); assert.equal(wizard.key(), 'sessionType'); assert.equal(wizard.selection, 1); enter(wizard); assert.equal(wizard.key(), 'directProvider'); assert.equal(wizard.selection, 1);
+  const wizard = new WorkstreamWizard({ models: { claude: ['opus'], codex: ['gpt-5.4'] } }); direct(wizard); select(wizard, 1); assert.equal(wizard.values.directProvider, 'codex'); wizard.back(); assert.equal(wizard.key(), 'directProvider'); assert.equal(wizard.selection, 1); wizard.back(); assert.equal(wizard.key(), 'preset'); wizard.back(); assert.equal(wizard.key(), 'sessionType'); assert.equal(wizard.selection, 1); enter(wizard); enter(wizard); assert.equal(wizard.key(), 'directProvider'); assert.equal(wizard.selection, 1);
 });
 
 test('accepts manual Ollama models and validates worker capacity', () => {

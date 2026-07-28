@@ -78,7 +78,7 @@ function put(canvas, row, column, text) {
   for (const character of graphemes(text)) { const size = characterWidth(character); if (!size) { if (previous >= 0) line[previous] += character; continue; } if (cell + size > line.length) break; line[cell] = character; for (let offset = 1; offset < size; offset += 1) line[cell + offset] = ''; previous = cell; cell += size; }
 }
 function addHit(hits, item, row, start, text) { const hit = { ...item, row, start, end: start + textWidth(text) - 1 }; hits.push(hit); return hit; }
-function hitAt(layout, row, column) { return layout?.hits?.find((hit) => hit.row === row && column >= hit.start && column <= hit.end) || null; }
+function hitAt(layout, row, column) { return layout?.hits?.findLast((hit) => hit.row === row && column >= hit.start && column <= hit.end) || null; }
 function workerName(child) {
   if (child.role === 'verifier') return 'Worker: Review';
   if (child.role === 'integration') return `Worker: ${child.workerPhase || (child.executionStatus === 'verifying' ? 'Review' : 'Integration')}`;

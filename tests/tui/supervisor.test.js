@@ -86,11 +86,11 @@ test('New exposes Back and global actions, children, parents, and links remain i
   supervisor.stop();
 });
 
-test('frame shortcuts are retired and provider editing and arrow input pass through unchanged', () => {
-  const state = workspace(); const forwarded = []; const { supervisor, handlers } = harness(state, { sessions: { write(id, value) { forwarded.push([id, value]); } } });
+test('frame shortcuts are retired while terminal arrows scroll or are safely ignored', () => {
+  const state = workspace(); const forwarded = []; const scrolled = []; const { supervisor, handlers } = harness(state, { sessions: { write(id, value) { forwarded.push([id, value]); }, scroll(id, lines) { scrolled.push([id, lines]); } } });
   supervisor.start(); for (const value of ['\u001bp', '\u001b3', '\u001b[6;5~', '\u001b[A', '\u001b[D']) handlers.get('data')(value);
   assert.equal(supervisor.topPage, undefined); assert.equal(supervisor.navigation.sessionId, 'd');
-  assert.deepEqual(forwarded.map((entry) => entry[1]), ['\u001bp', '\u001b3', '\u001b[6;5~', '\u001b[A', '\u001b[D']); supervisor.stop();
+  assert.deepEqual(forwarded.map((entry) => entry[1]), ['\u001bp', '\u001b3', '\u001b[6;5~']); assert.deepEqual(scrolled, [['d', -1]]); supervisor.stop();
 });
 
 test('clicking a parent always opens its planning or direct agent', () => {
