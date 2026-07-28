@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { Navigation, TerminalRenderer, TerminalSupervisor, availableActions } = require('../../src/tui/supervisor');
+const { Navigation, TerminalRenderer, TerminalSupervisor, availableActions, executionStateLabel } = require('../../src/tui/supervisor');
 const { stripAnsi } = require('../../src/tui/chrome');
 
 function workspace() {
@@ -152,6 +152,26 @@ test('Plans and Sessions remain ordered by immutable creation time', () => {
   const { supervisor } = harness(state, { lineage: { list: () => plans } });
   assert.deepEqual(supervisor.planItems().map((item) => item.planId), ['new', 'old']); assert.deepEqual(supervisor.sessionPickerItems(state).map((item) => item.id), ['two', 'one']);
   state.workstreams[0].updatedAt = '2100-01-01'; state.sessions[0].updatedAt = '2100-01-01'; assert.deepEqual(supervisor.sessionPickerItems(state).map((item) => item.id), ['two', 'one']);
+});
+
+test('Plans and Reviews group by session with persistent expansion and exact click targets', () => {
+  const state = workspace(); state.workstreams[0].name = 'Build API'; state.workstreams[1].name = 'Fix CLI';
+  const plans = [{ planId: 'p1', title: 'API plan', workstreamId: 'one', originSessionId: 'd', currentVersion: 1, createdAt: '2026-01-01' }, { planId: 'p2', title: 'CLI plan', workstreamId: 'two', originSessionId: 'c', currentVersion: 1, createdAt: '2026-01-02' }];
+  const manifests = { p1: { title: 'API plan', version: 1, workstreamId: 'one', shared: { id: 'shared', sha: 's' }, chunks: [{ id: 'api', title: 'Implement API', sha: 'c' }], globalValidation: { id: 'global-validation', sha: 'g' }, approvals: {} }, p2: { title: 'CLI plan', version: 1, workstreamId: 'two', shared: { id: 'shared', sha: 's' }, chunks: [], globalValidation: { id: 'global-validation', sha: 'g' }, approvals: {} } };
+  const execution = { id: 'e', planId: 'p1', version: 1, workstreamId: 'one', status: 'complete', profile: { provider: 'codex', model: 'gpt-5', effort: 'high' }, chunks: [{ id: 'api', title: 'Implement API', status: 'accepted', summary: 'Done', attempts: [{ sessionId: 'w' }] }], integration: { finalDiff: '', checkResults: [] } };
+  const legacyExecution = { id: 'legacy', planId: 'legacy-plan', version: 1, workstreamId: 'two', status: 'running', chunks: [{ id: 'cli', title: 'Fix command', status: 'review', summary: 'CLI ready', attempts: [{ sessionId: 'c' }] }] };
+  const lineage = { list: () => plans, load: (id) => plans.find((item) => item.planId === id), readManifest: (id) => manifests[id], readSection: (_id, _version, sectionId) => `## ${sectionId}` };
+  const { supervisor, handlers } = harness(state, { lineage, scheduler: { list: () => [execution, legacyExecution], resume() {} } }); supervisor.start(); supervisor.activate('Plans');
+  let plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /▾ Build API \(1\)/); assert.match(plain, /API plan.*Complete/); assert.match(plain, /▸ Fix CLI \(1\)/); assert.doesNotMatch(plain, /CLI plan.*Awaiting/); assert.doesNotMatch(plain, /Planning agent|Worker agent/);
+  let hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'group-toggle' && item.workstreamId === 'two'); click(handlers, hit); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /CLI plan.*Awaiting approval/);
+  hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'groups-collapse'); click(handlers, hit); assert.equal(supervisor.groupPageState('Plans').expanded.size, 0); supervisor.activate('Reviews'); supervisor.activate('Plans'); assert.equal(supervisor.groupPageState('Plans').expanded.size, 0);
+  hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'groups-expand'); click(handlers, hit); hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'plan-item' && item.planId === 'p1'); click(handlers, hit); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /Worker: Codex gpt-5 · high effort/); assert.match(plain, /Execution: Complete/); assert.match(plain, /Worker chunk · Implement API/);
+  hit = supervisor.renderer.lastLayout.hits.filter((item) => item.type === 'plan-section')[1]; click(handlers, hit); assert.equal(supervisor.topPage.detail.sectionIndex, 1); handlers.get('data')('\u001b[A'); assert.equal(supervisor.topPage.detail.sectionIndex, 1); hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'page-action' && item.key === '\r'); click(handlers, hit); assert.equal(supervisor.topPage.detail.reader, true);
+  supervisor.activate('Reviews'); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /▾ Build API \(2\)/); assert.match(plain, /▸ Fix CLI \(1\)/); assert.doesNotMatch(plain, /CLI ready/); hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'group-toggle' && item.workstreamId === 'two'); click(handlers, hit); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /CLI ready/); supervisor.stop();
+});
+
+test('execution state labels cover durable planning and execution phases', () => {
+  assert.deepEqual([executionStateLabel(null, false), executionStateLabel(null, true), executionStateLabel('complete'), executionStateLabel('failed'), executionStateLabel('verifying'), executionStateLabel('integration-conflict'), executionStateLabel('integration-review'), executionStateLabel('running')], ['Awaiting approval', 'Not started', 'Complete', 'Failed', 'Verifying', 'Integration', 'Integration', 'Working']);
 });
 
 test('Review keeps durable entries and applies feedback and acceptance without leaving detail', () => {
