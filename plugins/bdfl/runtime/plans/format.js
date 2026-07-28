@@ -111,8 +111,10 @@ function parsePlan(source) {
     if (!Array.isArray(control.paths) || !control.paths.length || !Array.isArray(control.dependsOn) || !Array.isArray(control.locks)) throw new Error(`Invalid chunk metadata: ${control.id}`);
     if (control.locks.some((lock) => !IDS.test(lock))) throw new Error(`Invalid lock name in ${control.id}`);
     const body = match[2].replace(/^\s*\n|\s+$/g, '');
+    const title = body.match(/^##\s+(.+?)\s*$/mu)?.[1]?.trim();
+    if (!title) throw new Error(`Chunk ${control.id} is missing its ## title`);
     requiredSubsections(body, control.id);
-    chunks.push({ id: control.id, paths: control.paths.map(normalizeOwnedPath), dependsOn: [...control.dependsOn], locks: [...new Set(control.locks)], checks: validateChecks(control.checks, `Chunk ${control.id}`), checksSpecified: Object.hasOwn(control, 'checks'), body: `${body}\n`, sha: sha256(`${match[1]}\n${body}\n`) });
+    chunks.push({ id: control.id, title, paths: control.paths.map(normalizeOwnedPath), dependsOn: [...control.dependsOn], locks: [...new Set(control.locks)], checks: validateChecks(control.checks, `Chunk ${control.id}`), checksSpecified: Object.hasOwn(control, 'checks'), body: `${body}\n`, sha: sha256(`${match[1]}\n${body}\n`) });
   }
   if (!chunks.length) throw new Error('Plan requires at least one executable chunk');
   validateGraph(chunks);
