@@ -5,6 +5,7 @@ const { ISSUE_URL, REPOSITORY_URL } = require('../core/errors');
 const ESC = '\u001b[';
 const STYLE = {
   yellow: `${ESC}38;5;220m`, gray: `${ESC}38;5;245m`, red: `${ESC}38;5;203m`,
+  black: `${ESC}38;5;16m`, bgYellow: `${ESC}48;5;220m`,
   bold: `${ESC}1m`, underline: `${ESC}4m`, dim: `${ESC}2m`, reset: `${ESC}0m`
 };
 const ACTIONS = ['New', 'Plans', 'Sessions', 'Reviews', 'Close'];
@@ -53,7 +54,7 @@ function parentVisualState(children, options = {}) {
 }
 function pulsePhase() { return 0; }
 function visualStyle(state) {
-  if (state === 'active') return { state, ansi: `${STYLE.yellow}${STYLE.bold}${STYLE.underline}`, inverse: false, color: 'yellow' };
+  if (state === 'active') return { state, ansi: `${STYLE.bgYellow}${STYLE.black}${STYLE.bold}`, inverse: true, color: 'yellow' };
   if (state === 'working' || state === 'running' || state === 'idle-unviewed') return { state, ansi: `${STYLE.yellow}${STYLE.bold}`, inverse: false, color: 'yellow' };
   return { state, ansi: STYLE.gray, inverse: false, color: 'gray' };
 }
@@ -116,7 +117,7 @@ function layoutChrome(workspace = {}, options = {}) {
   for (const item of visibleLeft) { if (column > 3) { put(canvas, 1, column, ' '); column += 1; } put(canvas, 1, column, item.text); if (item.type === 'link') { const hit = addHit(hits, item, 1, column, item.text); links.push({ ...item, ...hit }); ranges.push({ ...hit, ansi: STYLE.yellow }); } column += textWidth(item.text); }
   let actionColumn = columns - 1 - actionWidth;
   if (actionColumn <= column) { const available = Math.max(0, columns - column - 2); const focus = Math.max(0, actionItems.findIndex((item) => item.action === activeAction)); const visible = visibleWindow(actionItems, available, focus); const used = visible.reduce((sum, item) => sum + textWidth(item.text), Math.max(0, visible.length - 1)); actionColumn = columns - 1 - used; actionItems.splice(0, actionItems.length, ...visible); }
-  for (const [index, item] of actionItems.entries()) { put(canvas, 1, actionColumn, item.text); const state = item.action === activeAction ? 'active' : 'top'; const hit = addHit(hits, item, 1, actionColumn, item.text); actions.push({ ...item, ...hit, state }); ranges.push({ ...hit, ansi: state === 'active' ? `${STYLE.yellow}${STYLE.bold}${STYLE.underline}` : STYLE.yellow }); actionColumn += textWidth(item.text); if (index < actionItems.length - 1) { put(canvas, 1, actionColumn, ' '); actionColumn += 1; } }
+  for (const [index, item] of actionItems.entries()) { put(canvas, 1, actionColumn, item.text); const state = item.action === activeAction ? 'active' : 'top'; const hit = addHit(hits, item, 1, actionColumn, item.text); actions.push({ ...item, ...hit, state }); ranges.push({ ...hit, ansi: state === 'active' ? `${STYLE.bgYellow}${STYLE.black}${STYLE.bold}` : STYLE.yellow }); actionColumn += textWidth(item.text); if (index < actionItems.length - 1) { put(canvas, 1, actionColumn, ' '); actionColumn += 1; } }
 
   const streams = createdOrder(workspace.workstreams || []); const candidates = [];
   for (const stream of streams) {
