@@ -12,7 +12,7 @@ const directProfile = { provider: 'codex', model: 'gpt-5.4', effort: 'high', per
 test('preselects the remembered committed repository and asks for session type next', () => {
   const repositories = [{ root: '/projects/alpha', label: 'alpha', lastUsed: null }, { root: '/projects/claudia', label: 'claudia', lastUsed: planningPreset }];
   const wizard = new WorkstreamWizard({ models, repositories, rememberedRepositoryRoot: '/projects/claudia' });
-  assert.equal(wizard.key(), 'repository'); assert.equal(wizard.selection, 1); assert.match(wizard.render(), /claudia/); enter(wizard); assert.equal(wizard.key(), 'sessionType'); assert.equal(wizard.values.repositoryRoot, '/projects/claudia');
+  assert.equal(wizard.key(), 'repository'); assert.equal(wizard.selection, 1); assert.match(wizard.render(), /Repository[\s\S]*claudia[\s\S]*Session type/); enter(wizard); assert.equal(wizard.key(), 'sessionType'); assert.equal(wizard.values.repositoryRoot, '/projects/claudia'); assert.match(wizard.render(), /Repository.*claudia[\s\S]*Session type[\s\S]*Planning agent/);
 });
 
 test('falls back to the first repository and explains an empty picker', () => {
@@ -21,8 +21,8 @@ test('falls back to the first repository and explains an empty picker', () => {
   const empty = new WorkstreamWizard({ models, repositories: [] }); assert.match(empty.render(), /No Git repository with at least one commit/);
 });
 
-test('arrows scroll wizard options, left goes back, and exact option hits choose', () => {
-  const repositories = Array.from({ length: 7 }, (_, index) => ({ root: `/repo/${index}`, label: `repo-${index}`, lastUsed: null })); const wizard = new WorkstreamWizard({ models, repositories }); wizard.render(); const selection = wizard.selection; wizard.handle('\u001b[B'); assert.equal(wizard.selection, selection); assert.equal(wizard.scrolls.repository, 1); wizard.render(); const target = wizard.lastHits.find((hit) => hit.index === 3); wizard.click(target.row, target.start); assert.equal(wizard.values.repositoryRoot, '/repo/3'); assert.equal(wizard.key(), 'sessionType'); wizard.handle('\u001b[C'); assert.equal(wizard.key(), 'sessionType'); wizard.handle('\u001b[D'); assert.equal(wizard.key(), 'repository');
+test('arrows choose wizard options, left goes back, and no body click targets are exposed', () => {
+  const repositories = Array.from({ length: 7 }, (_, index) => ({ root: `/repo/${index}`, label: `repo-${index}`, lastUsed: null })); const wizard = new WorkstreamWizard({ models, repositories }); wizard.render(); for (let index = 0; index < 3; index += 1) wizard.handle('\u001b[B'); assert.equal(wizard.selection, 3); assert.equal(wizard.scrolls.repository || 0, 0); enter(wizard); assert.equal(wizard.values.repositoryRoot, '/repo/3'); assert.equal(wizard.key(), 'sessionType'); assert.deepEqual(wizard.lastHits, []); wizard.handle('\u001b[D'); assert.equal(wizard.key(), 'repository'); assert.equal(wizard.selection, 3);
 });
 
 test('distinguishes planning and direct sessions before agent setup', () => {
