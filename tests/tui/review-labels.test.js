@@ -151,28 +151,27 @@ test('Review colors file metadata, hunks, removals, and additions through narrow
   supervisor.stop();
 });
 
-test('Review mouse selections are additive and every ordered excerpt is sent with feedback', () => {
+test('Review ignores body mouse selection and sends keyboard feedback without excerpts', () => {
   const { supervisor, handlers, feedback } = fixture({ columns: 60, rows: 34 }); supervisor.start(); supervisor.activate('Reviews'); handlers.get('data')('\r'); supervisor.draw();
   let frame = supervisor.reviewView.lastFrame; const removal = frame.rows.find((row) => row.patch && row.sourceLine === 5); const addition = frame.rows.find((row) => row.patch && row.sourceLine === 6);
   handlers.get('data')(`\u001b[<0;4;${removal.screenRow}M\u001b[<32;4;${addition.screenRow}M\u001b[<0;4;${addition.screenRow}m`);
   frame = supervisor.reviewView.lastFrame; const hunk = frame.rows.find((row) => row.patch && row.sourceLine === 4);
   handlers.get('data')(`\u001b[<0;4;${hunk.screenRow}M\u001b[<0;4;${hunk.screenRow}m`);
   handlers.get('data')('fFix both\r');
-  assert.equal(feedback[0].message, 'Fix both'); assert.deepEqual(feedback[0].selections.map(({ startLine, endLine }) => [startLine, endLine]), [[5, 6], [4, 4]]);
+  assert.equal(feedback[0].message, 'Fix both'); assert.deepEqual(feedback[0].selections, []);
   assert.ok(supervisor.topPage.detail); supervisor.stop();
 });
 
-test('Review exposes selection removal controls and omits removed ranges from feedback', () => {
+test('Review omits mouse-selection controls from the keyboard-only surface', () => {
   const { supervisor, handlers, feedback } = fixture({ columns: 60, rows: 34 }); supervisor.start(); supervisor.activate('Reviews'); handlers.get('data')('\r'); supervisor.draw();
   let frame = supervisor.reviewView.lastFrame; const removal = frame.rows.find((row) => row.patch && row.sourceLine === 5); const addition = frame.rows.find((row) => row.patch && row.sourceLine === 6);
   handlers.get('data')(`\u001b[<0;4;${removal.screenRow}M\u001b[<32;4;${addition.screenRow}M\u001b[<0;4;${addition.screenRow}m`);
   frame = supervisor.reviewView.lastFrame; const hunk = frame.rows.find((row) => row.patch && row.sourceLine === 4);
   handlers.get('data')(`\u001b[<0;4;${hunk.screenRow}M\u001b[<0;4;${hunk.screenRow}m`);
   let plain = supervisor.actionPageLines().join('\n').replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
-  assert.match(plain, /u remove last\s+selection/); assert.match(plain, /c clear selections/);
-  handlers.get('data')('u'); assert.deepEqual(supervisor.reviewView.selections().map(({ startLine, endLine }) => [startLine, endLine]), [[5, 6]]);
-  handlers.get('data')('fFix replacement\r'); assert.deepEqual(feedback[0].selections.map(({ startLine, endLine }) => [startLine, endLine]), [[5, 6]]);
-  assert.equal(feedback[0].selections.some(({ startLine }) => startLine === 4), false);
+  assert.doesNotMatch(plain, /u remove last\s+selection|c clear selections/);
+  handlers.get('data')('u'); handlers.get('data')('c'); assert.deepEqual(supervisor.reviewView.selections(), []);
+  handlers.get('data')('fFix replacement\r'); assert.deepEqual(feedback[0].selections, []);
   supervisor.stop();
 
   const cleared = fixture({ columns: 60, rows: 34 }); cleared.supervisor.start(); cleared.supervisor.activate('Reviews'); cleared.handlers.get('data')('\r'); cleared.supervisor.draw();

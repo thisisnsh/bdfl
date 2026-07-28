@@ -54,7 +54,7 @@ test('failed attempts remain feedback-capable and use active worker visual state
 test('working and focus styles remain steady without animation', () => {
   assert.equal(visualStyle('working', { phase: 0 }).ansi, visualStyle('working', { phase: 1 }).ansi);
   assert.match(visualStyle('working').ansi, new RegExp(STYLE.bold.replace('[', '\\[')));
-  assert.match(visualStyle('active').ansi, new RegExp(STYLE.underline.replace('[', '\\[')));
+  assert.match(visualStyle('active').ansi, new RegExp(STYLE.bgYellow.replace('[', '\\['))); assert.match(visualStyle('active').ansi, new RegExp(STYLE.black.replace('[', '\\['))); assert.equal(visualStyle('active').inverse, true);
 });
 
 test('renders one-row top chrome, a right-aligned internal tip, and one-row bottom badges', () => {
@@ -62,7 +62,7 @@ test('renders one-row top chrome, a right-aligned internal tip, and one-row bott
   assert.match(plain, /bdfl 1\.2\.3 \[Star\] \[Report\].*\[New\] \[Plans\] \[Sessions\] \[Reviews\] \[Close\]/); assert.doesNotMatch(plain, /Quit/);
   assert.match(plain, /Ctrl\+C twice quits/); assert.equal(layout.tipRow, layout.frame.bottom - 1); assert.equal(layout.parentRow, layout.frame.bottom); assert.equal(layout.childRow, layout.frame.bottom);
   assert.equal(layout.links.find((item) => item.link === 'report').url, ISSUE_URL); assert.equal(layout.links.find((item) => item.link === 'repository').url, REPOSITORY_URL);
-  assert.match(layout.lines[0], new RegExp(STYLE.underline.replace('[', '\\[')));
+  assert.match(layout.lines[0], new RegExp(STYLE.bgYellow.replace('[', '\\['))); assert.doesNotMatch(layout.lines[0], new RegExp(STYLE.underline.replace('[', '\\[')));
   assert.equal(renderChrome(fixture(), { columns: 100, rows: 12 }).split('\n').length, 12);
 });
 

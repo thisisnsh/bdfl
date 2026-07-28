@@ -55,12 +55,13 @@ function click(handlers, hit, final = 'M') { handlers.get('data')(`\u001b[<0;${h
 
 test('chrome renders creation-stable parent sessions and only the expanded session children', () => {
   const state = workspace(); const navigation = new Navigation(state); navigation.selectSession('w');
-  const renderer = new TerminalRenderer({ version: '1.2.3' }); const output = renderer.render(state, navigation, { columns: 100, rows: 12 }); const layout = renderer.lastLayout; const plain = stripAnsi(output);
+  const renderer = new TerminalRenderer({ version: '1.2.3' }); const output = renderer.render(state, navigation, { columns: 100, rows: 12, content: ['Plans'] }); const layout = renderer.lastLayout; const plain = stripAnsi(output);
   assert.deepEqual(layout.parents.map((item) => item.workstreamId), ['two', 'one']);
   assert.deepEqual(layout.children.map((item) => item.sessionId), ['w', 'v']);
   assert.equal(layout.children.find((item) => item.sessionId === 'w').state, 'active');
   assert.notEqual(layout.parents.find((item) => item.workstreamId === 'one').state, 'active');
   assert.match(plain, /bdfl 1\.2\.3.*\[Star\].*\[Report\].*\[New\].*\[Plans\].*\[Sessions\].*\[Reviews\].*\[Close\]/);
+  assert.match(plain.split('\n')[1], /^│ Plans/);
   assert.doesNotMatch(plain, /Quit|\*|✓/);
 });
 
@@ -75,14 +76,14 @@ test('native action and child highlights are exclusive across redraws', () => {
   assert.deepEqual(availableActions(state), ['New', 'Plans', 'Sessions', 'Reviews', 'Close']);
 });
 
-test('New exposes Back and global actions, children, parents, and links remain immediately clickable', () => {
+test('New has no body Back button while top and bottom chrome remains clickable', () => {
   const state = workspace(); const openedLinks = []; const { supervisor, handlers } = harness(state, { linkOpener(url) { openedLinks.push(url); } });
   supervisor.start(); let layout = supervisor.renderer.lastLayout; click(handlers, layout.actions.find((item) => item.action === 'New'));
-  layout = supervisor.renderer.lastLayout; assert.ok(layout.hits.some((item) => item.type === 'back')); assert.ok(supervisor.wizard);
+  layout = supervisor.renderer.lastLayout; assert.equal(layout.hits.some((item) => item.type === 'back'), false); assert.ok(supervisor.wizard);
   click(handlers, layout.actions.find((item) => item.action === 'Plans')); assert.equal(supervisor.topPage.action, 'Plans');
   supervisor.activate('New'); layout = supervisor.renderer.lastLayout; click(handlers, layout.links.find((item) => item.link === 'report')); assert.equal(openedLinks.length, 1); assert.ok(supervisor.wizard);
   click(handlers, layout.parents.find((item) => item.workstreamId === 'one')); assert.equal(supervisor.navigation.activeAction, null); assert.equal(supervisor.navigation.workstreamId, 'one');
-  supervisor.activate('New'); layout = supervisor.renderer.lastLayout; const back = layout.hits.find((item) => item.type === 'back'); assert.deepEqual([back.start, back.end], [4, 9]); handlers.get('data')(`\u001b[<0;3;${back.row}M`); assert.ok(supervisor.wizard); click(handlers, back); assert.equal(supervisor.wizard, null); assert.equal(supervisor.navigation.sessionId, 'd');
+  supervisor.activate('New'); handlers.get('data')('\u001b'); assert.equal(supervisor.wizard, null); assert.equal(supervisor.navigation.sessionId, 'd');
   supervisor.stop();
 });
 
@@ -93,11 +94,11 @@ test('frame shortcuts are retired while terminal arrows scroll or are safely ign
   assert.deepEqual(forwarded.map((entry) => entry[1]), ['\u001bp', '\u001b3', '\u001b[6;5~']); assert.deepEqual(scrolled, [['d', -1]]); supervisor.stop();
 });
 
-test('clicking a parent always opens its planning or direct agent', () => {
+test('clicking a parent selects its primary agent without spawning it', () => {
   const state = workspace(); const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.focusAgent('w'); supervisor.activate('Plans');
   let layout = supervisor.renderer.lastLayout; click(handlers, layout.parents.find((item) => item.workstreamId === 'one')); assert.equal(supervisor.navigation.sessionId, 'd');
   state.sessions.find((item) => item.id === 'w').explicitlyClosed = true; supervisor.activate('Plans'); layout = supervisor.renderer.lastLayout; click(handlers, layout.parents.find((item) => item.workstreamId === 'one'));
-  assert.equal(supervisor.navigation.sessionId, 'd'); assert.ok(opened.includes('d')); supervisor.stop();
+  assert.equal(supervisor.navigation.sessionId, 'd'); assert.deepEqual(opened, []); supervisor.stop();
 });
 
 test('focusing marks only that child viewed and starts no animation timer', () => {
@@ -109,7 +110,7 @@ test('focusing marks only that child viewed and starts no animation timer', () =
 });
 
 test('hidden output does not draw, visible bursts coalesce, and unchanged rows are not rewritten', () => {
-  const state = workspace(); const timers = []; const { supervisor, writes } = harness(state, { sessions: { presentation() { return { lines: ['native'], cursor: { row: 1, column: 2 } }; } }, setTimeout(fn, ms) { const timer = { fn, ms, unref() {} }; timers.push(timer); return timer; }, clearTimeout() {} }); supervisor.start(); const initialWrites = writes.length; supervisor.sessions.onOutput('c'); assert.equal(timers.length, 0); assert.equal(writes.length, initialWrites); supervisor.sessions.onOutput('d'); supervisor.sessions.onOutput('d'); supervisor.sessions.onOutput('d'); assert.equal(timers.length, 1); assert.equal(timers[0].ms, 50); timers[0].fn(); assert.equal(writes.length, initialWrites + 1); assert.match(writes.at(-1), /\u001b\[\?25h\u001b\[3;6H/); assert.doesNotMatch(writes.at(-1), /\u001b\[\d+;1H/); supervisor.stop();
+  const state = workspace(); const timers = []; const { supervisor, writes } = harness(state, { sessions: { presentation() { return { lines: ['native'], cursor: { row: 1, column: 2 } }; } }, setTimeout(fn, ms) { const timer = { fn, ms, unref() {} }; timers.push(timer); return timer; }, clearTimeout() {} }); supervisor.start(); const initialWrites = writes.length; supervisor.sessions.onOutput('c'); assert.equal(timers.length, 0); assert.equal(writes.length, initialWrites); supervisor.sessions.onOutput('d'); supervisor.sessions.onOutput('d'); supervisor.sessions.onOutput('d'); assert.equal(timers.length, 1); assert.equal(timers[0].ms, 50); timers[0].fn(); assert.equal(writes.length, initialWrites + 1); assert.match(writes.at(-1), /\u001b\[\?25h\u001b\[3;5H/); assert.doesNotMatch(writes.at(-1), /\u001b\[\d+;1H/); supervisor.stop();
 });
 
 test('Close pauses only the focused child and selects a sibling fallback', () => {
@@ -119,25 +120,29 @@ test('Close pauses only the focused child and selects a sibling fallback', () =>
   assert.equal(supervisor.navigation.sessionId, 'd'); supervisor.stop();
 });
 
-test('Close does not immediately reopen a paused planning child', () => {
-  const state = workspace(); const { supervisor, paused, opened } = harness(state); supervisor.start(); supervisor.focusAgent('d'); opened.length = 0; supervisor.activate('Close'); assert.deepEqual(paused, ['d']); assert.equal(state.sessions.find((item) => item.id === 'd').status, 'paused'); assert.equal(supervisor.navigation.sessionId, 'w'); assert.deepEqual(opened, ['w']); supervisor.stop();
+test('Close selects a sibling fallback without starting it', () => {
+  const state = workspace(); const { supervisor, paused, opened } = harness(state); supervisor.start(); supervisor.focusAgent('d'); opened.length = 0; supervisor.activate('Close'); assert.deepEqual(paused, ['d']); assert.equal(state.sessions.find((item) => item.id === 'd').status, 'paused'); assert.equal(supervisor.navigation.sessionId, 'w'); assert.deepEqual(opened, []); supervisor.stop();
 });
 
-test('Sessions resumes exactly the selected paused child without reopening siblings', () => {
+test('Sessions opens saved history first and resumes the selected child only after Enter', () => {
   const state = workspace(); state.sessions.find((item) => item.id === 'w').explicitlyClosed = true; state.sessions.find((item) => item.id === 'w').status = 'paused';
   const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions');
   const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => row.session.id === 'w'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'w'; handlers.get('data')('\r');
-  assert.equal(supervisor.navigation.sessionId, 'w'); assert.deepEqual(opened.filter((id) => id === 'w'), ['w']); assert.equal(state.sessions.find((item) => item.id === 'w').explicitlyClosed, false); supervisor.stop();
+  assert.equal(supervisor.navigation.sessionId, 'w'); assert.deepEqual(opened, []); assert.equal(state.sessions.find((item) => item.id === 'w').explicitlyClosed, true); handlers.get('data')('\r'); assert.deepEqual(opened, ['w']); assert.equal(state.sessions.find((item) => item.id === 'w').explicitlyClosed, false); supervisor.stop();
 });
 
-test('Sessions arrows select exact agents and Enter opens only that agent', () => {
+test('Sessions arrows select exact agents and left/right collapse or expand their group', () => {
   const state = workspace(); const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions');
-  assert.equal(supervisor.sessionPicker.sessionId, 'd'); handlers.get('data')('\u001b[B'); assert.equal(supervisor.sessionPicker.sessionId, 'w'); handlers.get('data')('\r'); assert.equal(supervisor.navigation.sessionId, 'w'); assert.deepEqual(opened, ['w']);
-  opened.length = 0; supervisor.activate('Sessions'); handlers.get('data')('\u001b[D'); assert.equal(supervisor.sessionPicker.sessionId, 'd'); handlers.get('data')('\u001b[C'); assert.equal(supervisor.sessionPicker.sessionId, 'w'); handlers.get('data')('\u001b[D'); handlers.get('data')('\r'); assert.equal(supervisor.navigation.sessionId, 'd'); assert.deepEqual(opened, ['d']); supervisor.stop();
+  assert.equal(supervisor.sessionPicker.sessionId, 'd'); handlers.get('data')('\u001b[B'); assert.equal(supervisor.sessionPicker.sessionId, 'w'); handlers.get('data')('\r'); assert.equal(supervisor.navigation.sessionId, 'w'); assert.deepEqual(opened, []);
+  supervisor.activate('Sessions'); handlers.get('data')('\u001b[D'); assert.equal(supervisor.sessionPicker.sessionId, 'd'); assert.equal(supervisor.sessionPicker.expanded.has('one'), false); assert.doesNotMatch(stripAnsi(supervisor.sessionPickerLines().join('\n')), /Worker #1/); handlers.get('data')('\u001b[C'); assert.equal(supervisor.sessionPicker.expanded.has('one'), true); assert.match(stripAnsi(supervisor.sessionPickerLines().join('\n')), /Worker #1/); handlers.get('data')('\r'); assert.equal(supervisor.navigation.sessionId, 'd'); assert.deepEqual(opened, []); supervisor.stop();
 });
 
-test('Sessions keeps legacy explicitly closed non-terminal children resumable', () => {
-  const state = workspace(); const worker = state.sessions.find((item) => item.id === 'w'); worker.explicitlyClosed = true; worker.status = 'closed'; const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions'); const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => row.session.id === 'w'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'w'; handlers.get('data')('\r'); assert.deepEqual(opened, ['w']); assert.equal(worker.status, 'running'); supervisor.stop();
+test('Sessions keeps legacy explicitly closed non-terminal children resumable on explicit Enter', () => {
+  const state = workspace(); const worker = state.sessions.find((item) => item.id === 'w'); worker.explicitlyClosed = true; worker.status = 'closed'; const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions'); const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => row.session.id === 'w'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'w'; handlers.get('data')('\r'); assert.deepEqual(opened, []); handlers.get('data')('\r'); assert.deepEqual(opened, ['w']); assert.equal(worker.status, 'running'); supervisor.stop();
+});
+
+test('a never-started agent stays inert when opened and starts on the next Enter', () => {
+  const state = workspace(); const planning = state.sessions.find((item) => item.id === 'd'); planning.status = 'closed'; planning.explicitlyClosed = false; const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions'); const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => row.session.id === 'd'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'd'; handlers.get('data')('\r'); assert.deepEqual(opened, []); assert.match(supervisor.footerPresentation().message, /Press Enter to start/); handlers.get('data')('\r'); assert.deepEqual(opened, ['d']); supervisor.stop();
 });
 
 test('Sessions focuses accepted and completed history without resuming either provider', () => {
@@ -146,10 +151,10 @@ test('Sessions focuses accepted and completed history without resuming either pr
   assert.deepEqual(opened, []); assert.equal(worker.status, 'paused'); assert.equal(verifier.status, 'paused'); supervisor.stop();
 });
 
-test('visible paused and completed child badges resume or focus without relaunching completed work', () => {
+test('bottom badges open saved history without relaunching paused or completed work', () => {
   const state = workspace(); const worker = state.sessions.find((item) => item.id === 'w'); worker.explicitlyClosed = true; worker.status = 'paused'; const verifier = state.sessions.find((item) => item.id === 'v'); verifier.explicitlyClosed = true; verifier.status = 'completed';
   const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.navigation.workstreamId = 'one'; supervisor.draw(); let layout = supervisor.renderer.lastLayout;
-  click(handlers, layout.children.find((item) => item.sessionId === 'w')); assert.equal(supervisor.navigation.sessionId, 'w'); assert.equal(worker.status, 'running'); assert.deepEqual(opened, ['w']);
+  click(handlers, layout.children.find((item) => item.sessionId === 'w')); assert.equal(supervisor.navigation.sessionId, 'w'); assert.equal(worker.status, 'paused'); assert.deepEqual(opened, []); handlers.get('data')('\r'); assert.equal(worker.status, 'running'); assert.deepEqual(opened, ['w']);
   layout = supervisor.renderer.lastLayout; click(handlers, layout.children.find((item) => item.sessionId === 'v')); assert.equal(supervisor.navigation.sessionId, 'v'); assert.deepEqual(opened, ['w']); assert.equal(supervisor.renderer.lastLayout.actions.some((item) => item.action === 'Close'), false); supervisor.stop();
 });
 
@@ -160,7 +165,7 @@ test('Plans and Sessions remain ordered by immutable creation time', () => {
   state.workstreams[0].updatedAt = '2100-01-01'; state.sessions[0].updatedAt = '2100-01-01'; assert.deepEqual(supervisor.sessionPickerItems(state).map((item) => item.id), ['two', 'one']);
 });
 
-test('Plans and Reviews group by session with persistent expansion and exact click targets', () => {
+test('Plans and Reviews are keyboard-only grouped views without body buttons or hit targets', () => {
   const state = workspace(); state.workstreams[0].name = 'Build API'; state.workstreams[1].name = 'Fix CLI';
   const plans = [{ planId: 'p1', title: 'API plan', workstreamId: 'one', originSessionId: 'd', currentVersion: 1, createdAt: '2026-01-01' }, { planId: 'p2', title: 'CLI plan', workstreamId: 'two', originSessionId: 'c', currentVersion: 1, createdAt: '2026-01-02' }];
   const manifests = { p1: { title: 'API plan', version: 1, workstreamId: 'one', shared: { id: 'shared', sha: 's' }, chunks: [{ id: 'api', title: 'Implement API', sha: 'c' }], globalValidation: { id: 'global-validation', sha: 'g' }, approvals: {} }, p2: { title: 'CLI plan', version: 1, workstreamId: 'two', shared: { id: 'shared', sha: 's' }, chunks: [], globalValidation: { id: 'global-validation', sha: 'g' }, approvals: {} } };
@@ -168,19 +173,17 @@ test('Plans and Reviews group by session with persistent expansion and exact cli
   const legacyExecution = { id: 'legacy', planId: 'legacy-plan', version: 1, workstreamId: 'two', status: 'running', chunks: [{ id: 'cli', title: 'Fix command', status: 'review', summary: 'CLI ready', attempts: [{ sessionId: 'c' }] }] };
   const lineage = { list: () => plans, load: (id) => plans.find((item) => item.planId === id), readManifest: (id) => manifests[id], readSection: (_id, _version, sectionId) => `## ${sectionId}` };
   const { supervisor, handlers } = harness(state, { lineage, scheduler: { list: () => [execution, legacyExecution], resume() {} } }); supervisor.start(); supervisor.activate('Plans');
-  let plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /▾ Build API \(1\)/); assert.match(plain, /API plan.*Complete/); assert.match(plain, /▸ Fix CLI \(1\)/); assert.doesNotMatch(plain, /CLI plan.*Awaiting/); assert.doesNotMatch(plain, /Planning agent|Worker agent/);
-  let hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'group-toggle' && item.workstreamId === 'two'); click(handlers, hit); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /CLI plan.*Awaiting approval/);
-  hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'groups-collapse'); click(handlers, hit); assert.equal(supervisor.groupPageState('Plans').expanded.size, 0); supervisor.activate('Reviews'); supervisor.activate('Plans'); assert.equal(supervisor.groupPageState('Plans').expanded.size, 0);
-  hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'groups-expand'); click(handlers, hit); hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'plan-item' && item.planId === 'p1'); click(handlers, hit); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /Worker: Codex gpt-5 · high effort/); assert.match(plain, /Execution: Complete/); assert.match(plain, /Worker chunk · Implement API/);
-  hit = supervisor.renderer.lastLayout.hits.filter((item) => item.type === 'plan-section')[1]; click(handlers, hit); assert.equal(supervisor.topPage.detail.sectionIndex, 1); handlers.get('data')('\u001b[A'); assert.equal(supervisor.topPage.detail.sectionIndex, 1); hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'page-action' && item.key === '\r'); click(handlers, hit); assert.equal(supervisor.topPage.detail.reader, true);
-  supervisor.activate('Reviews'); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /▾ Build API \(2\)/); assert.match(plain, /▸ Fix CLI \(1\)/); assert.doesNotMatch(plain, /CLI ready/); hit = supervisor.renderer.lastLayout.hits.find((item) => item.type === 'group-toggle' && item.workstreamId === 'two'); click(handlers, hit); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /CLI ready/); supervisor.stop();
+  let plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /▾ Build API \(1\)/); assert.match(plain, /API plan.*Complete/); assert.match(plain, /▸ Fix CLI \(1\)/); assert.doesNotMatch(plain, /CLI plan.*Awaiting|Expand all|Collapse all|Planning agent|Worker agent/); assert.equal(supervisor.renderer.lastLayout.hits.some((item) => ['group-toggle', 'groups-expand', 'groups-collapse', 'plan-item', 'page-action'].includes(item.type)), false);
+  handlers.get('data')('\r'); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /Worker: Codex gpt-5 · high effort/); assert.match(plain, /Execution: Complete/); assert.match(plain, /Worker chunk · Implement API/);
+  handlers.get('data')('\u001b[B'); assert.equal(supervisor.topPage.detail.sectionIndex, 1); handlers.get('data')('\r'); assert.equal(supervisor.topPage.detail.reader, true);
+  supervisor.activate('Reviews'); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /▾ Build API \(2\)/); assert.match(plain, /▸ Fix CLI \(1\)/); assert.doesNotMatch(plain, /CLI ready/); handlers.get('data')('\u001b[B'); handlers.get('data')('\u001b[B'); handlers.get('data')('\u001b[C'); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /CLI ready/); supervisor.stop();
 });
 
-test('grouped pages support arrow selection and individual or global keyboard expansion', () => {
+test('grouped pages use only left and right arrows for collapse and expansion', () => {
   const state = workspace(); state.workstreams[0].name = 'Alpha'; state.workstreams[1].name = 'Beta'; const plans = [{ planId: 'alpha', title: 'Alpha plan', workstreamId: 'one', currentVersion: 1 }, { planId: 'beta', title: 'Beta plan', workstreamId: 'two', currentVersion: 1 }]; const manifest = (id) => ({ title: `${id} plan`, version: 1, workstreamId: id === 'alpha' ? 'one' : 'two', shared: { id: 'shared', sha: 's' }, chunks: [], globalValidation: { id: 'global-validation', sha: 'g' }, approvals: {} }); const lineage = { list: () => plans, readManifest: (id) => manifest(id) };
   const { supervisor, handlers } = harness(state, { lineage }); supervisor.start(); supervisor.activate('Plans'); const page = supervisor.groupPageState('Plans'); assert.match(page.selectedKey, /^item:alpha/);
   handlers.get('data')('\u001b[A'); assert.equal(page.selectedKey, 'group:one'); handlers.get('data')('\r'); assert.equal(page.expanded.has('one'), false); handlers.get('data')('\u001b[C'); assert.equal(page.expanded.has('one'), true); handlers.get('data')('\u001b[B'); assert.match(page.selectedKey, /^item:alpha/);
-  handlers.get('data')('C'); assert.equal(page.expanded.size, 0); assert.match(page.selectedKey, /^group:/); handlers.get('data')('E'); assert.deepEqual([...page.expanded].sort(), ['one', 'two']); handlers.get('data')('c'); assert.equal(page.expanded.has(page.selectedKey.replace('group:', '')), false); handlers.get('data')('e'); assert.equal(page.expanded.has(page.selectedKey.replace('group:', '')), true); supervisor.stop();
+  for (const retired of ['c', 'e', 'C', 'E']) handlers.get('data')(retired); assert.deepEqual([...page.expanded], ['one']); handlers.get('data')('\u001b[D'); assert.equal(page.expanded.has('one'), false); handlers.get('data')('\u001b[C'); assert.equal(page.expanded.has('one'), true); supervisor.stop();
 });
 
 test('execution state labels cover durable planning and execution phases', () => {
@@ -202,7 +205,7 @@ test('feedback resumes the exact worker after Close before recording the revisio
   const state = workspace(); const execution = { id: 'e', planId: 'p', workstreamId: 'one', status: 'running', chunks: [{ id: 'chunk', status: 'review', summary: 'Ready', diff: '+new', attempts: [{ sessionId: 'w' }] }], events: [] }; const writes = [];
   const scheduler = { list: () => [execution], load: () => execution, resume() {}, feedback(executionId, chunkId, payload, sender) { sender(executionId, chunkId, payload.message); execution.chunks[0].status = 'running'; execution.chunks[0].feedback = [{ ...payload, at: 'now' }]; } };
   const { supervisor, handlers, opened } = harness(state, { scheduler, sessions: { isOpen(id) { return state.sessions.find((item) => item.id === id)?.status === 'running'; }, write(id, value) { assert.equal(state.sessions.find((item) => item.id === id).status, 'running'); writes.push([id, value]); } }, lineage: { list: () => [{ planId: 'p', title: 'Plan', workstreamId: 'one', originSessionId: 'd' }] } }); supervisor.start(); supervisor.focusAgent('w'); supervisor.activate('Close'); assert.equal(state.sessions.find((item) => item.id === 'w').status, 'paused'); supervisor.activate('Reviews'); handlers.get('data')('\r'); handlers.get('data')('fResume this\r');
-  assert.deepEqual(opened.filter((id) => id === 'w'), ['w', 'w']); assert.deepEqual(writes, [['w', '\u001b[200~Resume this\u001b[201~'], ['w', '\r']]); assert.equal(execution.chunks[0].status, 'running'); assert.equal(supervisor.topPage.feedback, null); supervisor.stop();
+  assert.deepEqual(opened.filter((id) => id === 'w'), ['w']); assert.deepEqual(writes, [['w', '\u001b[200~Resume this\u001b[201~'], ['w', '\r']]); assert.equal(execution.chunks[0].status, 'running'); assert.equal(supervisor.topPage.feedback, null); supervisor.stop();
 });
 
 test('failed closed-worker feedback stays visible and can be retried', () => {
