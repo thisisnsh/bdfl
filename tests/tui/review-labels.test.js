@@ -67,15 +67,20 @@ test('Review retains durable accepted workers and shows their squashed diff', ()
   });
   const items = supervisor.reviewItems(state);
   assert.deepEqual(items.map((item) => item.id), ['open-result', 'closed-result', 'waiting-result', 'question-result']);
-  assert.deepEqual(diffs, ['open-result', 'closed-result', 'waiting-result', 'question-result']);
-  assert.match(items[0].diff, /new combined result/);
-  assert.doesNotMatch(items[0].diff, /latest commit only/);
+  assert.deepEqual(diffs, []);
+  assert.match(items[0].diff, /latest commit only/);
 
   supervisor.workspace = state;
   supervisor.topPage = { action: 'Reviews', index: 0, detail: { executionId: 'execution', id: 'open-result' } };
   const detail = supervisor.actionPageLines().join('\n').replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+  assert.deepEqual(diffs, ['open-result']);
+  assert.match(detail, /new combined result/);
+  assert.doesNotMatch(detail, /latest commit only/);
   assert.match(detail, /Accepted • Esc back/);
   assert.doesNotMatch(detail, /a accept|f feedback/);
+
+  supervisor.actionPageLines();
+  assert.deepEqual(diffs, ['open-result']);
 
   supervisor.topPage.detail = { executionId: 'execution', id: 'waiting-result' };
   const question = supervisor.actionPageLines().join('\n').replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
