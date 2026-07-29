@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { Navigation, TerminalRenderer, TerminalSupervisor, availableActions, executionStateLabel } = require('../../src/tui/supervisor');
+const { COLORS, Navigation, TerminalRenderer, TerminalSupervisor, availableActions, executionStateLabel } = require('../../src/tui/supervisor');
 const { stripAnsi } = require('../../src/tui/chrome');
 
 function workspace() {
@@ -23,19 +23,24 @@ function workspace() {
 }
 
 function harness(state, overrides = {}) {
-  const handlers = new Map(); const writes = []; const opened = []; const viewed = []; const paused = [];
+  const handlers = new Map(); const writes = []; const opened = []; const viewed = []; const paused = []; const deleted = [];
   const input = { on(event, handler) { handlers.set(event, handler); }, off() {}, setRawMode() {}, resume() {}, pause() {} };
   const sessions = {
     restore: () => ({ opened: [], errors: [] }),
     open(id) { opened.push(id); },
     resume(id) { opened.push(id); const session = state.sessions.find((item) => item.id === id); session.explicitlyClosed = false; session.status = 'running'; },
     pause(id) { paused.push(id); const session = state.sessions.find((item) => item.id === id); session.explicitlyClosed = true; session.status = 'paused'; },
+    delete(id) { deleted.push(id); },
     focus(id) { viewed.push(id); const session = state.sessions.find((item) => item.id === id); if (session) session.viewedAt = '2026-01-03T00:00:00.000Z'; },
     write() {}, screen: () => [], shutdown() {}, ...overrides.sessions
   };
   const store = {
     load: () => state,
     activateWorkstream(id) { state.activeWorkstreamId = id; },
+    reopenWorkstream(id) { const stream = state.workstreams.find((item) => item.id === id); if (stream) stream.status = 'active'; },
+    renameWorkstream(id, name) { const stream = state.workstreams.find((item) => item.id === id); if (!stream) throw new Error(`Unknown workstream: ${id}`); if (!name.trim()) throw new Error('Session names must not be empty'); stream.name = name; return stream; },
+    deleteWorkstream(id) { state.workstreams = state.workstreams.filter((item) => item.id !== id); state.sessions = state.sessions.filter((item) => item.workstreamId !== id); if (state.activeWorkstreamId === id) state.activeWorkstreamId = state.workstreams[0]?.id || null; return state; },
+    deleteAllWorkstreams() { const result = { workstreams: state.workstreams.length, sessions: state.sessions.length }; state.workstreams = []; state.sessions = []; state.activeWorkstreamId = null; return result; },
     setSessionAttention() {},
     pauseSession(id) { const session = state.sessions.find((item) => item.id === id); session.explicitlyClosed = true; session.status = 'paused'; },
     ...overrides.store
@@ -48,7 +53,7 @@ function harness(state, overrides = {}) {
     setTimeout: overrides.setTimeout, clearTimeout: overrides.clearTimeout
   });
   supervisor.acquire = () => {}; supervisor.release = () => {};
-  return { supervisor, handlers, writes, opened, viewed, paused };
+  return { supervisor, handlers, writes, opened, viewed, paused, deleted };
 }
 
 function click(handlers, hit, final = 'M') { handlers.get('data')(`\u001b[<0;${hit.start};${hit.row}${final}`); }
@@ -124,11 +129,11 @@ test('Close selects a sibling fallback without starting it', () => {
   const state = workspace(); const { supervisor, paused, opened } = harness(state); supervisor.start(); supervisor.focusAgent('d'); opened.length = 0; supervisor.activate('Close'); assert.deepEqual(paused, ['d']); assert.equal(state.sessions.find((item) => item.id === 'd').status, 'paused'); assert.equal(supervisor.navigation.sessionId, 'w'); assert.deepEqual(opened, []); supervisor.stop();
 });
 
-test('Sessions opens saved history first and resumes the selected child only after Enter', () => {
+test('Sessions resumes the selected paused agent in one action', () => {
   const state = workspace(); state.sessions.find((item) => item.id === 'w').explicitlyClosed = true; state.sessions.find((item) => item.id === 'w').status = 'paused';
   const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions');
   const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => row.session.id === 'w'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'w'; handlers.get('data')('\r');
-  assert.equal(supervisor.navigation.sessionId, 'w'); assert.deepEqual(opened, []); assert.equal(state.sessions.find((item) => item.id === 'w').explicitlyClosed, true); handlers.get('data')('\r'); assert.deepEqual(opened, ['w']); assert.equal(state.sessions.find((item) => item.id === 'w').explicitlyClosed, false); supervisor.stop();
+  assert.equal(supervisor.navigation.sessionId, 'w'); assert.deepEqual(opened, ['w']); assert.equal(state.sessions.find((item) => item.id === 'w').explicitlyClosed, false); supervisor.stop();
 });
 
 test('Sessions arrows select exact agents and left/right collapse or expand their group', () => {
@@ -137,12 +142,22 @@ test('Sessions arrows select exact agents and left/right collapse or expand thei
   supervisor.activate('Sessions'); handlers.get('data')('\u001b[D'); assert.equal(supervisor.sessionPicker.selectedKey, 'group:one'); assert.equal(supervisor.sessionPicker.sessionId, null); assert.equal(supervisor.sessionPicker.expanded.has('one'), false); assert.doesNotMatch(stripAnsi(supervisor.sessionPickerLines().join('\n')), /Worker #1/); handlers.get('data')('\u001b[C'); assert.equal(supervisor.sessionPicker.expanded.has('one'), true); assert.match(stripAnsi(supervisor.sessionPickerLines().join('\n')), /Worker #1/); handlers.get('data')('\r'); assert.equal(supervisor.sessionPicker.expanded.has('one'), false); assert.equal(supervisor.navigation.sessionId, 'w'); handlers.get('data')('\u001b[C'); handlers.get('data')('\u001b[B'); assert.equal(supervisor.sessionPicker.sessionId, 'd'); handlers.get('data')('\r'); assert.equal(supervisor.navigation.sessionId, 'd'); assert.deepEqual(opened, []); supervisor.stop();
 });
 
-test('Sessions keeps legacy explicitly closed non-terminal children resumable on explicit Enter', () => {
-  const state = workspace(); const worker = state.sessions.find((item) => item.id === 'w'); worker.explicitlyClosed = true; worker.status = 'closed'; const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions'); const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => row.session.id === 'w'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'w'; handlers.get('data')('\r'); assert.deepEqual(opened, []); handlers.get('data')('\r'); assert.deepEqual(opened, ['w']); assert.equal(worker.status, 'running'); supervisor.stop();
+test('Sessions offers rename only on a parent and keeps worker rows concise', () => {
+  const state = workspace(); state.sessions.find((item) => item.id === 'w').taskSnippet = 'A very long worker prompt that must not crowd the saved-agent row with unrelated text'; const { supervisor, handlers } = harness(state); supervisor.start(); supervisor.activate('Sessions'); let plain = stripAnsi(supervisor.sessionPickerLines().join('\n')); assert.doesNotMatch(plain, /r rename session|Last Prompt|very long worker prompt/); handlers.get('data')('\u001b[D'); plain = stripAnsi(supervisor.sessionPickerLines().join('\n')); assert.match(plain, /r rename session/); handlers.get('data')('r'); assert.ok(supervisor.sessionPicker.edit); supervisor.sessionPicker.edit.value = 'Release train'; handlers.get('data')('\r'); assert.equal(state.workstreams[0].name, 'Release train'); assert.match(stripAnsi(supervisor.sessionPickerLines().join('\n')), /Release train/); supervisor.stop();
 });
 
-test('a never-started agent stays inert when opened and starts on the next Enter', () => {
-  const state = workspace(); const planning = state.sessions.find((item) => item.id === 'd'); planning.status = 'closed'; planning.explicitlyClosed = false; const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions'); const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => row.session.id === 'd'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'd'; handlers.get('data')('\r'); assert.deepEqual(opened, []); assert.match(supervisor.footerPresentation().message, /Press Enter to start/); handlers.get('data')('\r'); assert.deepEqual(opened, ['d']); supervisor.stop();
+test('Sessions keeps single and bulk deletion distinct with bottom confirmations', () => {
+  const state = workspace(); state.workstreams[0].name = 'Build API'; const { supervisor, handlers, deleted } = harness(state, { columns: 160 }); supervisor.start(); supervisor.activate('Sessions'); handlers.get('data')('\u001b[D'); let plain = stripAnsi(supervisor.sessionPickerLines().join('\n')); assert.match(plain, /d delete session/); assert.match(plain, /D delete all sessions/);
+  handlers.get('data')('d'); plain = stripAnsi(supervisor.sessionPickerLines().join('\n')); assert.ok(plain.indexOf('Delete session “Build API” and its 3 agents permanently?') > plain.indexOf('Build API')); assert.match(plain, /Enter confirms • Esc cancels/); handlers.get('data')('\r'); assert.deepEqual(deleted.sort(), ['d', 'v', 'w']); assert.deepEqual(state.workstreams.map((item) => item.id), ['two']);
+  handlers.get('data')('D'); plain = stripAnsi(supervisor.sessionPickerLines().join('\n')); assert.match(plain, /Delete all 1 session and 1 agent permanently?/); handlers.get('data')('\r'); assert.deepEqual(deleted.sort(), ['c', 'd', 'v', 'w']); assert.ok(supervisor.wizard); supervisor.stop();
+});
+
+test('Sessions resumes legacy explicitly closed non-terminal agents in one action', () => {
+  const state = workspace(); const worker = state.sessions.find((item) => item.id === 'w'); worker.explicitlyClosed = true; worker.status = 'closed'; const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions'); const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => row.session.id === 'w'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'w'; handlers.get('data')('\r'); assert.deepEqual(opened, ['w']); assert.equal(worker.status, 'running'); supervisor.stop();
+});
+
+test('a never-started agent starts when opened from Sessions', () => {
+  const state = workspace(); const planning = state.sessions.find((item) => item.id === 'd'); planning.status = 'closed'; planning.explicitlyClosed = false; const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions'); const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => row.session.id === 'd'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'd'; handlers.get('data')('\r'); assert.deepEqual(opened, ['d']); supervisor.stop();
 });
 
 test('Sessions focuses accepted and completed history without resuming either provider', () => {
@@ -154,7 +169,7 @@ test('Sessions focuses accepted and completed history without resuming either pr
 test('bottom rail excludes paused and completed history until an agent is selected', () => {
   const state = workspace(); const worker = state.sessions.find((item) => item.id === 'w'); worker.explicitlyClosed = true; worker.status = 'paused'; const verifier = state.sessions.find((item) => item.id === 'v'); verifier.explicitlyClosed = true; verifier.status = 'completed';
   const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.navigation.workstreamId = 'one'; supervisor.draw(); let layout = supervisor.renderer.lastLayout;
-  assert.equal(layout.children.some((item) => ['w', 'v'].includes(item.sessionId)), false); supervisor.activate('Sessions'); const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => !row.header && row.session.id === 'w'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'w'; handlers.get('data')('\r'); layout = supervisor.renderer.lastLayout; assert.equal(layout.children.some((item) => item.sessionId === 'w'), true); assert.equal(worker.status, 'paused'); assert.deepEqual(opened, []); handlers.get('data')('\r'); assert.equal(worker.status, 'running'); assert.deepEqual(opened, ['w']); supervisor.stop();
+  assert.equal(layout.children.some((item) => ['w', 'v'].includes(item.sessionId)), false); supervisor.activate('Sessions'); const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => !row.header && row.session.id === 'w'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'w'; handlers.get('data')('\r'); layout = supervisor.renderer.lastLayout; assert.equal(layout.children.some((item) => item.sessionId === 'w'), true); assert.equal(worker.status, 'running'); assert.deepEqual(opened, ['w']); supervisor.stop();
 });
 
 test('Plans and Sessions remain ordered by immutable creation time', () => {
@@ -172,10 +187,14 @@ test('Plans and Reviews are keyboard-only grouped views without body buttons or 
   const legacyExecution = { id: 'legacy', planId: 'legacy-plan', version: 1, workstreamId: 'two', status: 'running', chunks: [{ id: 'cli', title: 'Fix command', status: 'review', summary: 'CLI ready', attempts: [{ sessionId: 'c' }] }] };
   const lineage = { list: () => plans, load: (id) => plans.find((item) => item.planId === id), readManifest: (id) => manifests[id], readSection: (_id, _version, sectionId) => `## ${sectionId}` };
   const { supervisor, handlers } = harness(state, { lineage, scheduler: { list: () => [execution, legacyExecution], resume() {} } }); supervisor.start(); supervisor.activate('Plans');
-  let plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /▾ Build API \(1\)/); assert.match(plain, /API plan.*Complete/); assert.match(plain, /▸ Fix CLI \(1\)/); assert.doesNotMatch(plain, /CLI plan.*Awaiting|Expand all|Collapse all|Planning agent|Worker agent/); assert.equal(supervisor.renderer.lastLayout.hits.some((item) => ['group-toggle', 'groups-expand', 'groups-collapse', 'plan-item', 'page-action'].includes(item.type)), false);
+  let plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /▾ Build API\s+1 plan/); assert.match(plain, /Planning agent: Planner.*Updated at:/); assert.match(plain, /└─ API plan.*Complete/); assert.match(plain, /▸ Fix CLI\s+1 plan/); assert.doesNotMatch(plain, /CLI plan.*Awaiting|Expand all|Collapse all|Worker agent/); assert.equal(supervisor.renderer.lastLayout.hits.some((item) => ['group-toggle', 'groups-expand', 'groups-collapse', 'plan-item', 'page-action'].includes(item.type)), false);
   handlers.get('data')('\r'); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /Worker: Codex gpt-5 · high effort/); assert.match(plain, /Execution: Complete/); assert.match(plain, /Worker chunk · Implement API/);
   handlers.get('data')('\u001b[B'); assert.equal(supervisor.topPage.detail.sectionIndex, 1); handlers.get('data')('\r'); assert.equal(supervisor.topPage.detail.reader, true);
-  supervisor.activate('Reviews'); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /▾ Build API \(2\)/); assert.match(plain, /▸ Fix CLI \(1\)/); assert.doesNotMatch(plain, /CLI ready/); handlers.get('data')('\u001b[B'); handlers.get('data')('\u001b[B'); handlers.get('data')('\u001b[C'); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /CLI ready/); supervisor.stop();
+  supervisor.activate('Reviews'); plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /▾ Build API\s+2 reviews/); assert.match(plain, /Planning agent: Planner.*Updated at:/); assert.match(plain, /▸ Fix CLI\s+1 review/); assert.doesNotMatch(plain, /CLI ready/); handlers.get('data')('\u001b[B'); handlers.get('data')('\u001b[B'); handlers.get('data')('\u001b[C'); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /CLI ready/); supervisor.stop();
+});
+
+test('Plans renames the selected plan and keeps delete confirmation at the bottom', () => {
+  const state = workspace(); state.workstreams[0].name = 'Build API'; const plans = [{ planId: 'p', title: 'Original plan', workstreamId: 'one', originSessionId: 'd', currentVersion: 1, createdAt: '2026-01-01', updatedAt: '2026-01-02' }]; const manifest = { title: 'Original plan', version: 1, workstreamId: 'one', shared: { id: 'shared', sha: 's' }, chunks: [], globalValidation: { id: 'global-validation', sha: 'g' }, approvals: {} }; const lineage = { list: () => plans, readManifest: () => manifest, rename(id, name) { const plan = plans.find((item) => item.planId === id); plan.name = name; return plan; } }; const { supervisor, handlers } = harness(state, { lineage }); supervisor.start(); supervisor.activate('Plans'); let plain = stripAnsi(supervisor.actionPageLines().join('\n')); assert.match(plain, /r rename plan/); handlers.get('data')('r'); assert.equal(supervisor.topPage.rename.kind, 'plan'); supervisor.topPage.rename.value = 'Release plan'; handlers.get('data')('\r'); assert.equal(plans[0].name, 'Release plan'); assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /Release plan/); handlers.get('data')('d'); plain = stripAnsi(supervisor.actionPageLines().join('\n')); const planRow = plain.indexOf('Release plan'); const confirmation = plain.indexOf('Delete 1 plan permanently?'); const controls = plain.indexOf('Enter confirms'); assert.ok(planRow >= 0 && confirmation > planRow && controls > confirmation); supervisor.stop();
 });
 
 test('grouped pages use only left and right arrows for collapse and expansion', () => {
@@ -261,6 +280,6 @@ test('Review keeps remedy, integration, and override confirmations separate', ()
 
 test('double Ctrl+C remains the only quit gesture', () => {
   const state = workspace(); let shutdowns = 0; let timeout; const { supervisor, handlers } = harness(state, { sessions: { shutdown() { shutdowns += 1; } }, setTimeout(fn, ms) { timeout = { fn, ms, unref() {} }; return timeout; } });
-  supervisor.start(); handlers.get('data')('\u0003'); assert.equal(supervisor.running, true); assert.equal(timeout.ms, 5000); assert.match(stripAnsi(supervisor.renderer.lastLayout.output), /Press Ctrl\+C again to quit/);
+  supervisor.start(); handlers.get('data')('\u0003'); assert.equal(supervisor.running, true); assert.equal(timeout.ms, 5000); assert.match(stripAnsi(supervisor.renderer.lastLayout.output), /Press Ctrl\+C again to quit/); assert.match(supervisor.renderer.lastLayout.output, new RegExp(COLORS.red.replace('[', '\\[')));
   handlers.get('data')('\u0003'); assert.equal(supervisor.running, false); assert.equal(shutdowns, 1);
 });

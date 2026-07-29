@@ -95,9 +95,9 @@ Use Codex, Claude Code, or Ollama independently for planning, worker, or direct-
 
 - Agents accept typing and terminal editing keys immediately. Click an open agent in the bottom rail to switch without stealing provider keystrokes.
 
-- The top action rail opens New, Plans, Sessions, Reviews, or Close. Close pauses only the selected agent; reopen it from Sessions to preserve the exact provider conversation. Press `Ctrl+C` twice to quit BDFL.
+- The top action rail opens New, Plans, Sessions, Reviews, or Close. Close pauses only the selected agent; selecting that agent in Sessions resumes its exact provider conversation in one action. Press `Ctrl+C` twice to quit BDFL.
 
-- On Plans, press `d` to permanently delete the selected plan or `D` to delete all plans. Press Enter a second time to confirm or Esc to cancel. Active plan executions block plan deletion.
+- On a Sessions parent, press `r` to rename it or `d` to permanently delete that session and its agents; `D` separately deletes all sessions. On Plans, `r` renames the selected plan, `d` deletes it, and `D` deletes all plans. Deletions require Enter confirmation at the bottom; Esc cancels. Active plan executions block plan deletion.
 
   Plan cleanup removes only BDFL plan lineage and versions. It does not cascade to executions, sessions, Git history, worktrees, or provider-retained transcripts.
 
