@@ -10,7 +10,7 @@ const STYLE = {
 };
 const ACTIONS = ['New', 'Plans', 'Sessions', 'Reviews', 'Close'];
 const DONE_STATUSES = new Set(['accepted', 'cancelled', 'closed', 'complete', 'completed', 'done', 'integrated', 'rejected', 'superseded']);
-const TIP = '↑↓ scroll · Click badges to switch · Ctrl+C twice quits';
+const TIP = '↑↓ scroll • Click agents to switch • Ctrl+C twice quits';
 const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 function characterWidth(character) {
@@ -85,10 +85,15 @@ function workerName(child) {
   if (child.role === 'integration') return `Worker: ${child.workerPhase || (child.executionStatus === 'verifying' ? 'Review' : 'Integration')}`;
   return `Worker: ${label(child.chunkTitle || child.workerTitle || child.taskSnippet || child.chunkId || child.name, 'Task')}`;
 }
+function agentName(child) {
+  if (child.role === 'delegator') return label(child.name, 'Planning agent');
+  if (child.role === 'direct') return label(child.name, 'Direct agent');
+  return workerName(child);
+}
 function railBadge(item, budget) {
-  const value = item.kind === 'worker' ? workerName(item.child) : label(item.stream.name || item.stream.title, 'Session');
+  const value = agentName(item.child);
   let text = badge(value, budget);
-  if (item.kind === 'worker' && textWidth(text) > budget || item.kind === 'worker' && budget < textWidth('[Worker: ]')) text = badge(value.replace(/^Worker:/u, 'W:'), budget);
+  if (textWidth(text) > budget || budget < textWidth('[Worker: ]')) text = badge(value.replace(/^Worker:/u, 'W:'), budget);
   return text;
 }
 function styleLine(line, row, ranges) {
@@ -110,10 +115,11 @@ function layoutChrome(workspace = {}, options = {}) {
   const canvas = Array.from({ length: rows }, () => Array(columns).fill(' '));
   put(canvas, 1, 1, `┌${'─'.repeat(inner)}┐`); for (let row = 2; row < rows; row += 1) { put(canvas, row, 1, '│'); put(canvas, row, columns, '│'); } put(canvas, rows, 1, `└${'─'.repeat(inner)}┘`);
 
-  const left = [{ type: 'version', text: `bdfl ${label(options.version, 'unknown')}` }, { type: 'link', link: 'repository', url: REPOSITORY_URL, text: '[Star]' }, { type: 'link', link: 'report', url: ISSUE_URL, text: '[Report]' }];
+  const left = [{ type: 'title', text: `bdfl${options.title ? ` - ${label(options.title, 'Session')}` : ''}` }, { type: 'link', link: 'repository', url: REPOSITORY_URL, text: '[Star]' }, { type: 'link', link: 'report', url: ISSUE_URL, text: '[Report issues]' }];
   let column = 3; const actionItems = ACTIONS.filter((action) => action !== 'Close' || options.showClose !== false).map((action) => ({ type: 'action', action, text: `[${action}]` }));
-  const actionWidth = actionItems.reduce((sum, item) => sum + textWidth(item.text), Math.max(0, actionItems.length - 1)); const leftBudget = Math.max(0, inner - actionWidth - 3); const visibleLeft = [];
-  for (const item of left) { const needed = textWidth(item.text) + (visibleLeft.length ? 1 : 0); if (visibleLeft.reduce((sum, value) => sum + textWidth(value.text), Math.max(0, visibleLeft.length - 1)) + needed <= leftBudget) visibleLeft.push(item); }
+  const actionWidth = actionItems.reduce((sum, item) => sum + textWidth(item.text), Math.max(0, actionItems.length - 1)); const leftBudget = Math.min(inner, Math.max(Math.min(4, inner), inner - actionWidth - 3)); const visibleLeft = [];
+  if (leftBudget > 0) visibleLeft.push({ ...left[0], text: cropText(left[0].text, leftBudget, true) });
+  for (const item of left.slice(1)) { const used = visibleLeft.reduce((sum, value) => sum + textWidth(value.text), Math.max(0, visibleLeft.length - 1)); const needed = textWidth(item.text) + (visibleLeft.length ? 1 : 0); if (used + needed <= leftBudget) visibleLeft.push(item); }
   for (const item of visibleLeft) { if (column > 3) { put(canvas, 1, column, ' '); column += 1; } put(canvas, 1, column, item.text); if (item.type === 'link') { const hit = addHit(hits, item, 1, column, item.text); links.push({ ...item, ...hit }); ranges.push({ ...hit, ansi: STYLE.yellow }); } column += textWidth(item.text); }
   let actionColumn = columns - 1 - actionWidth;
   if (actionColumn <= column) { const available = Math.max(0, columns - column - 2); const focus = Math.max(0, actionItems.findIndex((item) => item.action === activeAction)); const visible = visibleWindow(actionItems, available, focus); const used = visible.reduce((sum, item) => sum + textWidth(item.text), Math.max(0, visible.length - 1)); actionColumn = columns - 1 - used; actionItems.splice(0, actionItems.length, ...visible); }
@@ -121,18 +127,16 @@ function layoutChrome(workspace = {}, options = {}) {
 
   const streams = createdOrder(workspace.workstreams || []); const candidates = [];
   for (const stream of streams) {
-    const group = childOrder((workspace.sessions || []).filter((session) => session.workstreamId === stream.id)); const primary = group.find((session) => ['delegator', 'direct'].includes(session.role));
-    candidates.push({ kind: 'parent', stream, primary, text: badge(label(stream.name || primary?.name || stream.title, 'Session')) });
-    if (stream.id === options.expandedWorkstreamId) for (const child of group.filter((session) => !['delegator', 'direct'].includes(session.role))) candidates.push({ kind: 'worker', stream, child, text: badge(workerName(child)) });
+    const group = childOrder((workspace.sessions || []).filter((session) => session.workstreamId === stream.id));
+    for (const child of group) if (child.id === activeSessionId || options.isOpen?.(child.id, child) || !child.explicitlyClosed && ['running', 'bridge-reconnecting', 'bridge-error'].includes(child.status)) candidates.push({ kind: 'agent', stream, child, text: badge(agentName(child)) });
   }
-  const focusIndex = Math.max(0, candidates.findIndex((item) => item.kind === 'worker' ? item.child.id === activeSessionId : item.primary?.id === activeSessionId || item.stream.id === options.expandedWorkstreamId)); let visible = visibleWindow(candidates, Math.max(0, inner - 2), focusIndex);
+  const focusIndex = Math.max(0, candidates.findIndex((item) => item.child.id === activeSessionId)); let visible = visibleWindow(candidates, Math.max(0, inner - 2), focusIndex);
   if (visible.length === 1 && textWidth(visible[0].text) > inner - 2) visible = [{ ...visible[0], text: railBadge(visible[0], Math.max(0, inner - 2)) }];
   column = 3;
   for (const item of visible) {
     if (column > 3) { put(canvas, rows, column, ' '); column += 1; }
     const text = item.text; put(canvas, rows, column, text);
-    if (item.kind === 'parent') { const state = item.primary ? childVisualState(item.primary, { ...options, activeSessionId }) : 'idle-viewed'; const hit = addHit(hits, { type: 'parent', workstreamId: item.stream.id, sessionId: item.primary?.id || null }, rows, column, text); parents.push({ stream: item.stream, text, ...hit, state }); ranges.push({ ...hit, ansi: visualStyle(state).ansi }); }
-    else { const state = childVisualState(item.child, { ...options, activeSessionId }); const hit = addHit(hits, { type: 'child', sessionId: item.child.id, workstreamId: item.stream.id }, rows, column, text); children.push({ child: item.child, text, ...hit, state }); ranges.push({ ...hit, ansi: visualStyle(state).ansi }); }
+    const state = childVisualState(item.child, { ...options, activeSessionId }); const hit = addHit(hits, { type: 'child', sessionId: item.child.id, workstreamId: item.stream.id }, rows, column, text); children.push({ child: item.child, text, ...hit, state }); ranges.push({ ...hit, ansi: visualStyle(state).ansi });
     column += textWidth(text);
   }
 
@@ -145,4 +149,4 @@ function layoutChrome(workspace = {}, options = {}) {
 function renderChrome(workspace, options) { return layoutChrome(workspace, options).output; }
 class Chrome { constructor(options = {}) { this.options = { ...options }; this.lastLayout = null; } layout(workspace, options = {}) { this.lastLayout = layoutChrome(workspace, { ...this.options, ...options }); return this.lastLayout; } render(workspace, options = {}) { return this.layout(workspace, options).output; } }
 
-module.exports = { STYLE, ACTIONS, DONE_STATUSES, TIP, characterWidth, stripAnsi, textWidth, cropText, fitText, createdOrder, childOrder, visibleWindow, childVisualState, sessionVisualState: childVisualState, parentVisualState, aggregateVisualState: parentVisualState, pulsePhase, visualStyle, frameGeometry, hitAt, layoutChrome, renderChrome, Chrome, workerName };
+module.exports = { STYLE, ACTIONS, DONE_STATUSES, TIP, characterWidth, stripAnsi, textWidth, cropText, fitText, createdOrder, childOrder, visibleWindow, childVisualState, sessionVisualState: childVisualState, parentVisualState, aggregateVisualState: parentVisualState, pulsePhase, visualStyle, frameGeometry, hitAt, layoutChrome, renderChrome, Chrome, workerName, agentName };

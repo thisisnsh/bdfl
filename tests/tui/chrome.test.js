@@ -58,25 +58,26 @@ test('working and focus styles remain steady without animation', () => {
 });
 
 test('renders one-row top chrome, a right-aligned internal tip, and one-row bottom badges', () => {
-  const layout = layoutChrome(fixture(), { columns: 100, rows: 12, version: '1.2.3', expandedWorkstreamId: 'one', activeAction: 'Plans' }); const plain = layout.plainLines.join('\n');
-  assert.match(plain, /bdfl 1\.2\.3 \[Star\] \[Report\].*\[New\] \[Plans\] \[Sessions\] \[Reviews\] \[Close\]/); assert.doesNotMatch(plain, /Quit/);
+  const layout = layoutChrome(fixture(), { columns: 100, rows: 12, title: 'Alpha session', activeAction: 'Plans' }); const plain = layout.plainLines.join('\n');
+  assert.match(plain, /bdfl - Alpha session \[Star\] \[Report issues\].*\[New\] \[Plans\] \[Sessions\] \[Reviews\] \[Close\]/); assert.doesNotMatch(plain, /Quit/);
   assert.match(plain, /Ctrl\+C twice quits/); assert.equal(layout.tipRow, layout.frame.bottom - 1); assert.equal(layout.parentRow, layout.frame.bottom); assert.equal(layout.childRow, layout.frame.bottom);
   assert.equal(layout.links.find((item) => item.link === 'report').url, ISSUE_URL); assert.equal(layout.links.find((item) => item.link === 'repository').url, REPOSITORY_URL);
   assert.match(layout.lines[0], new RegExp(STYLE.bgYellow.replace('[', '\\['))); assert.doesNotMatch(layout.lines[0], new RegExp(STYLE.underline.replace('[', '\\[')));
   assert.equal(renderChrome(fixture(), { columns: 100, rows: 12 }).split('\n').length, 12);
 });
 
-test('uses exclusive active highlighting and connected creation-stable parent and child rows', () => {
+test('uses exclusive active highlighting across creation-stable open agent tabs', () => {
   const state = fixture(); const layout = layoutChrome(state, { columns: 100, rows: 10, expandedWorkstreamId: 'one', activeSessionId: 'worker', activeAction: 'Reviews', runningSessionIds: new Set(['lead']) });
   assert.equal(layout.activeSessionId, null); assert.equal(layout.actions.find((item) => item.action === 'Reviews').state, 'active'); assert.equal(layout.children.some((item) => item.state === 'active'), false);
-  assert.deepEqual(layout.parents.map((item) => item.workstreamId), ['two', 'one']); assert.deepEqual(layout.children.map((item) => item.sessionId), ['worker', 'verifier']);
-  const childLayout = layoutChrome(state, { columns: 100, rows: 10, expandedWorkstreamId: 'one', activeSessionId: 'worker' }); assert.equal(childLayout.children.find((item) => item.sessionId === 'worker').state, 'active'); assert.equal(childLayout.actions.some((item) => item.state === 'active'), false); assert.notEqual(childLayout.parents.find((item) => item.workstreamId === 'one').state, 'active');
+  assert.deepEqual(layout.parents, []); assert.deepEqual(layout.children.map((item) => item.sessionId), ['other', 'lead', 'worker']);
+  const childLayout = layoutChrome(state, { columns: 100, rows: 10, activeSessionId: 'worker' }); assert.equal(childLayout.children.find((item) => item.sessionId === 'worker').state, 'active'); assert.equal(childLayout.actions.some((item) => item.state === 'active'), false);
 });
 
-test('bottom rail shows workers only for the active session group', () => {
+test('bottom rail shows open agents across every session and excludes closed history', () => {
   const state = fixture(); state.sessions.push({ id: 'other-worker', workstreamId: 'two', name: 'Worker 2', role: 'worker', paneNumber: 5, status: 'running' });
-  let layout = layoutChrome(state, { columns: 100, rows: 10, expandedWorkstreamId: 'one', activeSessionId: 'worker' }); assert.deepEqual(layout.parents.map((item) => item.workstreamId), ['two', 'one']); assert.deepEqual(layout.children.map((item) => item.sessionId), ['worker', 'verifier']);
-  layout = layoutChrome(state, { columns: 100, rows: 10, expandedWorkstreamId: 'two', activeSessionId: 'other-worker' }); assert.deepEqual(layout.parents.map((item) => item.workstreamId), ['two', 'one']); assert.deepEqual(layout.children.map((item) => item.sessionId), ['other-worker']);
+  state.sessions.find((item) => item.id === 'worker').status = 'paused'; state.sessions.find((item) => item.id === 'worker').explicitlyClosed = true;
+  let layout = layoutChrome(state, { columns: 100, rows: 10, activeSessionId: 'lead' }); assert.deepEqual(layout.parents, []); assert.deepEqual(layout.children.map((item) => item.sessionId), ['other', 'other-worker', 'lead']);
+  layout = layoutChrome(state, { columns: 100, rows: 10, activeSessionId: 'worker' }); assert.deepEqual(layout.children.map((item) => item.sessionId), ['other', 'other-worker', 'lead', 'worker']);
 });
 
 test('all visible badges have exact hitboxes and narrow layouts stay inside the frame', () => {

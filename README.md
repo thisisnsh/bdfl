@@ -91,15 +91,15 @@ Use Codex, Claude Code, or Ollama independently for planning, worker, or direct-
 - Create a planning session with a read-only planning agent and isolated managed workers, or a direct session with one editable agent in the repository.
 - Each repository remembers planning and direct settings independently.
 
-- Manage running sessions or resume closed ones. Rename or permanently delete them.
+- Manage running agents or reopen paused ones from their saved session.
 
-- Agents accept typing and terminal editing keys immediately. Click a parent or child badge to switch agents without stealing provider keystrokes.
+- Agents accept typing and terminal editing keys immediately. Click an open agent in the bottom rail to switch without stealing provider keystrokes.
 
-- The bottom action rail is mouse-first: click New, Plans, Sessions, Review, or Close. Close pauses only the selected child, and clicking its paused badge or opening it from Sessions resumes that exact provider conversation. Press `Ctrl+C` twice to quit BDFL.
+- The top action rail opens New, Plans, Sessions, Reviews, or Close. Close pauses only the selected agent; reopen it from Sessions to preserve the exact provider conversation. Press `Ctrl+C` twice to quit BDFL.
 
-- On the Plans and Sessions overview pages, press `d` to permanently delete the selected plan or session group, or `D` to delete all. Press Enter a second time to confirm or Esc to cancel. Active plan executions block plan deletion; session cleanup failures leave the durable catalog intact.
+- On Plans, press `d` to permanently delete the selected plan or `D` to delete all plans. Press Enter a second time to confirm or Esc to cancel. Active plan executions block plan deletion.
 
-  Plan cleanup removes only BDFL plan lineage and versions. Session cleanup removes BDFL-managed processes, snapshots, workstreams, and session records. Neither operation cascades to executions, Git history or worktrees, and provider-retained transcripts remain governed by the provider.
+  Plan cleanup removes only BDFL plan lineage and versions. It does not cascade to executions, sessions, Git history, worktrees, or provider-retained transcripts.
 
 <p align="center">
   <img src="docs/assets/new-session.png" alt="Configuring planning and worker agents in a new BDFL session" >

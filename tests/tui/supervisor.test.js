@@ -52,15 +52,15 @@ function harness(state, overrides = {}) {
 }
 
 function click(handlers, hit, final = 'M') { handlers.get('data')(`\u001b[<0;${hit.start};${hit.row}${final}`); }
+function clickContent(handlers, hit, final = 'M') { handlers.get('data')(`\u001b[<0;${hit.start + 2};${hit.row + 2}${final}`); }
 
-test('chrome renders creation-stable parent sessions and only the expanded session children', () => {
+test('chrome renders the session title and creation-stable open agent tabs', () => {
   const state = workspace(); const navigation = new Navigation(state); navigation.selectSession('w');
   const renderer = new TerminalRenderer({ version: '1.2.3' }); const output = renderer.render(state, navigation, { columns: 100, rows: 12, content: ['Plans'] }); const layout = renderer.lastLayout; const plain = stripAnsi(output);
-  assert.deepEqual(layout.parents.map((item) => item.workstreamId), ['two', 'one']);
-  assert.deepEqual(layout.children.map((item) => item.sessionId), ['w', 'v']);
+  assert.deepEqual(layout.parents, []);
+  assert.deepEqual(layout.children.map((item) => item.sessionId), ['c', 'd', 'w']);
   assert.equal(layout.children.find((item) => item.sessionId === 'w').state, 'active');
-  assert.notEqual(layout.parents.find((item) => item.workstreamId === 'one').state, 'active');
-  assert.match(plain, /bdfl 1\.2\.3.*\[Star\].*\[Report\].*\[New\].*\[Plans\].*\[Sessions\].*\[Reviews\].*\[Close\]/);
+  assert.match(plain, /bdfl - Planner.*\[Star\].*\[Report issues\].*\[New\].*\[Plans\].*\[Sessions\].*\[Reviews\].*\[Close\]/);
   assert.match(plain.split('\n')[1], /^│ Plans/);
   assert.doesNotMatch(plain, /Quit|\*|✓/);
 });
@@ -82,7 +82,7 @@ test('New has no body Back button while top and bottom chrome remains clickable'
   layout = supervisor.renderer.lastLayout; assert.equal(layout.hits.some((item) => item.type === 'back'), false); assert.ok(supervisor.wizard);
   click(handlers, layout.actions.find((item) => item.action === 'Plans')); assert.equal(supervisor.topPage.action, 'Plans');
   supervisor.activate('New'); layout = supervisor.renderer.lastLayout; click(handlers, layout.links.find((item) => item.link === 'report')); assert.equal(openedLinks.length, 1); assert.ok(supervisor.wizard);
-  click(handlers, layout.parents.find((item) => item.workstreamId === 'one')); assert.equal(supervisor.navigation.activeAction, null); assert.equal(supervisor.navigation.workstreamId, 'one');
+  click(handlers, layout.children.find((item) => item.sessionId === 'd')); assert.equal(supervisor.navigation.activeAction, null); assert.equal(supervisor.navigation.sessionId, 'd');
   supervisor.activate('New'); handlers.get('data')('\u001b'); assert.equal(supervisor.wizard, null); assert.equal(supervisor.navigation.sessionId, 'd');
   supervisor.stop();
 });
@@ -94,11 +94,11 @@ test('frame shortcuts are retired while terminal arrows scroll or are safely ign
   assert.deepEqual(forwarded.map((entry) => entry[1]), ['\u001bp', '\u001b3', '\u001b[6;5~']); assert.deepEqual(scrolled, [['d', -1]]); supervisor.stop();
 });
 
-test('clicking a parent selects its primary agent without spawning it', () => {
-  const state = workspace(); const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.focusAgent('w'); supervisor.activate('Plans');
-  let layout = supervisor.renderer.lastLayout; click(handlers, layout.parents.find((item) => item.workstreamId === 'one')); assert.equal(supervisor.navigation.sessionId, 'd');
-  state.sessions.find((item) => item.id === 'w').explicitlyClosed = true; supervisor.activate('Plans'); layout = supervisor.renderer.lastLayout; click(handlers, layout.parents.find((item) => item.workstreamId === 'one'));
-  assert.equal(supervisor.navigation.sessionId, 'd'); assert.deepEqual(opened, []); supervisor.stop();
+test('clicking a Sessions parent only toggles it while its planning row opens history', () => {
+  const state = workspace(); const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.focusAgent('w'); supervisor.activate('Sessions');
+  let header = supervisor.contentHits.find((item) => item.header && item.workstreamId === 'one'); clickContent(handlers, header); assert.equal(supervisor.sessionPicker.expanded.has('one'), false); assert.equal(supervisor.navigation.sessionId, 'w');
+  header = supervisor.contentHits.find((item) => item.header && item.workstreamId === 'one'); clickContent(handlers, header); assert.equal(supervisor.sessionPicker.expanded.has('one'), true);
+  const planning = supervisor.contentHits.find((item) => item.sessionId === 'd'); clickContent(handlers, planning); assert.equal(supervisor.navigation.sessionId, 'd'); assert.equal(supervisor.sessionPicker, null); assert.deepEqual(opened, []); supervisor.stop();
 });
 
 test('focusing marks only that child viewed and starts no animation timer', () => {
@@ -134,7 +134,7 @@ test('Sessions opens saved history first and resumes the selected child only aft
 test('Sessions arrows select exact agents and left/right collapse or expand their group', () => {
   const state = workspace(); const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.activate('Sessions');
   assert.equal(supervisor.sessionPicker.sessionId, 'd'); handlers.get('data')('\u001b[B'); assert.equal(supervisor.sessionPicker.sessionId, 'w'); handlers.get('data')('\r'); assert.equal(supervisor.navigation.sessionId, 'w'); assert.deepEqual(opened, []);
-  supervisor.activate('Sessions'); handlers.get('data')('\u001b[D'); assert.equal(supervisor.sessionPicker.sessionId, 'd'); assert.equal(supervisor.sessionPicker.expanded.has('one'), false); assert.doesNotMatch(stripAnsi(supervisor.sessionPickerLines().join('\n')), /Worker #1/); handlers.get('data')('\u001b[C'); assert.equal(supervisor.sessionPicker.expanded.has('one'), true); assert.match(stripAnsi(supervisor.sessionPickerLines().join('\n')), /Worker #1/); handlers.get('data')('\r'); assert.equal(supervisor.navigation.sessionId, 'd'); assert.deepEqual(opened, []); supervisor.stop();
+  supervisor.activate('Sessions'); handlers.get('data')('\u001b[D'); assert.equal(supervisor.sessionPicker.selectedKey, 'group:one'); assert.equal(supervisor.sessionPicker.sessionId, null); assert.equal(supervisor.sessionPicker.expanded.has('one'), false); assert.doesNotMatch(stripAnsi(supervisor.sessionPickerLines().join('\n')), /Worker #1/); handlers.get('data')('\u001b[C'); assert.equal(supervisor.sessionPicker.expanded.has('one'), true); assert.match(stripAnsi(supervisor.sessionPickerLines().join('\n')), /Worker #1/); handlers.get('data')('\r'); assert.equal(supervisor.sessionPicker.expanded.has('one'), false); assert.equal(supervisor.navigation.sessionId, 'w'); handlers.get('data')('\u001b[C'); handlers.get('data')('\u001b[B'); assert.equal(supervisor.sessionPicker.sessionId, 'd'); handlers.get('data')('\r'); assert.equal(supervisor.navigation.sessionId, 'd'); assert.deepEqual(opened, []); supervisor.stop();
 });
 
 test('Sessions keeps legacy explicitly closed non-terminal children resumable on explicit Enter', () => {
@@ -151,11 +151,10 @@ test('Sessions focuses accepted and completed history without resuming either pr
   assert.deepEqual(opened, []); assert.equal(worker.status, 'paused'); assert.equal(verifier.status, 'paused'); supervisor.stop();
 });
 
-test('bottom badges open saved history without relaunching paused or completed work', () => {
+test('bottom rail excludes paused and completed history until an agent is selected', () => {
   const state = workspace(); const worker = state.sessions.find((item) => item.id === 'w'); worker.explicitlyClosed = true; worker.status = 'paused'; const verifier = state.sessions.find((item) => item.id === 'v'); verifier.explicitlyClosed = true; verifier.status = 'completed';
   const { supervisor, handlers, opened } = harness(state); supervisor.start(); supervisor.navigation.workstreamId = 'one'; supervisor.draw(); let layout = supervisor.renderer.lastLayout;
-  click(handlers, layout.children.find((item) => item.sessionId === 'w')); assert.equal(supervisor.navigation.sessionId, 'w'); assert.equal(worker.status, 'paused'); assert.deepEqual(opened, []); handlers.get('data')('\r'); assert.equal(worker.status, 'running'); assert.deepEqual(opened, ['w']);
-  layout = supervisor.renderer.lastLayout; click(handlers, layout.children.find((item) => item.sessionId === 'v')); assert.equal(supervisor.navigation.sessionId, 'v'); assert.deepEqual(opened, ['w']); assert.equal(supervisor.renderer.lastLayout.actions.some((item) => item.action === 'Close'), false); supervisor.stop();
+  assert.equal(layout.children.some((item) => ['w', 'v'].includes(item.sessionId)), false); supervisor.activate('Sessions'); const rows = supervisor.sessionPickerRows(); const index = rows.findIndex((row) => !row.header && row.session.id === 'w'); supervisor.sessionPicker.index = index; supervisor.sessionPicker.sessionId = 'w'; handlers.get('data')('\r'); layout = supervisor.renderer.lastLayout; assert.equal(layout.children.some((item) => item.sessionId === 'w'), true); assert.equal(worker.status, 'paused'); assert.deepEqual(opened, []); handlers.get('data')('\r'); assert.equal(worker.status, 'running'); assert.deepEqual(opened, ['w']); supervisor.stop();
 });
 
 test('Plans and Sessions remain ordered by immutable creation time', () => {
