@@ -15,13 +15,28 @@ test('session manager translates one dangerous supervisor option for every provi
     const model = provider === 'claude' ? 'default' : provider === 'ollama' ? 'qwen3:4b' : 'gpt-test';
     const profile = { provider, model, effort: 'medium' };
     const store = new WorkspaceStore(root);
-    const stream = store.createWorkstream({ version: 1, delegatorProfile: profile, workerProfile: { ...profile, permissionMode: 'workspace-write' }, workerCapacity: 1 });
+    const stream = store.createWorkstream({
+      version: 1,
+      delegatorProfile: profile,
+      workerProfile: { ...profile, permissionMode: 'workspace-write' },
+      workerCapacity: 1
+    });
     const session = store.createSession(stream.id, 'delegator', profile);
     let launch;
-    const manager = new SessionManager(root, store, { dangerous: true, pty: { spawn(command, args) { launch = { command, args }; return { pid: 1, onData() {}, onExit() {}, kill() {} }; } }, codexSessions: path.join(root, 'missing') });
+    const manager = new SessionManager(root, store, {
+      dangerous: true,
+      pty: {
+        spawn(command, args) {
+          launch = { command, args };
+          return { pid: 1, onData() {}, onExit() {}, kill() {} };
+        }
+      },
+      codexSessions: path.join(root, 'missing')
+    });
     manager.captureCodexSession = () => {};
     manager.open(session.id);
-    const expected = provider === 'claude' ? '--dangerously-skip-permissions' : '--dangerously-bypass-approvals-and-sandbox';
+    const expected =
+      provider === 'claude' ? '--dangerously-skip-permissions' : '--dangerously-bypass-approvals-and-sandbox';
     assert.ok(launch.args.includes(expected), `${provider} launch should include ${expected}`);
     manager.shutdown();
   }

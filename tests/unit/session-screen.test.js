@@ -1,31 +1,508 @@
 'use strict';
-const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path'); const test = require('node:test'); const assert = require('node:assert/strict'); const { WorkspaceStore } = require('../../src/state/workspace'); const { SessionManager } = require('../../src/sessions/manager');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { WorkspaceStore } = require('../../src/state/workspace');
+const { SessionManager } = require('../../src/sessions/manager');
 
-test('exposes native provider formatting and real cursor metadata without synthetic input cells', async (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-live-screen-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); let current = new Date('2026-01-01T00:00:00.000Z'); const store = new WorkspaceStore(root, { now: () => current }); const config = { version: 1, delegatorProfile: { provider: 'codex', model: 'gpt-test', effort: 'medium' }, workerProfile: { provider: 'codex', model: 'gpt-test', effort: 'medium', permissionMode: 'workspace-write' }, workerCapacity: 5 }; const stream = store.createWorkstream(config); const session = store.createSession(stream.id, 'delegator', config.delegatorProfile); let killed = false; let environment; const child = { pid: 123, onData(handler) { this.data = handler; }, onExit(handler) { this.exit = handler; }, write() {}, resize() {}, kill() { killed = true; } }; const manager = new SessionManager(root, store, { pty: { spawn(_command, _args, options) { environment = options.env; return child; } } }); const output = new Promise((resolve) => { manager.onOutput = resolve; }); manager.open(session.id, { columns: 60, rows: 8 }); assert.deepEqual(manager.screen(session.id, 8), ['Loading...']); current = new Date('2026-01-02T00:00:00.000Z'); child.data('\u001b[2J\u001b[H\u001b[1;38;5;196mCodex\u001b[0m \u001b[48;5;25mNative\u001b[0m'); assert.equal(await output, session.id); const state = store.load(); assert.equal(state.sessions[0].updatedAt, current.toISOString()); assert.equal(state.sessions[0].conversationAt, undefined); assert.equal(state.workstreams[0].updatedAt, current.toISOString()); current = new Date('2026-01-03T00:00:00.000Z'); manager.write(session.id, 'Continue work\r'); assert.equal(store.load().sessions[0].updatedAt, current.toISOString()); assert.equal(store.load().sessions[0].conversationAt, current.toISOString()); const blurred = manager.screen(session.id, 8).join('\n'); const focused = manager.presentation(session.id, 8, { cursor: true }); assert.doesNotMatch(blurred, /Loading\.\.\./); assert.match(blurred, /\u001b\[1;38;5;196mCodex/); assert.match(blurred, /\u001b\[48;5;25mNative/); assert.doesNotMatch(focused.lines.join('\n'), /\u001b\[48;5;245m|\u001b\[48;5;238m/); assert.deepEqual(focused.cursor, { row: 0, column: 12 }); assert.equal(environment.TERM, 'xterm-256color'); assert.equal(environment.COLORTERM, 'truecolor'); manager.shutdown(); assert.equal(killed, true); assert.equal(store.load().sessions[0].explicitlyClosed, false); });
+test('exposes native provider formatting and real cursor metadata without synthetic input cells', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-live-screen-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let current = new Date('2026-01-01T00:00:00.000Z');
+  const store = new WorkspaceStore(root, { now: () => current });
+  const config = {
+    version: 1,
+    delegatorProfile: { provider: 'codex', model: 'gpt-test', effort: 'medium' },
+    workerProfile: { provider: 'codex', model: 'gpt-test', effort: 'medium', permissionMode: 'workspace-write' },
+    workerCapacity: 5
+  };
+  const stream = store.createWorkstream(config);
+  const session = store.createSession(stream.id, 'delegator', config.delegatorProfile);
+  let killed = false;
+  let environment;
+  const child = {
+    pid: 123,
+    onData(handler) {
+      this.data = handler;
+    },
+    onExit(handler) {
+      this.exit = handler;
+    },
+    write() {},
+    resize() {},
+    kill() {
+      killed = true;
+    }
+  };
+  const manager = new SessionManager(root, store, {
+    pty: {
+      spawn(_command, _args, options) {
+        environment = options.env;
+        return child;
+      }
+    }
+  });
+  const output = new Promise((resolve) => {
+    manager.onOutput = resolve;
+  });
+  manager.open(session.id, { columns: 60, rows: 8 });
+  assert.deepEqual(manager.screen(session.id, 8), ['Loading...']);
+  current = new Date('2026-01-02T00:00:00.000Z');
+  child.data('\u001b[2J\u001b[H\u001b[1;38;5;196mCodex\u001b[0m \u001b[48;5;25mNative\u001b[0m');
+  assert.equal(await output, session.id);
+  const state = store.load();
+  assert.equal(state.sessions[0].updatedAt, current.toISOString());
+  assert.equal(state.sessions[0].conversationAt, undefined);
+  assert.equal(state.workstreams[0].updatedAt, current.toISOString());
+  current = new Date('2026-01-03T00:00:00.000Z');
+  manager.write(session.id, 'Continue work\r');
+  assert.equal(store.load().sessions[0].updatedAt, current.toISOString());
+  assert.equal(store.load().sessions[0].conversationAt, current.toISOString());
+  const blurred = manager.screen(session.id, 8).join('\n');
+  const focused = manager.presentation(session.id, 8, { cursor: true });
+  assert.doesNotMatch(blurred, /Loading\.\.\./);
+  assert.match(blurred, /\u001b\[1;38;5;196mCodex/);
+  assert.match(blurred, /\u001b\[48;5;25mNative/);
+  assert.doesNotMatch(focused.lines.join('\n'), /\u001b\[48;5;245m|\u001b\[48;5;238m/);
+  assert.deepEqual(focused.cursor, { row: 0, column: 12 });
+  assert.equal(environment.TERM, 'xterm-256color');
+  assert.equal(environment.COLORTERM, 'truecolor');
+  manager.shutdown();
+  assert.equal(killed, true);
+  assert.equal(store.load().sessions[0].explicitlyClosed, false);
+});
 
 test('tracks deterministic running and viewed activity edges and restores idle', async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-activity-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const base = Date.parse('2026-01-01T00:00:00.000Z'); let now = base; const timers = [];
-  const schedule = (callback, delay) => { const timer = { at: now + delay, callback, cancelled: false, unref() {} }; timers.push(timer); return timer; }; const cancel = (timer) => { timer.cancelled = true; }; const advance = (milliseconds) => { now += milliseconds; for (const timer of timers.filter((item) => !item.cancelled && item.at <= now).sort((a, b) => a.at - b.at)) { timer.cancelled = true; timer.callback(); } };
-  const store = new WorkspaceStore(root, { now: () => new Date(now) }); const profile = { provider: 'codex', model: 'gpt-test', effort: 'medium', permissionMode: 'workspace-write' }; const stream = store.createWorkstream({ version: 1, delegatorProfile: profile, workerProfile: profile, workerCapacity: 1 }); const session = store.createSession(stream.id, 'worker', profile); const children = []; const pty = { spawn() { const child = { pid: children.length + 1, onData(handler) { this.data = handler; }, onExit(handler) { this.exit = handler; }, write() {}, kill() {} }; children.push(child); return child; } }; const manager = new SessionManager(root, store, { pty, now: () => now, setTimeout: schedule, clearTimeout: cancel }); const edges = []; manager.onActivity = (_id, running) => edges.push(running); manager.open(session.id); assert.equal(manager.activityState(session.id), 'idle');
-  let output = new Promise((resolve) => { manager.onOutput = resolve; }); children[0].data('first output'); await output; assert.equal(manager.isSessionActive(session.id), true); assert.equal(store.load().sessions[0].activityAt, new Date(base).toISOString()); assert.equal(store.load().sessions[0].viewedAt, undefined); manager.screen(session.id, 4); assert.equal(store.load().sessions[0].viewedAt, undefined); manager.screen(session.id, 4, { cursor: true }); assert.equal(store.load().sessions[0].viewedAt, new Date(base).toISOString());
-  advance(1499); output = new Promise((resolve) => { manager.onOutput = resolve; }); children[0].data('more output'); await output; assert.equal(store.load().sessions[0].activityAt, new Date(base).toISOString()); advance(500); manager.screen(session.id, 4, { cursor: true }); assert.equal(store.load().sessions[0].viewedAt, new Date(base + 1999).toISOString()); advance(999); assert.equal(manager.isActive(session.id), true); advance(1); assert.equal(manager.activityState(session.id), 'idle'); assert.deepEqual(edges, [true, false]); assert.equal(store.load().sessions[0].activityAt, new Date(base + 1499).toISOString()); assert.equal(store.load().sessions[0].viewedAt, new Date(base + 1999).toISOString()); assert.equal(Date.parse(store.load().sessions[0].activityAt) > Date.parse(store.load().sessions[0].viewedAt), false); manager.screen(session.id, 4); assert.equal(store.load().sessions[0].viewedAt, new Date(base + 1999).toISOString()); manager.screen(session.id, 4, { cursor: true }); assert.equal(store.load().sessions[0].viewedAt, new Date(base + 1999).toISOString());
-  manager.shutdown(); const restored = new SessionManager(root, store, { pty, now: () => now, setTimeout: schedule, clearTimeout: cancel }); assert.equal(restored.restore().errors.length, 0); assert.equal(restored.activityState(session.id), 'idle'); restored.shutdown();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-activity-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const base = Date.parse('2026-01-01T00:00:00.000Z');
+  let now = base;
+  const timers = [];
+  const schedule = (callback, delay) => {
+    const timer = { at: now + delay, callback, cancelled: false, unref() {} };
+    timers.push(timer);
+    return timer;
+  };
+  const cancel = (timer) => {
+    timer.cancelled = true;
+  };
+  const advance = (milliseconds) => {
+    now += milliseconds;
+    for (const timer of timers.filter((item) => !item.cancelled && item.at <= now).sort((a, b) => a.at - b.at)) {
+      timer.cancelled = true;
+      timer.callback();
+    }
+  };
+  const store = new WorkspaceStore(root, { now: () => new Date(now) });
+  const profile = { provider: 'codex', model: 'gpt-test', effort: 'medium', permissionMode: 'workspace-write' };
+  const stream = store.createWorkstream({
+    version: 1,
+    delegatorProfile: profile,
+    workerProfile: profile,
+    workerCapacity: 1
+  });
+  const session = store.createSession(stream.id, 'worker', profile);
+  const children = [];
+  const pty = {
+    spawn() {
+      const child = {
+        pid: children.length + 1,
+        onData(handler) {
+          this.data = handler;
+        },
+        onExit(handler) {
+          this.exit = handler;
+        },
+        write() {},
+        kill() {}
+      };
+      children.push(child);
+      return child;
+    }
+  };
+  const manager = new SessionManager(root, store, { pty, now: () => now, setTimeout: schedule, clearTimeout: cancel });
+  const edges = [];
+  manager.onActivity = (_id, running) => edges.push(running);
+  manager.open(session.id);
+  assert.equal(manager.activityState(session.id), 'idle');
+  let output = new Promise((resolve) => {
+    manager.onOutput = resolve;
+  });
+  children[0].data('first output');
+  await output;
+  assert.equal(manager.isSessionActive(session.id), true);
+  assert.equal(store.load().sessions[0].activityAt, new Date(base).toISOString());
+  assert.equal(store.load().sessions[0].viewedAt, undefined);
+  manager.screen(session.id, 4);
+  assert.equal(store.load().sessions[0].viewedAt, undefined);
+  manager.screen(session.id, 4, { cursor: true });
+  assert.equal(store.load().sessions[0].viewedAt, new Date(base).toISOString());
+  advance(1499);
+  output = new Promise((resolve) => {
+    manager.onOutput = resolve;
+  });
+  children[0].data('more output');
+  await output;
+  assert.equal(store.load().sessions[0].activityAt, new Date(base).toISOString());
+  advance(500);
+  manager.screen(session.id, 4, { cursor: true });
+  assert.equal(store.load().sessions[0].viewedAt, new Date(base + 1999).toISOString());
+  advance(999);
+  assert.equal(manager.isActive(session.id), true);
+  advance(1);
+  assert.equal(manager.activityState(session.id), 'idle');
+  assert.deepEqual(edges, [true, false]);
+  assert.equal(store.load().sessions[0].activityAt, new Date(base + 1499).toISOString());
+  assert.equal(store.load().sessions[0].viewedAt, new Date(base + 1999).toISOString());
+  assert.equal(Date.parse(store.load().sessions[0].activityAt) > Date.parse(store.load().sessions[0].viewedAt), false);
+  manager.screen(session.id, 4);
+  assert.equal(store.load().sessions[0].viewedAt, new Date(base + 1999).toISOString());
+  manager.screen(session.id, 4, { cursor: true });
+  assert.equal(store.load().sessions[0].viewedAt, new Date(base + 1999).toISOString());
+  manager.shutdown();
+  const restored = new SessionManager(root, store, { pty, now: () => now, setTimeout: schedule, clearTimeout: cancel });
+  assert.equal(restored.restore().errors.length, 0);
+  assert.equal(restored.activityState(session.id), 'idle');
+  restored.shutdown();
 });
 
 test('debounces provider output persistence to the final real event time', async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-activity-burst-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const base = Date.parse('2026-01-01T00:00:00.000Z'); let now = base; const timers = [];
-  const schedule = (callback, delay) => { const timer = { at: now + delay, callback, cancelled: false, unref() {} }; timers.push(timer); return timer; }; const cancel = (timer) => { timer.cancelled = true; }; const advance = (milliseconds) => { now += milliseconds; for (const timer of timers.filter((item) => !item.cancelled && item.at <= now).sort((a, b) => a.at - b.at)) { timer.cancelled = true; timer.callback(); } };
-  const store = new WorkspaceStore(root, { now: () => new Date(now) }); const profile = { provider: 'codex', model: 'gpt-test', effort: 'medium', permissionMode: 'workspace-write' }; const stream = store.createWorkstream({ version: 1, delegatorProfile: profile, workerProfile: profile, workerCapacity: 1 }); const session = store.createSession(stream.id, 'worker', profile); const child = { pid: 1, onData(handler) { this.data = handler; }, onExit() {}, write() {}, kill() {} }; const touchSession = store.touchSession.bind(store); let writes = 0; store.touchSession = (...args) => { writes += 1; return touchSession(...args); }; const manager = new SessionManager(root, store, { pty: { spawn() { return child; } }, now: () => now, setTimeout: schedule, clearTimeout: cancel }); manager.open(session.id);
-  const feed = (data) => new Promise((resolve) => { manager.onOutput = resolve; child.data(data); }); await feed('first'); for (let index = 1; index <= 20; index += 1) { advance(25); await feed(`chunk ${index}`); }
-  assert.equal(writes, 1); assert.equal(store.load().sessions[0].activityAt, new Date(base).toISOString()); advance(1500); assert.equal(writes, 2); assert.equal(store.load().sessions[0].activityAt, new Date(base + 500).toISOString()); assert.equal(manager.activityState(session.id), 'idle'); manager.shutdown();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-activity-burst-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const base = Date.parse('2026-01-01T00:00:00.000Z');
+  let now = base;
+  const timers = [];
+  const schedule = (callback, delay) => {
+    const timer = { at: now + delay, callback, cancelled: false, unref() {} };
+    timers.push(timer);
+    return timer;
+  };
+  const cancel = (timer) => {
+    timer.cancelled = true;
+  };
+  const advance = (milliseconds) => {
+    now += milliseconds;
+    for (const timer of timers.filter((item) => !item.cancelled && item.at <= now).sort((a, b) => a.at - b.at)) {
+      timer.cancelled = true;
+      timer.callback();
+    }
+  };
+  const store = new WorkspaceStore(root, { now: () => new Date(now) });
+  const profile = { provider: 'codex', model: 'gpt-test', effort: 'medium', permissionMode: 'workspace-write' };
+  const stream = store.createWorkstream({
+    version: 1,
+    delegatorProfile: profile,
+    workerProfile: profile,
+    workerCapacity: 1
+  });
+  const session = store.createSession(stream.id, 'worker', profile);
+  const child = {
+    pid: 1,
+    onData(handler) {
+      this.data = handler;
+    },
+    onExit() {},
+    write() {},
+    kill() {}
+  };
+  const touchSession = store.touchSession.bind(store);
+  let writes = 0;
+  store.touchSession = (...args) => {
+    writes += 1;
+    return touchSession(...args);
+  };
+  const manager = new SessionManager(root, store, {
+    pty: {
+      spawn() {
+        return child;
+      }
+    },
+    now: () => now,
+    setTimeout: schedule,
+    clearTimeout: cancel
+  });
+  manager.open(session.id);
+  const feed = (data) =>
+    new Promise((resolve) => {
+      manager.onOutput = resolve;
+      child.data(data);
+    });
+  await feed('first');
+  for (let index = 1; index <= 20; index += 1) {
+    advance(25);
+    await feed(`chunk ${index}`);
+  }
+  assert.equal(writes, 1);
+  assert.equal(store.load().sessions[0].activityAt, new Date(base).toISOString());
+  advance(1500);
+  assert.equal(writes, 2);
+  assert.equal(store.load().sessions[0].activityAt, new Date(base + 500).toISOString());
+  assert.equal(manager.activityState(session.id), 'idle');
+  manager.shutdown();
 });
-test('keeps Ollama loading visible through terminal setup output', async (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-ollama-loading-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root); const profile = { provider: 'ollama', model: 'qwen3:4b', effort: 'medium' }; const stream = store.createWorkstream({ version: 1, delegatorProfile: profile, workerProfile: { ...profile, permissionMode: 'workspace-write' }, workerCapacity: 1 }); const session = store.createSession(stream.id, 'delegator', profile); const child = { pid: 123, onData(handler) { this.data = handler; }, onExit() {}, kill() {} }; const manager = new SessionManager(root, store, { pty: { spawn() { return child; } }, codexSessions: path.join(root, 'missing') }); manager.open(session.id, { columns: 60, rows: 8 }); let output = new Promise((resolve) => { manager.onOutput = resolve; }); child.data('\u001b[?25l\u001b[2J\u001b[H'); await output; assert.deepEqual(manager.screen(session.id, 8), ['Loading...']); output = new Promise((resolve) => { manager.onOutput = resolve; }); child.data('\u001b[1;38;5;196mOllama conversation\u001b[0m'); await output; assert.match(manager.screen(session.id, 8).join('\n'), /Ollama conversation/); manager.shutdown(); });
-test('consumes BEL once per submitted interaction without rendering it', async (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-bell-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root); const profile = { provider: 'claude', model: 'default', effort: 'high', permissionMode: 'workspace-write' }; const config = { version: 1, delegatorProfile: { provider: 'claude', model: 'default', effort: 'high' }, workerProfile: profile, workerCapacity: 5 }; const stream = store.createWorkstream(config); const session = store.createSession(stream.id, 'worker', profile); const writes = []; const child = { pid: 123, onData(handler) { this.data = handler; }, onExit() {}, write(value) { writes.push(value); }, kill() {} }; const manager = new SessionManager(root, store, { pty: { spawn() { return child; } } }); const attention = []; manager.onAttention = (id) => attention.push(id); manager.open(session.id, { columns: 40, rows: 4 }); const feed = (data) => new Promise((resolve) => { manager.onOutput = resolve; child.data(data); }); await feed(`before\u0007after`); await feed('\u0007'); assert.deepEqual(attention, [session.id]); manager.acknowledgeAttention(session.id); await feed('\u0007'); assert.deepEqual(attention, [session.id]); manager.write(session.id, '\r'); await feed('\u0007'); assert.deepEqual(attention, [session.id, session.id]); assert.deepEqual(writes, ['\r']); const screen = manager.screen(session.id, 4).join('\n'); assert.match(screen, /beforeafter/); assert.doesNotMatch(screen, /\u0007/); manager.shutdown(); });
+test('keeps Ollama loading visible through terminal setup output', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-ollama-loading-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root);
+  const profile = { provider: 'ollama', model: 'qwen3:4b', effort: 'medium' };
+  const stream = store.createWorkstream({
+    version: 1,
+    delegatorProfile: profile,
+    workerProfile: { ...profile, permissionMode: 'workspace-write' },
+    workerCapacity: 1
+  });
+  const session = store.createSession(stream.id, 'delegator', profile);
+  const child = {
+    pid: 123,
+    onData(handler) {
+      this.data = handler;
+    },
+    onExit() {},
+    kill() {}
+  };
+  const manager = new SessionManager(root, store, {
+    pty: {
+      spawn() {
+        return child;
+      }
+    },
+    codexSessions: path.join(root, 'missing')
+  });
+  manager.open(session.id, { columns: 60, rows: 8 });
+  let output = new Promise((resolve) => {
+    manager.onOutput = resolve;
+  });
+  child.data('\u001b[?25l\u001b[2J\u001b[H');
+  await output;
+  assert.deepEqual(manager.screen(session.id, 8), ['Loading...']);
+  output = new Promise((resolve) => {
+    manager.onOutput = resolve;
+  });
+  child.data('\u001b[1;38;5;196mOllama conversation\u001b[0m');
+  await output;
+  assert.match(manager.screen(session.id, 8).join('\n'), /Ollama conversation/);
+  manager.shutdown();
+});
+test('consumes BEL once per submitted interaction without rendering it', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-bell-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root);
+  const profile = { provider: 'claude', model: 'default', effort: 'high', permissionMode: 'workspace-write' };
+  const config = {
+    version: 1,
+    delegatorProfile: { provider: 'claude', model: 'default', effort: 'high' },
+    workerProfile: profile,
+    workerCapacity: 5
+  };
+  const stream = store.createWorkstream(config);
+  const session = store.createSession(stream.id, 'worker', profile);
+  const writes = [];
+  const child = {
+    pid: 123,
+    onData(handler) {
+      this.data = handler;
+    },
+    onExit() {},
+    write(value) {
+      writes.push(value);
+    },
+    kill() {}
+  };
+  const manager = new SessionManager(root, store, {
+    pty: {
+      spawn() {
+        return child;
+      }
+    }
+  });
+  const attention = [];
+  manager.onAttention = (id) => attention.push(id);
+  manager.open(session.id, { columns: 40, rows: 4 });
+  const feed = (data) =>
+    new Promise((resolve) => {
+      manager.onOutput = resolve;
+      child.data(data);
+    });
+  await feed(`before\u0007after`);
+  await feed('\u0007');
+  assert.deepEqual(attention, [session.id]);
+  manager.acknowledgeAttention(session.id);
+  await feed('\u0007');
+  assert.deepEqual(attention, [session.id]);
+  manager.write(session.id, '\r');
+  await feed('\u0007');
+  assert.deepEqual(attention, [session.id, session.id]);
+  assert.deepEqual(writes, ['\r']);
+  const screen = manager.screen(session.id, 4).join('\n');
+  assert.match(screen, /beforeafter/);
+  assert.doesNotMatch(screen, /\u0007/);
+  manager.shutdown();
+});
 
-test('scrolls normal history locally, returns to bottom on typing, and forwards alternate-screen mouse input', async (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-scroll-screen-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root); const profile = { provider: 'codex', model: 'gpt-test', effort: 'medium', permissionMode: 'workspace-write' }; const config = { version: 1, delegatorProfile: profile, workerProfile: profile, workerCapacity: 5 }; const stream = store.createWorkstream(config); const session = store.createSession(stream.id, 'worker', profile); const writes = []; const child = { pid: 123, onData(handler) { this.data = handler; }, onExit() {}, write(value) { writes.push(value); }, kill() {} }; const manager = new SessionManager(root, store, { pty: { spawn() { return child; } } }); manager.open(session.id, { columns: 30, rows: 4 }); let output = new Promise((resolve) => { manager.onOutput = resolve; }); child.data(Array.from({ length: 12 }, (_, index) => `line ${index}\r\n`).join('')); await output; const terminal = manager.terminals.get(session.id); assert.equal(terminal.buffer.active.type, 'normal'); const bottom = terminal.buffer.active.baseY; assert.equal(terminal.buffer.active.viewportY, bottom); const events = []; manager.onOutput = (...args) => events.push(args); assert.equal(manager.scroll(session.id, -3, { button: 64, column: 7, row: 3, final: 'M' }), true); assert.equal(terminal.buffer.active.viewportY, bottom - 3); assert.deepEqual(events, [[session.id, { scroll: -3 }]]); assert.deepEqual(writes, []); manager.write(session.id, 'x'); assert.equal(terminal.buffer.active.viewportY, terminal.buffer.active.baseY); assert.deepEqual(writes, ['x']); output = new Promise((resolve) => { manager.onOutput = resolve; }); child.data('\u001b[?1049h\u001b[?1000h\u001b[?1006h'); await output; assert.equal(terminal.buffer.active.type, 'alternate'); assert.equal(terminal.modes.mouseTrackingMode, 'vt200'); writes.length = 0; assert.equal(manager.scroll(session.id, -3, { button: 64, column: 7, row: 3, final: 'M' }), true); assert.deepEqual(writes, ['\u001b[<64;7;3M']); manager.shutdown(); });
+test('scrolls normal history locally, returns to bottom on typing, and forwards alternate-screen mouse input', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-scroll-screen-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root);
+  const profile = { provider: 'codex', model: 'gpt-test', effort: 'medium', permissionMode: 'workspace-write' };
+  const config = { version: 1, delegatorProfile: profile, workerProfile: profile, workerCapacity: 5 };
+  const stream = store.createWorkstream(config);
+  const session = store.createSession(stream.id, 'worker', profile);
+  const writes = [];
+  const child = {
+    pid: 123,
+    onData(handler) {
+      this.data = handler;
+    },
+    onExit() {},
+    write(value) {
+      writes.push(value);
+    },
+    kill() {}
+  };
+  const manager = new SessionManager(root, store, {
+    pty: {
+      spawn() {
+        return child;
+      }
+    }
+  });
+  manager.open(session.id, { columns: 30, rows: 4 });
+  let output = new Promise((resolve) => {
+    manager.onOutput = resolve;
+  });
+  child.data(Array.from({ length: 12 }, (_, index) => `line ${index}\r\n`).join(''));
+  await output;
+  const terminal = manager.terminals.get(session.id);
+  assert.equal(terminal.buffer.active.type, 'normal');
+  const bottom = terminal.buffer.active.baseY;
+  assert.equal(terminal.buffer.active.viewportY, bottom);
+  const events = [];
+  manager.onOutput = (...args) => events.push(args);
+  assert.equal(manager.scroll(session.id, -3, { button: 64, column: 7, row: 3, final: 'M' }), true);
+  assert.equal(terminal.buffer.active.viewportY, bottom - 3);
+  assert.deepEqual(events, [[session.id, { scroll: -3 }]]);
+  assert.deepEqual(writes, []);
+  manager.write(session.id, 'x');
+  assert.equal(terminal.buffer.active.viewportY, terminal.buffer.active.baseY);
+  assert.deepEqual(writes, ['x']);
+  output = new Promise((resolve) => {
+    manager.onOutput = resolve;
+  });
+  child.data('\u001b[?1049h\u001b[?1000h\u001b[?1006h');
+  await output;
+  assert.equal(terminal.buffer.active.type, 'alternate');
+  assert.equal(terminal.modes.mouseTrackingMode, 'vt200');
+  writes.length = 0;
+  assert.equal(manager.scroll(session.id, -3, { button: 64, column: 7, row: 3, final: 'M' }), true);
+  assert.deepEqual(writes, ['\u001b[<64;7;3M']);
+  manager.shutdown();
+});
 
-test('persists Claude resume identity and custom args across a complete BDFL restart', (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-resume-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root); const profile = { provider: 'claude', model: 'default', effort: 'high', argv: ['--verbose'] }; const config = { version: 1, delegatorProfile: profile, workerProfile: { provider: 'claude', model: 'default', effort: 'high', permissionMode: 'workspace-write' }, workerCapacity: 5 }; const stream = store.createWorkstream(config); store.createSession(stream.id, 'delegator', profile); const launches = []; const pty = { spawn(command, args) { launches.push({ command, args }); return { pid: launches.length, onData() {}, onExit() {}, kill() {} }; } }; const first = new SessionManager(root, store, { pty }); first.restore(); const providerId = store.load().sessions[0].providerSessionId; assert.ok(providerId); assert.deepEqual(launches[0].args.slice(-2), ['--session-id', providerId]); assert.ok(launches[0].args.includes('--verbose')); first.shutdown(); const second = new SessionManager(root, store, { pty }); const restored = second.restore(); assert.equal(restored.errors.length, 0); assert.deepEqual(launches[1].args.slice(-2), ['--resume', providerId]); assert.ok(launches[1].args.includes('--verbose')); second.shutdown(); });
+test('persists Claude resume identity and custom args across a complete BDFL restart', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-resume-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root);
+  const profile = { provider: 'claude', model: 'default', effort: 'high', argv: ['--verbose'] };
+  const config = {
+    version: 1,
+    delegatorProfile: profile,
+    workerProfile: { provider: 'claude', model: 'default', effort: 'high', permissionMode: 'workspace-write' },
+    workerCapacity: 5
+  };
+  const stream = store.createWorkstream(config);
+  store.createSession(stream.id, 'delegator', profile);
+  const launches = [];
+  const pty = {
+    spawn(command, args) {
+      launches.push({ command, args });
+      return { pid: launches.length, onData() {}, onExit() {}, kill() {} };
+    }
+  };
+  const first = new SessionManager(root, store, { pty });
+  first.restore();
+  const providerId = store.load().sessions[0].providerSessionId;
+  assert.ok(providerId);
+  assert.deepEqual(launches[0].args.slice(-2), ['--session-id', providerId]);
+  assert.ok(launches[0].args.includes('--verbose'));
+  first.shutdown();
+  const second = new SessionManager(root, store, { pty });
+  const restored = second.restore();
+  assert.equal(restored.errors.length, 0);
+  assert.deepEqual(launches[1].args.slice(-2), ['--resume', providerId]);
+  assert.ok(launches[1].args.includes('--verbose'));
+  second.shutdown();
+});
 
-test('does not recreate runtime files when a running session is deleted', (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-delete-screen-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root); const profile = { provider: 'claude', model: 'default', effort: 'high' }; const config = { version: 1, delegatorProfile: profile, workerProfile: { provider: 'claude', model: 'default', effort: 'high', permissionMode: 'workspace-write' }, workerCapacity: 5 }; const stream = store.createWorkstream(config); const session = store.createSession(stream.id, 'delegator', profile); const child = { pid: 123, onData() {}, onExit(handler) { this.exit = handler; }, write() {}, resize() {}, kill() {} }; const manager = new SessionManager(root, store, { pty: { spawn() { return child; } } }); manager.open(session.id); const directory = path.join(root, '.bdfl', 'sessions', session.id); fs.mkdirSync(directory, { recursive: true }); manager.delete(session.id); store.deleteWorkstream(stream.id); child.exit({ exitCode: 0, signal: 0 }); assert.equal(fs.existsSync(directory), false); });
+test('does not recreate runtime files when a running session is deleted', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-delete-screen-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root);
+  const profile = { provider: 'claude', model: 'default', effort: 'high' };
+  const config = {
+    version: 1,
+    delegatorProfile: profile,
+    workerProfile: { provider: 'claude', model: 'default', effort: 'high', permissionMode: 'workspace-write' },
+    workerCapacity: 5
+  };
+  const stream = store.createWorkstream(config);
+  const session = store.createSession(stream.id, 'delegator', profile);
+  const child = {
+    pid: 123,
+    onData() {},
+    onExit(handler) {
+      this.exit = handler;
+    },
+    write() {},
+    resize() {},
+    kill() {}
+  };
+  const manager = new SessionManager(root, store, {
+    pty: {
+      spawn() {
+        return child;
+      }
+    }
+  });
+  manager.open(session.id);
+  const directory = path.join(root, '.bdfl', 'sessions', session.id);
+  fs.mkdirSync(directory, { recursive: true });
+  manager.delete(session.id);
+  store.deleteWorkstream(stream.id);
+  child.exit({ exitCode: 0, signal: 0 });
+  assert.equal(fs.existsSync(directory), false);
+});
 
-test('loads a completed child snapshot without relaunching its provider', (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-saved-screen-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root); const profile = { provider: 'codex', model: 'gpt-test', effort: 'medium', permissionMode: 'workspace-write' }; const stream = store.createWorkstream({ version: 1, delegatorProfile: profile, workerProfile: profile, workerCapacity: 1 }); const session = store.createSession(stream.id, 'worker', profile); store.update((state) => { const completed = state.sessions.find((item) => item.id === session.id); completed.status = 'completed'; completed.explicitlyClosed = true; return state; }); const directory = path.join(root, '.bdfl', 'sessions', session.id); fs.mkdirSync(directory, { recursive: true }); fs.writeFileSync(path.join(directory, 'terminal.txt'), 'preserved line one\npreserved line two\n'); let launches = 0; const manager = new SessionManager(root, store, { pty: { spawn() { launches += 1; } } }); assert.deepEqual(manager.screen(session.id, 1), ['preserved line two']); assert.equal(launches, 0); });
+test('loads a completed child snapshot without relaunching its provider', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-saved-screen-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root);
+  const profile = { provider: 'codex', model: 'gpt-test', effort: 'medium', permissionMode: 'workspace-write' };
+  const stream = store.createWorkstream({
+    version: 1,
+    delegatorProfile: profile,
+    workerProfile: profile,
+    workerCapacity: 1
+  });
+  const session = store.createSession(stream.id, 'worker', profile);
+  store.update((state) => {
+    const completed = state.sessions.find((item) => item.id === session.id);
+    completed.status = 'completed';
+    completed.explicitlyClosed = true;
+    return state;
+  });
+  const directory = path.join(root, '.bdfl', 'sessions', session.id);
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, 'terminal.txt'), 'preserved line one\npreserved line two\n');
+  let launches = 0;
+  const manager = new SessionManager(root, store, {
+    pty: {
+      spawn() {
+        launches += 1;
+      }
+    }
+  });
+  assert.deepEqual(manager.screen(session.id, 1), ['preserved line two']);
+  assert.equal(launches, 0);
+});

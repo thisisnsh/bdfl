@@ -1,6 +1,34 @@
 'use strict';
-const crypto = require('node:crypto'); const fs = require('node:fs'); const path = require('node:path');
-function sha256(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
-function atomicWrite(file, content, io = fs) { io.mkdirSync(path.dirname(file), { recursive: true }); const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`; io.writeFileSync(temporary, content, { mode: 0o600 }); io.renameSync(temporary, file); }
-function diffLines(before = '', after = '') { const a = before.split('\n'); const b = after.split('\n'); const table = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0)); for (let i = a.length - 1; i >= 0; i -= 1) for (let j = b.length - 1; j >= 0; j -= 1) table[i][j] = a[i] === b[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]); const result = []; let i = 0; let j = 0; while (i < a.length || j < b.length) { if (i < a.length && j < b.length && a[i] === b[j]) { result.push({ type: 'context', text: a[i++] }); j += 1; } else if (j < b.length && (i === a.length || table[i][j + 1] >= table[i + 1][j])) result.push({ type: 'addition', text: b[j++] }); else result.push({ type: 'removal', text: a[i++] }); } return result; }
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+function sha256(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+function atomicWrite(file, content, io = fs) {
+  io.mkdirSync(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  io.writeFileSync(temporary, content, { mode: 0o600 });
+  io.renameSync(temporary, file);
+}
+function diffLines(before = '', after = '') {
+  const a = before.split('\n');
+  const b = after.split('\n');
+  const table = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i -= 1)
+    for (let j = b.length - 1; j >= 0; j -= 1)
+      table[i][j] = a[i] === b[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+  const result = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      result.push({ type: 'context', text: a[i++] });
+      j += 1;
+    } else if (j < b.length && (i === a.length || table[i][j + 1] >= table[i + 1][j]))
+      result.push({ type: 'addition', text: b[j++] });
+    else result.push({ type: 'removal', text: a[i++] });
+  }
+  return result;
+}
 module.exports = { atomicWrite, sha256, diffLines };

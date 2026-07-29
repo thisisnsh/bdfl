@@ -1,38 +1,168 @@
 'use strict';
-const test = require('node:test'); const assert = require('node:assert/strict'); const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path'); const { spawnSync } = require('node:child_process');
-const { tokenizeCommand, validateWorkstreamConfig } = require('../../src/core/profiles'); const { ATTENTION_EVENTS, CLAUDE_NOTIFICATION_EVENTS, buildLaunch } = require('../../src/providers/adapters'); const { WorkspaceStore } = require('../../src/state/workspace');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { tokenizeCommand, validateWorkstreamConfig } = require('../../src/core/profiles');
+const { ATTENTION_EVENTS, CLAUDE_NOTIFICATION_EVENTS, buildLaunch } = require('../../src/providers/adapters');
+const { WorkspaceStore } = require('../../src/state/workspace');
 test('tokenizes safe provider options without a shell and reserves dangerous permissions for bdfl --dangerous', () => {
-  assert.deepEqual(tokenizeCommand('codex --search "two words" --sandbox workspace-write'), { provider: 'codex', argv: ['--search', 'two words', '--sandbox', 'workspace-write'] });
-  assert.deepEqual(tokenizeCommand('claude --permission-mode plan --effort low'), { provider: 'claude', argv: ['--permission-mode', 'plan', '--effort', 'low'] });
-  assert.deepEqual(tokenizeCommand('ollama --sandbox read-only'), { provider: 'ollama', argv: ['--sandbox', 'read-only'] });
-  for (const value of ['node app.js', 'A=1 codex', 'codex | tee x', 'claude --print', 'codex exec', 'claude --settings custom.json', 'claude --settings=custom.json']) assert.throws(() => tokenizeCommand(value));
-  for (const value of ['claude --dangerously-skip-permissions', 'claude --allow-dangerously-skip-permissions', 'claude --permission-mode bypassPermissions', 'codex --dangerously-bypass-approvals-and-sandbox', 'codex --yolo', 'codex --sandbox danger-full-access', 'ollama --sandbox=danger-full-access']) assert.throws(() => tokenizeCommand(value), /bdfl --dangerous/);
+  assert.deepEqual(tokenizeCommand('codex --search "two words" --sandbox workspace-write'), {
+    provider: 'codex',
+    argv: ['--search', 'two words', '--sandbox', 'workspace-write']
+  });
+  assert.deepEqual(tokenizeCommand('claude --permission-mode plan --effort low'), {
+    provider: 'claude',
+    argv: ['--permission-mode', 'plan', '--effort', 'low']
+  });
+  assert.deepEqual(tokenizeCommand('ollama --sandbox read-only'), {
+    provider: 'ollama',
+    argv: ['--sandbox', 'read-only']
+  });
+  for (const value of [
+    'node app.js',
+    'A=1 codex',
+    'codex | tee x',
+    'claude --print',
+    'codex exec',
+    'claude --settings custom.json',
+    'claude --settings=custom.json'
+  ])
+    assert.throws(() => tokenizeCommand(value));
+  for (const value of [
+    'claude --dangerously-skip-permissions',
+    'claude --allow-dangerously-skip-permissions',
+    'claude --permission-mode bypassPermissions',
+    'codex --dangerously-bypass-approvals-and-sandbox',
+    'codex --yolo',
+    'codex --sandbox danger-full-access',
+    'ollama --sandbox=danger-full-access'
+  ])
+    assert.throws(() => tokenizeCommand(value), /bdfl --dangerous/);
 });
-test('builds interactive cross-provider launches with native attention notifications', () => { const helper = path.join(__dirname, 'attention helper.js'); const delegator = buildLaunch({ provider: 'claude', model: 'opus', effort: 'high' }, { role: 'delegator', skillDirectory: '/skill', attentionHelper: helper }); assert.ok(delegator.args.includes('--add-dir')); assert.ok(delegator.args.includes('/skill')); assert.doesNotMatch(delegator.args.join(' '), /--print|--setting-sources/); const settingsIndex = delegator.args.indexOf('--settings'); assert.ok(settingsIndex > 0); const settings = JSON.parse(delegator.args[settingsIndex + 1]); const stop = settings.hooks.Stop[0].hooks[0]; const notification = settings.hooks.Notification[0]; assert.deepEqual(stop, { type: 'command', command: process.execPath, args: [helper] }); assert.equal(notification.matcher, CLAUDE_NOTIFICATION_EVENTS.join('|')); assert.deepEqual(notification.hooks, [stop]); const worker = buildLaunch({ provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' }, { role: 'worker', permissionMode: 'workspace-write' }); assert.match(worker.args.join(' '), /workspace-write/); const configs = worker.args.flatMap((argument, index) => worker.args[index - 1] === '-c' ? [argument] : []); assert.ok(configs.includes(`tui.notifications=${JSON.stringify(ATTENTION_EVENTS)}`)); assert.ok(configs.includes('tui.notification_method="bel"')); assert.ok(configs.includes('tui.notification_condition="always"')); });
+test('builds interactive cross-provider launches with native attention notifications', () => {
+  const helper = path.join(__dirname, 'attention helper.js');
+  const delegator = buildLaunch(
+    { provider: 'claude', model: 'opus', effort: 'high' },
+    { role: 'delegator', skillDirectory: '/skill', attentionHelper: helper }
+  );
+  assert.ok(delegator.args.includes('--add-dir'));
+  assert.ok(delegator.args.includes('/skill'));
+  assert.doesNotMatch(delegator.args.join(' '), /--print|--setting-sources/);
+  const settingsIndex = delegator.args.indexOf('--settings');
+  assert.ok(settingsIndex > 0);
+  const settings = JSON.parse(delegator.args[settingsIndex + 1]);
+  const stop = settings.hooks.Stop[0].hooks[0];
+  const notification = settings.hooks.Notification[0];
+  assert.deepEqual(stop, { type: 'command', command: process.execPath, args: [helper] });
+  assert.equal(notification.matcher, CLAUDE_NOTIFICATION_EVENTS.join('|'));
+  assert.deepEqual(notification.hooks, [stop]);
+  const worker = buildLaunch(
+    { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' },
+    { role: 'worker', permissionMode: 'workspace-write' }
+  );
+  assert.match(worker.args.join(' '), /workspace-write/);
+  const configs = worker.args.flatMap((argument, index) => (worker.args[index - 1] === '-c' ? [argument] : []));
+  assert.ok(configs.includes(`tui.notifications=${JSON.stringify(ATTENTION_EVENTS)}`));
+  assert.ok(configs.includes('tui.notification_method="bel"'));
+  assert.ok(configs.includes('tui.notification_condition="always"'));
+});
 test('uses manual planning and verification defaults and accept-edits worker defaults without defaulting to bypass', () => {
   const mode = (launch, flag) => launch.args[launch.args.indexOf(flag) + 1];
-  const claudeDelegator = buildLaunch({ provider: 'claude', model: 'opus', effort: 'high' }, { role: 'delegator', permissionMode: 'read-only' });
-  const claudeVerifier = buildLaunch({ provider: 'claude', model: 'opus', effort: 'high', permissionMode: 'workspace-write' }, { role: 'verifier', permissionMode: 'read-only' });
-  const claudeWorker = buildLaunch({ provider: 'claude', model: 'opus', effort: 'high', permissionMode: 'workspace-write' }, { role: 'worker', permissionMode: 'workspace-write' });
-  const claudeIntegration = buildLaunch({ provider: 'claude', model: 'opus', effort: 'high', permissionMode: 'workspace-write' }, { role: 'integration', permissionMode: 'workspace-write' });
-  assert.deepEqual([mode(claudeDelegator, '--permission-mode'), mode(claudeVerifier, '--permission-mode')], ['manual', 'manual']);
-  assert.deepEqual([mode(claudeWorker, '--permission-mode'), mode(claudeIntegration, '--permission-mode')], ['acceptEdits', 'acceptEdits']);
-  assert.ok([claudeDelegator, claudeVerifier, claudeWorker, claudeIntegration].every((launch) => !launch.args.includes('bypassPermissions')));
-  const codexDelegator = buildLaunch({ provider: 'codex', model: 'gpt-5', effort: 'medium' }, { role: 'delegator', permissionMode: 'read-only' });
-  const codexVerifier = buildLaunch({ provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' }, { role: 'verifier', permissionMode: 'read-only' });
-  const codexWorker = buildLaunch({ provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' }, { role: 'worker', permissionMode: 'workspace-write' });
-  assert.deepEqual([mode(codexDelegator, '--sandbox'), mode(codexVerifier, '--sandbox'), mode(codexWorker, '--sandbox')], ['read-only', 'read-only', 'workspace-write']);
-  for (const permissionMode of ['read-only', 'full-access']) assert.throws(() => validateWorkstreamConfig({ version: 1, delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' }, workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode }, workerCapacity: 1 }), /Invalid worker permission mode/);
+  const claudeDelegator = buildLaunch(
+    { provider: 'claude', model: 'opus', effort: 'high' },
+    { role: 'delegator', permissionMode: 'read-only' }
+  );
+  const claudeVerifier = buildLaunch(
+    { provider: 'claude', model: 'opus', effort: 'high', permissionMode: 'workspace-write' },
+    { role: 'verifier', permissionMode: 'read-only' }
+  );
+  const claudeWorker = buildLaunch(
+    { provider: 'claude', model: 'opus', effort: 'high', permissionMode: 'workspace-write' },
+    { role: 'worker', permissionMode: 'workspace-write' }
+  );
+  const claudeIntegration = buildLaunch(
+    { provider: 'claude', model: 'opus', effort: 'high', permissionMode: 'workspace-write' },
+    { role: 'integration', permissionMode: 'workspace-write' }
+  );
+  assert.deepEqual(
+    [mode(claudeDelegator, '--permission-mode'), mode(claudeVerifier, '--permission-mode')],
+    ['manual', 'manual']
+  );
+  assert.deepEqual(
+    [mode(claudeWorker, '--permission-mode'), mode(claudeIntegration, '--permission-mode')],
+    ['acceptEdits', 'acceptEdits']
+  );
+  assert.ok(
+    [claudeDelegator, claudeVerifier, claudeWorker, claudeIntegration].every(
+      (launch) => !launch.args.includes('bypassPermissions')
+    )
+  );
+  const codexDelegator = buildLaunch(
+    { provider: 'codex', model: 'gpt-5', effort: 'medium' },
+    { role: 'delegator', permissionMode: 'read-only' }
+  );
+  const codexVerifier = buildLaunch(
+    { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' },
+    { role: 'verifier', permissionMode: 'read-only' }
+  );
+  const codexWorker = buildLaunch(
+    { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' },
+    { role: 'worker', permissionMode: 'workspace-write' }
+  );
+  assert.deepEqual(
+    [mode(codexDelegator, '--sandbox'), mode(codexVerifier, '--sandbox'), mode(codexWorker, '--sandbox')],
+    ['read-only', 'read-only', 'workspace-write']
+  );
+  for (const permissionMode of ['read-only', 'full-access'])
+    assert.throws(
+      () =>
+        validateWorkstreamConfig({
+          version: 1,
+          delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' },
+          workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode },
+          workerCapacity: 1
+        }),
+      /Invalid worker permission mode/
+    );
 });
 test('preserves provider permission overrides while keeping model and effort canonical', () => {
-  const claude = buildLaunch({ provider: 'claude', model: 'opus', effort: 'high', argv: ['--permission-mode', 'plan', '--model=user-model', '--effort', 'low', '--verbose'] }, { role: 'delegator', permissionMode: 'read-only' });
+  const claude = buildLaunch(
+    {
+      provider: 'claude',
+      model: 'opus',
+      effort: 'high',
+      argv: ['--permission-mode', 'plan', '--model=user-model', '--effort', 'low', '--verbose']
+    },
+    { role: 'delegator', permissionMode: 'read-only' }
+  );
   assert.equal(claude.args.filter((value) => value === '--permission-mode').length, 1);
   assert.equal(claude.args[claude.args.indexOf('--permission-mode') + 1], 'plan');
   assert.equal(claude.args.filter((value) => value === '--model').length, 1);
   assert.equal(claude.args[claude.args.indexOf('--effort') + 1], 'high');
   assert.doesNotMatch(claude.args.join(' '), /user-model/);
   assert.ok(claude.args.includes('--verbose'));
-  const codex = buildLaunch({ provider: 'codex', model: 'gpt-5', effort: 'medium', argv: ['--sandbox', 'workspace-write', '--ask-for-approval', 'never', '-m', 'user-model', '-c', 'approval_policy="never"', '--search'] }, { role: 'delegator', permissionMode: 'read-only' });
+  const codex = buildLaunch(
+    {
+      provider: 'codex',
+      model: 'gpt-5',
+      effort: 'medium',
+      argv: [
+        '--sandbox',
+        'workspace-write',
+        '--ask-for-approval',
+        'never',
+        '-m',
+        'user-model',
+        '-c',
+        'approval_policy="never"',
+        '--search'
+      ]
+    },
+    { role: 'delegator', permissionMode: 'read-only' }
+  );
   assert.equal(codex.args.filter((value) => value === '--sandbox').length, 1);
   assert.equal(codex.args[codex.args.indexOf('--sandbox') + 1], 'workspace-write');
   assert.equal(codex.args[codex.args.indexOf('--ask-for-approval') + 1], 'never');
@@ -40,37 +170,427 @@ test('preserves provider permission overrides while keeping model and effort can
   assert.equal(codex.args.filter((value) => value === '-m').length, 1);
   assert.doesNotMatch(codex.args.join(' '), /user-model/);
   assert.ok(codex.args.includes('--search'));
-  const codexConfig = buildLaunch({ provider: 'codex', model: 'gpt-5', effort: 'medium', argv: ['-c', 'sandbox_mode="workspace-write"'] }, { role: 'delegator', permissionMode: 'read-only' });
+  const codexConfig = buildLaunch(
+    { provider: 'codex', model: 'gpt-5', effort: 'medium', argv: ['-c', 'sandbox_mode="workspace-write"'] },
+    { role: 'delegator', permissionMode: 'read-only' }
+  );
   assert.ok(codexConfig.args.includes('sandbox_mode="workspace-write"'));
   assert.equal(codexConfig.args.includes('--sandbox'), false);
-  const ollama = buildLaunch({ provider: 'ollama', model: 'qwen3:4b', effort: 'medium', permissionMode: 'workspace-write', argv: ['--sandbox=read-only', '-a', 'never'] }, { role: 'worker', permissionMode: 'workspace-write' });
+  const ollama = buildLaunch(
+    {
+      provider: 'ollama',
+      model: 'qwen3:4b',
+      effort: 'medium',
+      permissionMode: 'workspace-write',
+      argv: ['--sandbox=read-only', '-a', 'never']
+    },
+    { role: 'worker', permissionMode: 'workspace-write' }
+  );
   assert.ok(ollama.args.includes('--sandbox=read-only'));
   assert.equal(ollama.args.includes('--sandbox'), false);
   assert.deepEqual(ollama.args.slice(ollama.args.indexOf('-a'), ollama.args.indexOf('-a') + 2), ['-a', 'never']);
 });
 test('adds provider bypass flags only for a top-level dangerous launch', () => {
-  const claude = buildLaunch({ provider: 'claude', model: 'opus', effort: 'high', argv: ['--permission-mode', 'plan'] }, { role: 'delegator', permissionMode: 'read-only', dangerous: true });
+  const claude = buildLaunch(
+    { provider: 'claude', model: 'opus', effort: 'high', argv: ['--permission-mode', 'plan'] },
+    { role: 'delegator', permissionMode: 'read-only', dangerous: true }
+  );
   assert.ok(claude.args.includes('--dangerously-skip-permissions'));
   assert.equal(claude.args.includes('--permission-mode'), false);
-  const codex = buildLaunch({ provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write', argv: ['--sandbox', 'read-only', '--ask-for-approval', 'untrusted'] }, { role: 'worker', permissionMode: 'workspace-write', dangerous: true });
+  const codex = buildLaunch(
+    {
+      provider: 'codex',
+      model: 'gpt-5',
+      effort: 'medium',
+      permissionMode: 'workspace-write',
+      argv: ['--sandbox', 'read-only', '--ask-for-approval', 'untrusted']
+    },
+    { role: 'worker', permissionMode: 'workspace-write', dangerous: true }
+  );
   assert.ok(codex.args.includes('--dangerously-bypass-approvals-and-sandbox'));
   assert.equal(codex.args.includes('--sandbox'), false);
   assert.equal(codex.args.includes('--ask-for-approval'), false);
-  const ollama = buildLaunch({ provider: 'ollama', model: 'qwen3:4b', effort: 'medium', permissionMode: 'workspace-write', argv: ['--sandbox=read-only', '-a', 'never'] }, { role: 'worker', permissionMode: 'workspace-write', dangerous: true });
+  const ollama = buildLaunch(
+    {
+      provider: 'ollama',
+      model: 'qwen3:4b',
+      effort: 'medium',
+      permissionMode: 'workspace-write',
+      argv: ['--sandbox=read-only', '-a', 'never']
+    },
+    { role: 'worker', permissionMode: 'workspace-write', dangerous: true }
+  );
   assert.ok(ollama.args.includes('--dangerously-bypass-approvals-and-sandbox'));
   assert.equal(ollama.args.includes('--sandbox=read-only'), false);
   assert.equal(ollama.args.includes('-a'), false);
-  for (const profile of [{ provider: 'claude', model: 'opus', effort: 'high', argv: ['--dangerously-skip-permissions'] }, { provider: 'claude', model: 'opus', effort: 'high', argv: ['--permission-mode', 'bypassPermissions'] }, { provider: 'codex', model: 'gpt-5', effort: 'medium', argv: ['--sandbox', 'danger-full-access'] }, { provider: 'codex', model: 'gpt-5', effort: 'medium', argv: ['-c', 'sandbox_mode="danger-full-access"'] }]) assert.throws(() => buildLaunch(profile, { role: 'delegator' }), /bdfl --dangerous/);
+  for (const profile of [
+    { provider: 'claude', model: 'opus', effort: 'high', argv: ['--dangerously-skip-permissions'] },
+    { provider: 'claude', model: 'opus', effort: 'high', argv: ['--permission-mode', 'bypassPermissions'] },
+    { provider: 'codex', model: 'gpt-5', effort: 'medium', argv: ['--sandbox', 'danger-full-access'] },
+    { provider: 'codex', model: 'gpt-5', effort: 'medium', argv: ['-c', 'sandbox_mode="danger-full-access"'] }
+  ])
+    assert.throws(() => buildLaunch(profile, { role: 'delegator' }), /bdfl --dangerous/);
 });
-test('launches Ollama through Codex while keeping model and provider configuration canonical', () => { const bridge = { command: process.execPath, args: ['/bin/bdfl-mcp.js'], tools: ['bdfl_plan'] }; const launch = buildLaunch({ provider: 'ollama', model: 'qwen3:4b', effort: 'low', argv: ['--model', 'wrong', '--profile=wrong', '--local-provider', 'lmstudio', '--oss', '--yes', '-c', 'model_provider="wrong"', '--search'] }, { role: 'delegator', permissionMode: 'read-only', bridge, instructions: 'canonical skill', roleInstruction: 'plan through BDFL' }); assert.equal(launch.command, 'ollama'); assert.deepEqual(launch.args.slice(0, 7), ['launch', 'codex', '--model', 'qwen3:4b', '--yes', '--', '--search']); assert.equal(launch.args.filter((value) => value === '--model').length, 1); assert.doesNotMatch(launch.args.join(' '), /wrong|lmstudio|--oss/); assert.ok(launch.args.includes('--no-alt-screen')); assert.ok(launch.args.includes('model_reasoning_effort="low"')); assert.equal(launch.args[launch.args.indexOf('--sandbox') + 1], 'read-only'); assert.ok(launch.args.includes('mcp_servers.bdfl.required=true')); assert.equal(launch.args.at(-1), 'plan through BDFL'); const worker = buildLaunch({ provider: 'ollama', model: 'qwen3:4b', effort: 'medium', permissionMode: 'workspace-write' }, { role: 'worker', permissionMode: 'workspace-write' }); assert.equal(worker.args[worker.args.indexOf('--sandbox') + 1], 'workspace-write'); const resumed = buildLaunch({ provider: 'ollama', model: 'qwen3:4b', effort: 'medium' }, { role: 'delegator', permissionMode: 'read-only', resume: true, sessionId: 'ollama-session' }); assert.deepEqual(resumed.args.slice(-2), ['resume', 'ollama-session']); });
-test('Claude attention helper emits only valid JSON containing the internal BEL', () => { const helper = path.resolve(__dirname, '../../src/providers/attention-hook.js'); const result = spawnSync(process.execPath, [helper], { encoding: 'utf8' }); assert.equal(result.status, 0); assert.equal(result.stderr, ''); assert.equal(result.stdout, '{"terminalSequence":"\\u0007"}'); assert.deepEqual(JSON.parse(result.stdout), { terminalSequence: '\u0007' }); });
-test('starts Claude with a stable ID and resumes exact provider sessions', () => { const fresh = buildLaunch({ provider: 'claude', model: 'opus', effort: 'high' }, { role: 'delegator', sessionId: '123' }); assert.deepEqual(fresh.args.slice(-2), ['--session-id', '123']); const claude = buildLaunch({ provider: 'claude', model: 'opus', effort: 'high' }, { role: 'delegator', resume: true, sessionId: '123' }); assert.deepEqual(claude.args.slice(-2), ['--resume', '123']); const freshCodex = buildLaunch({ provider: 'codex', model: 'gpt-5', effort: 'medium' }, { role: 'delegator' }); const codex = buildLaunch({ provider: 'codex', model: 'gpt-5', effort: 'medium' }, { role: 'delegator', resume: true, sessionId: '456' }); assert.ok(freshCodex.args.includes('--no-alt-screen')); assert.ok(codex.args.includes('--no-alt-screen')); assert.deepEqual(codex.args.slice(-2), ['resume', '456']); });
-test('injects required bridge settings without replaying role prompts on resume', () => { const bridge = { command: process.execPath, args: ['/bin/bdfl-mcp.js', '--token', 'cap'], tools: ['bdfl_plan', 'bdfl_workers'] }; for (const resume of [false, true]) { const claude = buildLaunch({ provider: 'claude', model: 'opus', effort: 'high' }, { role: 'delegator', pluginDirectory: '/tmp/plugin', mcpConfig: '/tmp/plugin/.mcp.json', allowedTools: ['mcp__bdfl__bdfl_plan', 'mcp__bdfl__bdfl_workers'], resume, sessionId: 'claude-id', roleInstruction: 'delegate through BDFL' }); assert.ok(claude.args.includes('--plugin-dir')); assert.ok(claude.args.includes('--strict-mcp-config')); assert.ok(claude.args.includes('mcp__bdfl__bdfl_plan')); if (resume) { assert.deepEqual(claude.args.slice(-2), ['--resume', 'claude-id']); assert.doesNotMatch(claude.args.join(' '), /delegate through BDFL/); } else assert.equal(claude.args.at(-1), 'delegate through BDFL'); const codex = buildLaunch({ provider: 'codex', model: 'gpt-5', effort: 'medium' }, { role: 'delegator', bridge, instructions: 'canonical skill', resume, sessionId: 'codex-id', roleInstruction: 'delegate through BDFL' }); const config = codex.args.filter((_value, index) => codex.args[index - 1] === '-c'); assert.ok(config.includes('mcp_servers.bdfl.required=true')); assert.ok(config.includes('mcp_servers.bdfl.default_tools_approval_mode="approve"')); assert.ok(config.includes('developer_instructions="canonical skill"')); if (resume) { assert.deepEqual(codex.args.slice(-2), ['resume', 'codex-id']); assert.doesNotMatch(codex.args.join(' '), /delegate through BDFL/); } else assert.equal(codex.args.at(-1), 'delegate through BDFL'); } });
-test('stores independent workstream profiles and capacity reductions without terminating workers', (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-workspace-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root, { id: (() => { let n = 0; return () => `${++n}`; })(), now: () => new Date('2026-01-01') }); const config = validateWorkstreamConfig({ version: 1, delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' }, workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' }, workerCapacity: 4 }); const stream = store.createWorkstream(config); const session = store.createSession(stream.id, 'worker', config.workerProfile); store.update((state) => { state.sessions.find((item) => item.id === session.id).status = 'running'; return state; }); const reduced = store.setCapacity(stream.id, 1); assert.equal(reduced.active, 1); assert.equal(reduced.canStart, 0); assert.equal(store.load().sessions[0].status, 'running'); });
-test('numbers agent panes independently and closes a complete workstream', (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-pane-numbers-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root, { id: (() => { let n = 0; return () => `${++n}`; })() }); const config = validateWorkstreamConfig({ version: 1, delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' }, workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' }, workerCapacity: 5 }); const first = store.createWorkstream(config, 'first'); const second = store.createWorkstream(config, 'second'); assert.equal(store.createSession(first.id, 'delegator', config.delegatorProfile).paneNumber, 1); assert.equal(store.createSession(first.id, 'worker', config.workerProfile).paneNumber, 2); assert.equal(store.createSession(second.id, 'delegator', config.delegatorProfile).paneNumber, 1); assert.equal(store.createSession(second.id, 'worker', config.workerProfile).paneNumber, 2); store.closeWorkstream(first.id); const state = store.load(); assert.equal(state.workstreams.find((stream) => stream.id === first.id).status, 'closed'); assert.ok(state.sessions.filter((session) => session.workstreamId === first.id).every((session) => session.explicitlyClosed)); assert.equal(state.activeWorkstreamId, second.id); });
-test('numbers bottom sessions per provider without recycling closed numbers', (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-provider-numbers-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root, { id: (() => { let n = 0; return () => `${++n}`; })() }); const base = { version: 1, workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' }, workerCapacity: 5 }; const claude = { ...base, delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' } }; const codex = { ...base, delegatorProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium' } }; const claudeOne = store.createWorkstream(claude); const codexOne = store.createWorkstream(codex); store.closeWorkstream(claudeOne.id); const claudeTwo = store.createWorkstream(claude); assert.equal(claudeOne.providerSequence, 1); assert.equal(codexOne.providerSequence, 1); assert.equal(claudeTwo.providerSequence, 2); });
-test('a newly created bottom session always becomes active', (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-new-active-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root); const config = validateWorkstreamConfig({ version: 1, delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' }, workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' }, workerCapacity: 5 }); const first = store.createWorkstream(config); const second = store.createWorkstream(config); assert.notEqual(first.id, second.id); assert.equal(store.load().activeWorkstreamId, second.id); });
-test('resuming a closed session preserves immutable creation order', (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-resume-order-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); let current = new Date('2026-01-01T00:00:00.000Z'); const store = new WorkspaceStore(root, { now: () => current, id: (() => { let id = 0; return () => `${++id}`; })() }); const config = validateWorkstreamConfig({ version: 1, delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' }, workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' }, workerCapacity: 5 }); const first = store.createWorkstream(config, 'first'); const resumed = store.createWorkstream(config, 'resumed'); const third = store.createWorkstream(config, 'third'); store.closeWorkstream(resumed.id); current = new Date('2026-01-02T00:00:00.000Z'); store.reopenWorkstream(resumed.id); const state = store.load(); assert.deepEqual(state.workstreams.map((stream) => stream.id), [first.id, resumed.id, third.id]); assert.equal(state.workstreams.find((stream) => stream.id === resumed.id).updatedAt, current.toISOString()); assert.equal(state.activeWorkstreamId, resumed.id); });
-test('closing and reopening retains provider identity and launch profile', (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-reopen-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root); const config = validateWorkstreamConfig({ version: 1, delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high', argv: ['--verbose'] }, workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' }, workerCapacity: 5 }); const stream = store.createWorkstream(config); const session = store.createSession(stream.id, 'delegator', config.delegatorProfile, { providerSessionId: 'resume-me', providerSessionReady: true }); store.closeWorkstream(stream.id); store.reopenWorkstream(stream.id); const restored = store.load().sessions.find((item) => item.id === session.id); assert.equal(restored.providerSessionId, 'resume-me'); assert.deepEqual(restored.profile.argv, ['--verbose']); assert.equal(restored.explicitlyClosed, false); });
-test('persists attention independently and treats duplicate updates idempotently', (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-attention-store-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const store = new WorkspaceStore(root); const config = validateWorkstreamConfig({ version: 1, delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' }, workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' }, workerCapacity: 5 }); const stream = store.createWorkstream(config); const first = store.createSession(stream.id, 'delegator', config.delegatorProfile); const second = store.createSession(stream.id, 'worker', config.workerProfile); assert.equal(store.load().sessions[0].attention, undefined); const raised = store.setSessionAttention(first.id, true); const duplicate = store.setSessionAttention(first.id, true); assert.equal(raised.sessions[0].attention, true); assert.deepEqual(duplicate, raised); assert.equal(store.load().sessions.find((session) => session.id === second.id).attention, undefined); store.setSessionAttention(second.id, true); store.setSessionAttention(first.id, false); const final = store.load(); assert.equal(final.sessions.find((session) => session.id === first.id).attention, false); assert.equal(final.sessions.find((session) => session.id === second.id).attention, true); });
-test('pauses and resumes one child without changing its parent, siblings, or continuation identity', (t) => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-child-pause-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); let current = new Date('2026-01-01T00:00:00.000Z'); const store = new WorkspaceStore(root, { now: () => current }); const config = validateWorkstreamConfig({ version: 1, delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' }, workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' }, workerCapacity: 2 }); const stream = store.createWorkstream(config); const sibling = store.createSession(stream.id, 'delegator', config.delegatorProfile, { status: 'running', pid: 10 }); const worker = store.createSession(stream.id, 'worker', config.workerProfile, { status: 'running', pid: 11, providerSessionId: 'provider-one', providerSessionReady: true, executionId: 'execution-one', chunkId: 'chunk-one', repositoryRoot: root, worktree: path.join(root, 'worker-tree'), context: '/context/chunk.md', snapshot: '/transcript/terminal.txt', launchProfile: config.workerProfile }); const durable = Object.fromEntries(['providerSessionId', 'providerSessionReady', 'executionId', 'chunkId', 'repositoryRoot', 'worktree', 'context', 'snapshot', 'profile', 'launchProfile'].map((key) => [key, worker[key]])); current = new Date('2026-01-02T00:00:00.000Z'); const paused = store.pauseSession(worker.id); assert.equal(paused.status, 'paused'); assert.equal(paused.explicitlyClosed, true); assert.equal(paused.pid, undefined); assert.deepEqual(Object.fromEntries(Object.keys(durable).map((key) => [key, paused[key]])), durable); let state = store.load(); assert.equal(state.workstreams[0].status, 'active'); assert.equal(state.sessions.find((item) => item.id === sibling.id).status, 'running'); current = new Date('2026-01-03T00:00:00.000Z'); const resumed = store.resumeSession(worker.id); assert.equal(resumed.status, 'closed'); assert.equal(resumed.explicitlyClosed, false); assert.deepEqual(Object.fromEntries(Object.keys(durable).map((key) => [key, resumed[key]])), durable); state = store.load(); assert.equal(state.sessions.find((item) => item.id === sibling.id).pid, 10); const events = fs.readFileSync(path.join(root, '.bdfl', 'events.ndjson'), 'utf8').trim().split('\n').map(JSON.parse).filter((event) => event.sessionId === worker.id); assert.deepEqual(events.slice(-2).map((event) => event.type), ['session.paused', 'session.resumed']); });
+test('launches Ollama through Codex while keeping model and provider configuration canonical', () => {
+  const bridge = { command: process.execPath, args: ['/bin/bdfl-mcp.js'], tools: ['bdfl_plan'] };
+  const launch = buildLaunch(
+    {
+      provider: 'ollama',
+      model: 'qwen3:4b',
+      effort: 'low',
+      argv: [
+        '--model',
+        'wrong',
+        '--profile=wrong',
+        '--local-provider',
+        'lmstudio',
+        '--oss',
+        '--yes',
+        '-c',
+        'model_provider="wrong"',
+        '--search'
+      ]
+    },
+    {
+      role: 'delegator',
+      permissionMode: 'read-only',
+      bridge,
+      instructions: 'canonical skill',
+      roleInstruction: 'plan through BDFL'
+    }
+  );
+  assert.equal(launch.command, 'ollama');
+  assert.deepEqual(launch.args.slice(0, 7), ['launch', 'codex', '--model', 'qwen3:4b', '--yes', '--', '--search']);
+  assert.equal(launch.args.filter((value) => value === '--model').length, 1);
+  assert.doesNotMatch(launch.args.join(' '), /wrong|lmstudio|--oss/);
+  assert.ok(launch.args.includes('--no-alt-screen'));
+  assert.ok(launch.args.includes('model_reasoning_effort="low"'));
+  assert.equal(launch.args[launch.args.indexOf('--sandbox') + 1], 'read-only');
+  assert.ok(launch.args.includes('mcp_servers.bdfl.required=true'));
+  assert.equal(launch.args.at(-1), 'plan through BDFL');
+  const worker = buildLaunch(
+    { provider: 'ollama', model: 'qwen3:4b', effort: 'medium', permissionMode: 'workspace-write' },
+    { role: 'worker', permissionMode: 'workspace-write' }
+  );
+  assert.equal(worker.args[worker.args.indexOf('--sandbox') + 1], 'workspace-write');
+  const resumed = buildLaunch(
+    { provider: 'ollama', model: 'qwen3:4b', effort: 'medium' },
+    { role: 'delegator', permissionMode: 'read-only', resume: true, sessionId: 'ollama-session' }
+  );
+  assert.deepEqual(resumed.args.slice(-2), ['resume', 'ollama-session']);
+});
+test('Claude attention helper emits only valid JSON containing the internal BEL', () => {
+  const helper = path.resolve(__dirname, '../../src/providers/attention-hook.js');
+  const result = spawnSync(process.execPath, [helper], { encoding: 'utf8' });
+  assert.equal(result.status, 0);
+  assert.equal(result.stderr, '');
+  assert.equal(result.stdout, '{"terminalSequence":"\\u0007"}');
+  assert.deepEqual(JSON.parse(result.stdout), { terminalSequence: '\u0007' });
+});
+test('starts Claude with a stable ID and resumes exact provider sessions', () => {
+  const fresh = buildLaunch(
+    { provider: 'claude', model: 'opus', effort: 'high' },
+    { role: 'delegator', sessionId: '123' }
+  );
+  assert.deepEqual(fresh.args.slice(-2), ['--session-id', '123']);
+  const claude = buildLaunch(
+    { provider: 'claude', model: 'opus', effort: 'high' },
+    { role: 'delegator', resume: true, sessionId: '123' }
+  );
+  assert.deepEqual(claude.args.slice(-2), ['--resume', '123']);
+  const freshCodex = buildLaunch({ provider: 'codex', model: 'gpt-5', effort: 'medium' }, { role: 'delegator' });
+  const codex = buildLaunch(
+    { provider: 'codex', model: 'gpt-5', effort: 'medium' },
+    { role: 'delegator', resume: true, sessionId: '456' }
+  );
+  assert.ok(freshCodex.args.includes('--no-alt-screen'));
+  assert.ok(codex.args.includes('--no-alt-screen'));
+  assert.deepEqual(codex.args.slice(-2), ['resume', '456']);
+});
+test('injects required bridge settings without replaying role prompts on resume', () => {
+  const bridge = {
+    command: process.execPath,
+    args: ['/bin/bdfl-mcp.js', '--token', 'cap'],
+    tools: ['bdfl_plan', 'bdfl_workers']
+  };
+  for (const resume of [false, true]) {
+    const claude = buildLaunch(
+      { provider: 'claude', model: 'opus', effort: 'high' },
+      {
+        role: 'delegator',
+        pluginDirectory: '/tmp/plugin',
+        mcpConfig: '/tmp/plugin/.mcp.json',
+        allowedTools: ['mcp__bdfl__bdfl_plan', 'mcp__bdfl__bdfl_workers'],
+        resume,
+        sessionId: 'claude-id',
+        roleInstruction: 'delegate through BDFL'
+      }
+    );
+    assert.ok(claude.args.includes('--plugin-dir'));
+    assert.ok(claude.args.includes('--strict-mcp-config'));
+    assert.ok(claude.args.includes('mcp__bdfl__bdfl_plan'));
+    if (resume) {
+      assert.deepEqual(claude.args.slice(-2), ['--resume', 'claude-id']);
+      assert.doesNotMatch(claude.args.join(' '), /delegate through BDFL/);
+    } else assert.equal(claude.args.at(-1), 'delegate through BDFL');
+    const codex = buildLaunch(
+      { provider: 'codex', model: 'gpt-5', effort: 'medium' },
+      {
+        role: 'delegator',
+        bridge,
+        instructions: 'canonical skill',
+        resume,
+        sessionId: 'codex-id',
+        roleInstruction: 'delegate through BDFL'
+      }
+    );
+    const config = codex.args.filter((_value, index) => codex.args[index - 1] === '-c');
+    assert.ok(config.includes('mcp_servers.bdfl.required=true'));
+    assert.ok(config.includes('mcp_servers.bdfl.default_tools_approval_mode="approve"'));
+    assert.ok(config.includes('developer_instructions="canonical skill"'));
+    if (resume) {
+      assert.deepEqual(codex.args.slice(-2), ['resume', 'codex-id']);
+      assert.doesNotMatch(codex.args.join(' '), /delegate through BDFL/);
+    } else assert.equal(codex.args.at(-1), 'delegate through BDFL');
+  }
+});
+test('stores independent workstream profiles and capacity reductions without terminating workers', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-workspace-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root, {
+    id: (() => {
+      let n = 0;
+      return () => `${++n}`;
+    })(),
+    now: () => new Date('2026-01-01')
+  });
+  const config = validateWorkstreamConfig({
+    version: 1,
+    delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' },
+    workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' },
+    workerCapacity: 4
+  });
+  const stream = store.createWorkstream(config);
+  const session = store.createSession(stream.id, 'worker', config.workerProfile);
+  store.update((state) => {
+    state.sessions.find((item) => item.id === session.id).status = 'running';
+    return state;
+  });
+  const reduced = store.setCapacity(stream.id, 1);
+  assert.equal(reduced.active, 1);
+  assert.equal(reduced.canStart, 0);
+  assert.equal(store.load().sessions[0].status, 'running');
+});
+test('numbers agent panes independently and closes a complete workstream', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-pane-numbers-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root, {
+    id: (() => {
+      let n = 0;
+      return () => `${++n}`;
+    })()
+  });
+  const config = validateWorkstreamConfig({
+    version: 1,
+    delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' },
+    workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' },
+    workerCapacity: 5
+  });
+  const first = store.createWorkstream(config, 'first');
+  const second = store.createWorkstream(config, 'second');
+  assert.equal(store.createSession(first.id, 'delegator', config.delegatorProfile).paneNumber, 1);
+  assert.equal(store.createSession(first.id, 'worker', config.workerProfile).paneNumber, 2);
+  assert.equal(store.createSession(second.id, 'delegator', config.delegatorProfile).paneNumber, 1);
+  assert.equal(store.createSession(second.id, 'worker', config.workerProfile).paneNumber, 2);
+  store.closeWorkstream(first.id);
+  const state = store.load();
+  assert.equal(state.workstreams.find((stream) => stream.id === first.id).status, 'closed');
+  assert.ok(
+    state.sessions.filter((session) => session.workstreamId === first.id).every((session) => session.explicitlyClosed)
+  );
+  assert.equal(state.activeWorkstreamId, second.id);
+});
+test('numbers bottom sessions per provider without recycling closed numbers', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-provider-numbers-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root, {
+    id: (() => {
+      let n = 0;
+      return () => `${++n}`;
+    })()
+  });
+  const base = {
+    version: 1,
+    workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' },
+    workerCapacity: 5
+  };
+  const claude = { ...base, delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' } };
+  const codex = { ...base, delegatorProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium' } };
+  const claudeOne = store.createWorkstream(claude);
+  const codexOne = store.createWorkstream(codex);
+  store.closeWorkstream(claudeOne.id);
+  const claudeTwo = store.createWorkstream(claude);
+  assert.equal(claudeOne.providerSequence, 1);
+  assert.equal(codexOne.providerSequence, 1);
+  assert.equal(claudeTwo.providerSequence, 2);
+});
+test('a newly created bottom session always becomes active', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-new-active-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root);
+  const config = validateWorkstreamConfig({
+    version: 1,
+    delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' },
+    workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' },
+    workerCapacity: 5
+  });
+  const first = store.createWorkstream(config);
+  const second = store.createWorkstream(config);
+  assert.notEqual(first.id, second.id);
+  assert.equal(store.load().activeWorkstreamId, second.id);
+});
+test('resuming a closed session preserves immutable creation order', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-resume-order-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let current = new Date('2026-01-01T00:00:00.000Z');
+  const store = new WorkspaceStore(root, {
+    now: () => current,
+    id: (() => {
+      let id = 0;
+      return () => `${++id}`;
+    })()
+  });
+  const config = validateWorkstreamConfig({
+    version: 1,
+    delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' },
+    workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' },
+    workerCapacity: 5
+  });
+  const first = store.createWorkstream(config, 'first');
+  const resumed = store.createWorkstream(config, 'resumed');
+  const third = store.createWorkstream(config, 'third');
+  store.closeWorkstream(resumed.id);
+  current = new Date('2026-01-02T00:00:00.000Z');
+  store.reopenWorkstream(resumed.id);
+  const state = store.load();
+  assert.deepEqual(
+    state.workstreams.map((stream) => stream.id),
+    [first.id, resumed.id, third.id]
+  );
+  assert.equal(state.workstreams.find((stream) => stream.id === resumed.id).updatedAt, current.toISOString());
+  assert.equal(state.activeWorkstreamId, resumed.id);
+});
+test('closing and reopening retains provider identity and launch profile', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-reopen-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root);
+  const config = validateWorkstreamConfig({
+    version: 1,
+    delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high', argv: ['--verbose'] },
+    workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' },
+    workerCapacity: 5
+  });
+  const stream = store.createWorkstream(config);
+  const session = store.createSession(stream.id, 'delegator', config.delegatorProfile, {
+    providerSessionId: 'resume-me',
+    providerSessionReady: true
+  });
+  store.closeWorkstream(stream.id);
+  store.reopenWorkstream(stream.id);
+  const restored = store.load().sessions.find((item) => item.id === session.id);
+  assert.equal(restored.providerSessionId, 'resume-me');
+  assert.deepEqual(restored.profile.argv, ['--verbose']);
+  assert.equal(restored.explicitlyClosed, false);
+});
+test('persists attention independently and treats duplicate updates idempotently', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-attention-store-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root);
+  const config = validateWorkstreamConfig({
+    version: 1,
+    delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' },
+    workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' },
+    workerCapacity: 5
+  });
+  const stream = store.createWorkstream(config);
+  const first = store.createSession(stream.id, 'delegator', config.delegatorProfile);
+  const second = store.createSession(stream.id, 'worker', config.workerProfile);
+  assert.equal(store.load().sessions[0].attention, undefined);
+  const raised = store.setSessionAttention(first.id, true);
+  const duplicate = store.setSessionAttention(first.id, true);
+  assert.equal(raised.sessions[0].attention, true);
+  assert.deepEqual(duplicate, raised);
+  assert.equal(store.load().sessions.find((session) => session.id === second.id).attention, undefined);
+  store.setSessionAttention(second.id, true);
+  store.setSessionAttention(first.id, false);
+  const final = store.load();
+  assert.equal(final.sessions.find((session) => session.id === first.id).attention, false);
+  assert.equal(final.sessions.find((session) => session.id === second.id).attention, true);
+});
+test('pauses and resumes one child without changing its parent, siblings, or continuation identity', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-child-pause-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let current = new Date('2026-01-01T00:00:00.000Z');
+  const store = new WorkspaceStore(root, { now: () => current });
+  const config = validateWorkstreamConfig({
+    version: 1,
+    delegatorProfile: { provider: 'claude', model: 'opus', effort: 'high' },
+    workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' },
+    workerCapacity: 2
+  });
+  const stream = store.createWorkstream(config);
+  const sibling = store.createSession(stream.id, 'delegator', config.delegatorProfile, { status: 'running', pid: 10 });
+  const worker = store.createSession(stream.id, 'worker', config.workerProfile, {
+    status: 'running',
+    pid: 11,
+    providerSessionId: 'provider-one',
+    providerSessionReady: true,
+    executionId: 'execution-one',
+    chunkId: 'chunk-one',
+    repositoryRoot: root,
+    worktree: path.join(root, 'worker-tree'),
+    context: '/context/chunk.md',
+    snapshot: '/transcript/terminal.txt',
+    launchProfile: config.workerProfile
+  });
+  const durable = Object.fromEntries(
+    [
+      'providerSessionId',
+      'providerSessionReady',
+      'executionId',
+      'chunkId',
+      'repositoryRoot',
+      'worktree',
+      'context',
+      'snapshot',
+      'profile',
+      'launchProfile'
+    ].map((key) => [key, worker[key]])
+  );
+  current = new Date('2026-01-02T00:00:00.000Z');
+  const paused = store.pauseSession(worker.id);
+  assert.equal(paused.status, 'paused');
+  assert.equal(paused.explicitlyClosed, true);
+  assert.equal(paused.pid, undefined);
+  assert.deepEqual(Object.fromEntries(Object.keys(durable).map((key) => [key, paused[key]])), durable);
+  let state = store.load();
+  assert.equal(state.workstreams[0].status, 'active');
+  assert.equal(state.sessions.find((item) => item.id === sibling.id).status, 'running');
+  current = new Date('2026-01-03T00:00:00.000Z');
+  const resumed = store.resumeSession(worker.id);
+  assert.equal(resumed.status, 'closed');
+  assert.equal(resumed.explicitlyClosed, false);
+  assert.deepEqual(Object.fromEntries(Object.keys(durable).map((key) => [key, resumed[key]])), durable);
+  state = store.load();
+  assert.equal(state.sessions.find((item) => item.id === sibling.id).pid, 10);
+  const events = fs
+    .readFileSync(path.join(root, '.bdfl', 'events.ndjson'), 'utf8')
+    .trim()
+    .split('\n')
+    .map(JSON.parse)
+    .filter((event) => event.sessionId === worker.id);
+  assert.deepEqual(
+    events.slice(-2).map((event) => event.type),
+    ['session.paused', 'session.resumed']
+  );
+});

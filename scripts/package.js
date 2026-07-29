@@ -7,15 +7,14 @@ const crypto = require('node:crypto');
 
 const root = path.resolve(__dirname, '..');
 const check = process.argv.includes('--check');
-const mappings = [
-  ['src', 'plugins/bdfl/runtime']
-];
+const mappings = [['src', 'plugins/bdfl/runtime']];
 
 function filesUnder(relative) {
   const absolute = path.join(root, relative);
   if (!fs.existsSync(absolute)) return [];
   if (fs.statSync(absolute).isFile()) return [relative];
-  return fs.readdirSync(absolute, { withFileTypes: true })
+  return fs
+    .readdirSync(absolute, { withFileTypes: true })
     .sort((a, b) => a.name.localeCompare(b.name))
     .flatMap((entry) => filesUnder(path.join(relative, entry.name)));
 }
@@ -29,7 +28,8 @@ function pruneEmptyDirectories(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     if (entry.isDirectory()) pruneEmptyDirectories(path.join(directory, entry.name));
   }
-  if (directory !== path.join(root, 'plugins', 'bdfl') && fs.readdirSync(directory).length === 0) fs.rmdirSync(directory);
+  if (directory !== path.join(root, 'plugins', 'bdfl') && fs.readdirSync(directory).length === 0)
+    fs.rmdirSync(directory);
 }
 
 function sync(source, target) {

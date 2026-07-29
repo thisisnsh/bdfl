@@ -1,93 +1,826 @@
 'use strict';
 
-const test = require('node:test'); const assert = require('node:assert/strict'); const { IntegrationCoordinator } = require('../../src/workers/integration');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { IntegrationCoordinator } = require('../../src/workers/integration');
 
-function fixture(consolidation = { state: 'pass', head: 'combined' }) { let execution = { id: 'e', planId: 'p', baseline: 'base', targetBranch: 'main', targetHead: 'base', repositoryRoot: '/tmp/repository', profile: { provider: 'codex' }, status: 'running', globalValidation: { checks: [['npm', 'test']] }, chunks: [{ id: 'a', order: 0, status: 'accepted', commit: 'a', paths: ['src/a/**'] }, { id: 'b', order: 1, status: 'accepted', commit: 'b', paths: ['src/b/**'] }] }; const launches = []; const agentLaunches = []; const verifiedResults = []; const scheduler = { load: () => structuredClone(execution), save(value) { execution = structuredClone(value); return value; } }; const git = { root: '/tmp/repository', createIntegration: () => ({ branch: 'private', worktree: '/tmp/private', base: 'base' }), consolidate: () => consolidation, runChecks: () => [{ command: ['npm', 'test'], ok: true }], verifierContext: () => '/tmp/context', patch: () => 'final diff', checkpoint: () => 'repaired', verifyResult(value) { verifiedResults.push(value); return { state: 'pass' }; }, git: () => 'head', stageIntegration(_integration, target) { launches.push(['stage', target]); return { state: 'ready', advanced: false, commit: 'final', targetHead: 'base', worktree: '/tmp/private' }; }, completeIntegration(_staged, target) { launches.push(['integrate', target]); return 'final'; }, cleanupReconciliation() {} }; const coordinator = new IntegrationCoordinator({ scheduler, git, lineage: { load: () => ({ title: 'Named Plan' }) }, agentLauncher(value) { agentLaunches.push(value); launches.push(['agent', value.phase, value.allowedPaths]); return { sessionId: value.agent?.sessionId || 'execution-agent' }; }, now: () => new Date('2026-01-01') }); return { coordinator, scheduler, git, launches, agentLaunches, verifiedResults, state: () => execution };
+function fixture(consolidation = { state: 'pass', head: 'combined' }) {
+  let execution = {
+    id: 'e',
+    planId: 'p',
+    baseline: 'base',
+    targetBranch: 'main',
+    targetHead: 'base',
+    repositoryRoot: '/tmp/repository',
+    profile: { provider: 'codex' },
+    status: 'running',
+    globalValidation: { checks: [['npm', 'test']] },
+    chunks: [
+      { id: 'a', order: 0, status: 'accepted', commit: 'a', paths: ['src/a/**'] },
+      { id: 'b', order: 1, status: 'accepted', commit: 'b', paths: ['src/b/**'] }
+    ]
+  };
+  const launches = [];
+  const agentLaunches = [];
+  const verifiedResults = [];
+  const scheduler = {
+    load: () => structuredClone(execution),
+    save(value) {
+      execution = structuredClone(value);
+      return value;
+    }
+  };
+  const git = {
+    root: '/tmp/repository',
+    createIntegration: () => ({ branch: 'private', worktree: '/tmp/private', base: 'base' }),
+    consolidate: () => consolidation,
+    runChecks: () => [{ command: ['npm', 'test'], ok: true }],
+    verifierContext: () => '/tmp/context',
+    patch: () => 'final diff',
+    checkpoint: () => 'repaired',
+    verifyResult(value) {
+      verifiedResults.push(value);
+      return { state: 'pass' };
+    },
+    git: () => 'head',
+    stageIntegration(_integration, target) {
+      launches.push(['stage', target]);
+      return { state: 'ready', advanced: false, commit: 'final', targetHead: 'base', worktree: '/tmp/private' };
+    },
+    completeIntegration(_staged, target) {
+      launches.push(['integrate', target]);
+      return 'final';
+    },
+    cleanupReconciliation() {}
+  };
+  const coordinator = new IntegrationCoordinator({
+    scheduler,
+    git,
+    lineage: { load: () => ({ title: 'Named Plan' }) },
+    agentLauncher(value) {
+      agentLaunches.push(value);
+      launches.push(['agent', value.phase, value.allowedPaths]);
+      return { sessionId: value.agent?.sessionId || 'execution-agent' };
+    },
+    now: () => new Date('2026-01-01')
+  });
+  return { coordinator, scheduler, git, launches, agentLaunches, verifiedResults, state: () => execution };
 }
 
-test('runs global checks, records verifier failure/pass, and integrates exactly once after pass', async () => { const value = fixture(); value.coordinator.prepare('e'); assert.equal(value.state().status, 'integration-checking'); await value.coordinator.waitForChecks('e'); assert.equal(value.state().status, 'verifying'); assert.deepEqual(value.launches[0], ['agent', 'verification', undefined]); value.coordinator.verification('e', { state: 'fail', summary: 'bad', affectedChunkIds: ['a'] }); assert.equal(value.state().status, 'verification-failed'); assert.throws(() => value.coordinator.finalize('e'), /Passing global verification/); assert.equal(value.coordinator.finalize('e', {}, { override: true }), 'final'); assert.deepEqual(value.state().integrationOverride, { at: '2026-01-01T00:00:00.000Z', verificationState: 'fail', verificationSummary: 'bad', failedChecks: [] }); assert.equal(value.launches.find(([kind]) => kind === 'stage')[1].message, 'Integrate Named Plan'); const passing = fixture(); passing.coordinator.prepare('e'); await passing.coordinator.waitForChecks('e'); passing.coordinator.verification('e', { state: 'pass', summary: 'good' }); assert.equal(passing.coordinator.finalize('e'), 'final'); assert.equal(passing.state().status, 'complete'); assert.equal(passing.state().integrationOverride, undefined); assert.equal(passing.launches.filter(([kind]) => kind === 'integrate').length, 1); assert.equal(passing.launches.find(([kind]) => kind === 'stage')[1].message, 'Integrate Named Plan'); });
-
-test('launches conflict repair with only the approved path union and then verifies in the same agent', async () => { const value = fixture({ state: 'conflict', chunkIds: ['a'], pendingChunkIds: [], message: 'conflict' }); value.coordinator.prepare('e'); assert.equal(value.state().status, 'integration-conflict'); assert.deepEqual(value.launches[0], ['agent', 'consolidation', ['src/a/**', 'src/b/**']]); assert.throws(() => value.coordinator.finalize('e', {}, { override: true }), /consolidated result/); value.coordinator.repaired('e', { state: 'pass', summary: 'fixed' }); assert.equal(value.state().status, 'integration-checking'); await value.coordinator.waitForChecks('e'); assert.equal(value.state().status, 'verifying'); assert.equal(value.state().integration.agent.sessionId, 'execution-agent'); assert.deepEqual(value.launches.at(-1), ['agent', 'verification', ['src/a/**', 'src/b/**']]); });
-
-test('hands comprehensive verifier findings to a full-plan repair loop and permits another accepted remedy', async () => {
-  const value = fixture(); value.coordinator.prepare('e'); await value.coordinator.waitForChecks('e'); const fullFindings = `Fix the stale callback. ${'Detailed verifier evidence. '.repeat(50)}`; value.coordinator.verification('e', { state: 'fail', summary: fullFindings, affectedChunkIds: ['a'] }); assert.equal(value.state().verification.summary, fullFindings);
-  const remedy = value.coordinator.remedy('e', 'Also retain the active terminal'); assert.equal(value.state().status, 'integration-conflict'); assert.equal(remedy.kind, 'verification'); assert.deepEqual(remedy.chunkIds, ['a']); assert.deepEqual(value.agentLaunches.at(-1).allowedPaths, ['src/a/**', 'src/b/**']); assert.deepEqual(value.state().integration.repairPaths, ['src/a/**', 'src/b/**']); assert.deepEqual(value.state().integration.allowedPaths, ['src/a/**', 'src/b/**']); assert.equal(value.agentLaunches.at(-1).phase, 'verification-remedy'); assert.match(value.agentLaunches.at(-1).result.message, /Fix the stale callback/); assert.match(value.agentLaunches.at(-1).result.message, /Also retain the active terminal/);
-  value.coordinator.repaired('e', { state: 'pass', summary: 'fixed and self-verified' }); assert.deepEqual(value.verifiedResults.at(-1).ownedPaths, ['src/a/**', 'src/b/**']); await value.coordinator.waitForChecks('e'); assert.equal(value.state().status, 'verifying'); assert.equal(value.state().integration.verifier.sessionId, 'execution-agent'); assert.equal(value.state().integration.verificationPurpose, 'remedy-verification'); assert.deepEqual(value.state().integration.verifierAttempts.map((attempt) => [attempt.number, attempt.sessionId, attempt.result || null]), [[1, 'execution-agent', 'fail'], [2, 'execution-agent', null]]); assert.equal(value.state().integration.remedyAttempts.length, 1); assert.equal(value.state().integration.verificationRemedyRound, 1); assert.throws(() => value.coordinator.remedy('e'), /failed verification state/);
-  value.coordinator.verification('e', { state: 'fail', summary: 'One remaining edge', affectedChunkIds: ['b'] }); const second = value.coordinator.remedy('e'); assert.deepEqual(second.chunkIds, ['b']); assert.equal(value.state().integration.verificationRemedyRound, 2); assert.equal(value.state().integration.remedyAttempts.length, 2); assert.deepEqual(value.agentLaunches.at(-1).allowedPaths, ['src/a/**', 'src/b/**']); assert.deepEqual(new Set(value.agentLaunches.map((launch) => launch.agent?.sessionId).filter(Boolean)), new Set(['execution-agent']));
+test('runs global checks, records verifier failure/pass, and integrates exactly once after pass', async () => {
+  const value = fixture();
+  value.coordinator.prepare('e');
+  assert.equal(value.state().status, 'integration-checking');
+  await value.coordinator.waitForChecks('e');
+  assert.equal(value.state().status, 'verifying');
+  assert.deepEqual(value.launches[0], ['agent', 'verification', undefined]);
+  value.coordinator.verification('e', { state: 'fail', summary: 'bad', affectedChunkIds: ['a'] });
+  assert.equal(value.state().status, 'verification-failed');
+  assert.throws(() => value.coordinator.finalize('e'), /Passing global verification/);
+  assert.equal(value.coordinator.finalize('e', {}, { override: true }), 'final');
+  assert.deepEqual(value.state().integrationOverride, {
+    at: '2026-01-01T00:00:00.000Z',
+    verificationState: 'fail',
+    verificationSummary: 'bad',
+    failedChecks: []
+  });
+  assert.equal(value.launches.find(([kind]) => kind === 'stage')[1].message, 'Integrate Named Plan');
+  const passing = fixture();
+  const approved = passing.scheduler.load('e');
+  approved.approvedTitle = 'Harden integration commits';
+  approved.approvedSummary = ['Preserve the approved title.', 'Use Summary bullets as the body.'];
+  passing.scheduler.save(approved);
+  passing.coordinator.prepare('e');
+  await passing.coordinator.waitForChecks('e');
+  passing.coordinator.verification('e', { state: 'pass', summary: 'good' });
+  assert.equal(passing.coordinator.finalize('e'), 'final');
+  assert.equal(passing.state().status, 'complete');
+  assert.equal(passing.state().integrationOverride, undefined);
+  assert.equal(passing.launches.filter(([kind]) => kind === 'integrate').length, 1);
+  assert.equal(
+    passing.launches.find(([kind]) => kind === 'stage')[1].message,
+    'Harden integration commits\n\n- Preserve the approved title.\n- Use Summary bullets as the body.'
+  );
 });
 
-test('retries interrupted verification in the durable agent and fails explicitly instead of remaining stuck', async () => { const value = fixture(); value.coordinator.prepare('e'); await value.coordinator.waitForChecks('e'); let changes = 0; value.coordinator.onChange = () => { changes += 1; }; assert.equal(value.state().integration.verifier.sessionId, 'execution-agent'); assert.equal(value.coordinator.retryVerification('e', { sessionId: 'stale', reason: 'stale exit' }), null); assert.equal(value.state().integration.verifier.sessionId, 'execution-agent'); value.coordinator.retryVerification('e', { sessionId: 'execution-agent', reason: 'first exit' }); assert.equal(value.state().integration.verifier.sessionId, 'execution-agent'); assert.equal(value.state().integration.verifierAttempts[0].result, 'interrupted'); value.coordinator.retryVerification('e', { sessionId: 'execution-agent', reason: 'second exit' }); assert.equal(value.state().integration.verifier.sessionId, 'execution-agent'); value.coordinator.retryVerification('e', { sessionId: 'execution-agent', reason: 'third exit' }); assert.equal(value.state().status, 'verification-failed'); assert.match(value.state().verification.summary, /after 3 attempts: third exit/); assert.equal(value.state().integration.verifierAttempts.length, 3); assert.equal(changes, 3); });
+test('launches conflict repair with only the approved path union and then verifies in the same agent', async () => {
+  const value = fixture({ state: 'conflict', chunkIds: ['a'], pendingChunkIds: [], message: 'conflict' });
+  value.coordinator.prepare('e');
+  assert.equal(value.state().status, 'integration-conflict');
+  assert.deepEqual(value.launches[0], ['agent', 'consolidation', ['src/a/**', 'src/b/**']]);
+  assert.throws(() => value.coordinator.finalize('e', {}, { override: true }), /consolidated result/);
+  value.coordinator.repaired('e', { state: 'pass', summary: 'fixed' });
+  assert.equal(value.state().status, 'integration-checking');
+  await value.coordinator.waitForChecks('e');
+  assert.equal(value.state().status, 'verifying');
+  assert.equal(value.state().integration.agent.sessionId, 'execution-agent');
+  assert.deepEqual(value.launches.at(-1), ['agent', 'verification', ['src/a/**', 'src/b/**']]);
+});
+
+test('hands comprehensive verifier findings to a full-plan repair loop and permits another accepted remedy', async () => {
+  const value = fixture();
+  value.coordinator.prepare('e');
+  await value.coordinator.waitForChecks('e');
+  const fullFindings = `Fix the stale callback. ${'Detailed verifier evidence. '.repeat(50)}`;
+  value.coordinator.verification('e', { state: 'fail', summary: fullFindings, affectedChunkIds: ['a'] });
+  assert.equal(value.state().verification.summary, fullFindings);
+  const remedy = value.coordinator.remedy('e', 'Also retain the active terminal');
+  assert.equal(value.state().status, 'integration-conflict');
+  assert.equal(remedy.kind, 'verification');
+  assert.deepEqual(remedy.chunkIds, ['a']);
+  assert.deepEqual(value.agentLaunches.at(-1).allowedPaths, ['src/a/**', 'src/b/**']);
+  assert.deepEqual(value.state().integration.repairPaths, ['src/a/**', 'src/b/**']);
+  assert.deepEqual(value.state().integration.allowedPaths, ['src/a/**', 'src/b/**']);
+  assert.equal(value.agentLaunches.at(-1).phase, 'verification-remedy');
+  assert.match(value.agentLaunches.at(-1).result.message, /Fix the stale callback/);
+  assert.match(value.agentLaunches.at(-1).result.message, /Also retain the active terminal/);
+  value.coordinator.repaired('e', { state: 'pass', summary: 'fixed and self-verified' });
+  assert.deepEqual(value.verifiedResults.at(-1).ownedPaths, ['src/a/**', 'src/b/**']);
+  await value.coordinator.waitForChecks('e');
+  assert.equal(value.state().status, 'verifying');
+  assert.equal(value.state().integration.verifier.sessionId, 'execution-agent');
+  assert.equal(value.state().integration.verificationPurpose, 'remedy-verification');
+  assert.deepEqual(
+    value
+      .state()
+      .integration.verifierAttempts.map((attempt) => [attempt.number, attempt.sessionId, attempt.result || null]),
+    [
+      [1, 'execution-agent', 'fail'],
+      [2, 'execution-agent', null]
+    ]
+  );
+  assert.equal(value.state().integration.remedyAttempts.length, 1);
+  assert.equal(value.state().integration.verificationRemedyRound, 1);
+  assert.throws(() => value.coordinator.remedy('e'), /failed verification state/);
+  value.coordinator.verification('e', { state: 'fail', summary: 'One remaining edge', affectedChunkIds: ['b'] });
+  const second = value.coordinator.remedy('e');
+  assert.deepEqual(second.chunkIds, ['b']);
+  assert.equal(value.state().integration.verificationRemedyRound, 2);
+  assert.equal(value.state().integration.remedyAttempts.length, 2);
+  assert.deepEqual(value.agentLaunches.at(-1).allowedPaths, ['src/a/**', 'src/b/**']);
+  assert.deepEqual(
+    new Set(value.agentLaunches.map((launch) => launch.agent?.sessionId).filter(Boolean)),
+    new Set(['execution-agent'])
+  );
+});
+
+test('routes accepted verifier findings to affected contextual workers when the scheduler supports repair rounds', () => {
+  let execution = {
+    id: 'e',
+    planId: 'p',
+    status: 'verification-failed',
+    verification: { state: 'fail', summary: 'API regression', affectedChunkIds: ['api'] },
+    chunks: [
+      { id: 'api', paths: ['src/api/**'] },
+      { id: 'ui', paths: ['src/ui/**'] }
+    ],
+    integration: { base: 'base', head: 'combined', worktree: '/tmp/integration' }
+  };
+  let request;
+  const scheduler = {
+    load: () => structuredClone(execution),
+    save(value) {
+      execution = structuredClone(value);
+    },
+    startVerificationRepairs(id, value) {
+      request = [id, value];
+      return { verificationRepair: { round: 2 } };
+    }
+  };
+  const coordinator = new IntegrationCoordinator({ scheduler, git: {}, lineage: {} });
+  assert.deepEqual(coordinator.remedy('e', 'Preserve wire compatibility'), {
+    state: 'verification-repair',
+    round: 2,
+    chunkIds: ['api'],
+    requiresWorkerReview: true
+  });
+  assert.deepEqual(request, [
+    'e',
+    {
+      base: 'combined',
+      chunkIds: ['api'],
+      findings: 'API regression',
+      guidance: 'Preserve wire compatibility'
+    }
+  ]);
+});
+
+test('retries interrupted verification in the durable agent and fails explicitly instead of remaining stuck', async () => {
+  const value = fixture();
+  value.coordinator.prepare('e');
+  await value.coordinator.waitForChecks('e');
+  let changes = 0;
+  value.coordinator.onChange = () => {
+    changes += 1;
+  };
+  assert.equal(value.state().integration.verifier.sessionId, 'execution-agent');
+  assert.equal(value.coordinator.retryVerification('e', { sessionId: 'stale', reason: 'stale exit' }), null);
+  assert.equal(value.state().integration.verifier.sessionId, 'execution-agent');
+  value.coordinator.retryVerification('e', { sessionId: 'execution-agent', reason: 'first exit' });
+  assert.equal(value.state().integration.verifier.sessionId, 'execution-agent');
+  assert.equal(value.state().integration.verifierAttempts[0].result, 'interrupted');
+  value.coordinator.retryVerification('e', { sessionId: 'execution-agent', reason: 'second exit' });
+  assert.equal(value.state().integration.verifier.sessionId, 'execution-agent');
+  value.coordinator.retryVerification('e', { sessionId: 'execution-agent', reason: 'third exit' });
+  assert.equal(value.state().status, 'verification-failed');
+  assert.match(value.state().verification.summary, /after 3 attempts: third exit/);
+  assert.equal(value.state().integration.verifierAttempts.length, 3);
+  assert.equal(changes, 3);
+});
 
 test('serializes target integration through conflict repair and fresh verification', async () => {
-  const makeExecution = (id) => ({ id, planId: `plan-${id}`, repositoryRoot: '/tmp/queue-repository', targetBranch: 'main', targetHead: 'base', profile: { provider: 'codex' }, status: 'integration-review', verification: { state: 'pass', summary: 'approved' }, globalValidation: { checks: [['npm', 'test']] }, chunks: [{ id: `${id}-chunk`, paths: ['src/**'] }], integration: { branch: `branch-${id}`, worktree: `/tmp/${id}`, base: 'base', checkResults: [] } });
-  const executions = new Map([['one', makeExecution('one')], ['two', makeExecution('two')]]); const events = [];
-  const scheduler = { load(id) { return structuredClone(executions.get(id)); }, save(value) { executions.set(value.id, structuredClone(value)); return value; }, list() { return [...executions.values()].map((value) => structuredClone(value)); } };
+  const makeExecution = (id) => ({
+    id,
+    planId: `plan-${id}`,
+    repositoryRoot: '/tmp/queue-repository',
+    targetBranch: 'main',
+    targetHead: 'base',
+    profile: { provider: 'codex' },
+    status: 'integration-review',
+    verification: { state: 'pass', summary: 'approved' },
+    globalValidation: { checks: [['npm', 'test']] },
+    chunks: [{ id: `${id}-chunk`, paths: ['src/**'] }],
+    integration: { branch: `branch-${id}`, worktree: `/tmp/${id}`, base: 'base', checkResults: [] }
+  });
+  const executions = new Map([
+    ['one', makeExecution('one')],
+    ['two', makeExecution('two')]
+  ]);
+  const events = [];
+  const scheduler = {
+    load(id) {
+      return structuredClone(executions.get(id));
+    },
+    save(value) {
+      executions.set(value.id, structuredClone(value));
+      return value;
+    },
+    list() {
+      return [...executions.values()].map((value) => structuredClone(value));
+    }
+  };
   const git = {
     root: '/tmp/queue-repository',
-    stageIntegration(integration) { events.push(`stage:${integration.branch}`); if (integration.branch === 'branch-one') return { state: 'conflict', advanced: true, source: 'source-one', targetHead: 'parallel', worktree: '/tmp/reconcile-one', message: 'conflict' }; return { state: 'ready', advanced: false, commit: 'commit-two', targetHead: 'commit-one', worktree: integration.worktree }; },
-    finishReconciliation(staged) { events.push('repair:one'); return { ...staged, state: 'ready', commit: 'commit-one', checkResults: [{ command: ['npm', 'test'], ok: true }] }; },
-    runChecks() { return [{ command: ['npm', 'test'], ok: true }]; }, verifierContext() { return '/tmp/context'; }, patch() { return 'combined diff'; }, cleanupReconciliation() { events.push('cleanup'); },
-    completeIntegration(staged) { events.push(`integrate:${staged.commit}`); return staged.commit; }
+    stageIntegration(integration) {
+      events.push(`stage:${integration.branch}`);
+      if (integration.branch === 'branch-one')
+        return {
+          state: 'conflict',
+          advanced: true,
+          source: 'source-one',
+          targetHead: 'parallel',
+          worktree: '/tmp/reconcile-one',
+          message: 'conflict'
+        };
+      return {
+        state: 'ready',
+        advanced: false,
+        commit: 'commit-two',
+        targetHead: 'commit-one',
+        worktree: integration.worktree
+      };
+    },
+    finishReconciliation(staged) {
+      events.push('repair:one');
+      return {
+        ...staged,
+        state: 'ready',
+        commit: 'commit-one',
+        checkResults: [{ command: ['npm', 'test'], ok: true }]
+      };
+    },
+    runChecks() {
+      return [{ command: ['npm', 'test'], ok: true }];
+    },
+    verifierContext() {
+      return '/tmp/context';
+    },
+    patch() {
+      return 'combined diff';
+    },
+    cleanupReconciliation() {
+      events.push('cleanup');
+    },
+    completeIntegration(staged) {
+      events.push(`integrate:${staged.commit}`);
+      return staged.commit;
+    }
   };
-  const coordinator = new IntegrationCoordinator({ scheduler, git, lineage: { load: (id) => ({ title: id }) }, agentLauncher({ execution, agent, phase }) { const sessionId = agent?.sessionId || `agent-${execution.id}`; events.push(`${phase}:${sessionId}`); return { sessionId }; }, now: () => new Date('2026-01-01') });
-  coordinator.finalize('one'); assert.equal(executions.get('one').status, 'integration-conflict'); assert.deepEqual(executions.get('one').integration.repairAttempts.map((attempt) => [attempt.number, attempt.sessionId, attempt.phase]), [[1, 'agent-one', 'target']]); coordinator.finalize('two'); assert.equal(executions.get('two').status, 'integration-queued'); assert.deepEqual(events, ['stage:branch-one', 'target:agent-one']);
-  coordinator.repaired('one', { state: 'pass', summary: 'merged both intents' }); assert.equal(executions.get('one').status, 'integration-checking'); assert.equal(executions.get('one').integration.repairAttempts[0].result, 'pass'); assert.equal(executions.get('one').integration.repairAttempts[0].summary, 'merged both intents'); assert.ok(executions.get('one').integration.repairAttempts[0].completedAt); assert.equal(executions.get('two').status, 'integration-queued'); assert.deepEqual(events, ['stage:branch-one', 'target:agent-one', 'repair:one']); await coordinator.waitForChecks('one'); assert.equal(executions.get('one').status, 'verifying'); assert.equal(executions.get('one').integration.repairAttempts[0].result, 'pass'); assert.deepEqual(events, ['stage:branch-one', 'target:agent-one', 'repair:one', 'verification:agent-one']);
-  coordinator.verification('one', { state: 'pass', summary: 'combined result passes' }); assert.equal(executions.get('one').status, 'complete'); assert.equal(executions.get('one').integration.repairAttempts[0].result, 'pass'); assert.equal(executions.get('two').status, 'complete'); assert.deepEqual(events, ['stage:branch-one', 'target:agent-one', 'repair:one', 'verification:agent-one', 'integrate:commit-one', 'stage:branch-two', 'integrate:commit-two']);
+  const coordinator = new IntegrationCoordinator({
+    scheduler,
+    git,
+    lineage: { load: (id) => ({ title: id }) },
+    agentLauncher({ execution, agent, phase }) {
+      const sessionId = agent?.sessionId || `agent-${execution.id}`;
+      events.push(`${phase}:${sessionId}`);
+      return { sessionId };
+    },
+    now: () => new Date('2026-01-01')
+  });
+  coordinator.finalize('one');
+  assert.equal(executions.get('one').status, 'integration-conflict');
+  assert.deepEqual(
+    executions
+      .get('one')
+      .integration.repairAttempts.map((attempt) => [attempt.number, attempt.sessionId, attempt.phase]),
+    [[1, 'agent-one', 'target']]
+  );
+  coordinator.finalize('two');
+  assert.equal(executions.get('two').status, 'integration-queued');
+  assert.deepEqual(events, ['stage:branch-one', 'target:agent-one']);
+  coordinator.repaired('one', { state: 'pass', summary: 'merged both intents' });
+  assert.equal(executions.get('one').status, 'integration-checking');
+  assert.equal(executions.get('one').integration.repairAttempts[0].result, 'pass');
+  assert.equal(executions.get('one').integration.repairAttempts[0].summary, 'merged both intents');
+  assert.ok(executions.get('one').integration.repairAttempts[0].completedAt);
+  assert.equal(executions.get('two').status, 'integration-queued');
+  assert.deepEqual(events, ['stage:branch-one', 'target:agent-one', 'repair:one']);
+  await coordinator.waitForChecks('one');
+  assert.equal(executions.get('one').status, 'verifying');
+  assert.equal(executions.get('one').integration.repairAttempts[0].result, 'pass');
+  assert.deepEqual(events, ['stage:branch-one', 'target:agent-one', 'repair:one', 'verification:agent-one']);
+  coordinator.verification('one', { state: 'pass', summary: 'combined result passes' });
+  assert.equal(executions.get('one').status, 'complete');
+  assert.equal(executions.get('one').integration.repairAttempts[0].result, 'pass');
+  assert.equal(executions.get('two').status, 'complete');
+  assert.deepEqual(events, [
+    'stage:branch-one',
+    'target:agent-one',
+    'repair:one',
+    'verification:agent-one',
+    'integrate:commit-one',
+    'stage:branch-two',
+    'integrate:commit-two'
+  ]);
 });
 
 test('records a failed target repair attempt before releasing its queue item', () => {
-  let execution = { id: 'e', planId: 'p', repositoryRoot: '/tmp/repository', targetBranch: 'main', status: 'integration-conflict', chunks: [{ id: 'a', paths: ['src/**'] }], integration: { worker: { sessionId: 'repair' }, repairAttempts: [{ number: 1, sessionId: 'repair', phase: 'target', startedAt: '2026-01-01T00:00:00.000Z' }], queue: { requestedAt: '2026-01-01T00:00:00.000Z', active: true, message: 'Integrate p' }, queueSource: { branch: 'source', worktree: '/tmp/source', base: 'base' }, conflict: { state: 'conflict', kind: 'target' }, reconciliation: { state: 'conflict', worktree: '/tmp/reconcile' } } }; const scheduler = { load: () => structuredClone(execution), save(value) { execution = structuredClone(value); return value; }, list: () => [structuredClone(execution)] }; const coordinator = new IntegrationCoordinator({ scheduler, git: { root: '/tmp/repository', cleanupReconciliation() {} }, lineage: {}, now: () => new Date('2026-01-02') }); coordinator.repaired('e', { state: 'fail', summary: 'could not preserve both sides' }); assert.equal(execution.status, 'verification-failed'); assert.equal(execution.integration.queue.active, false); assert.deepEqual([execution.integration.repairAttempts[0].result, execution.integration.repairAttempts[0].summary, execution.integration.repairAttempts[0].completedAt], ['fail', 'could not preserve both sides', '2026-01-02T00:00:00.000Z']);
+  let execution = {
+    id: 'e',
+    planId: 'p',
+    repositoryRoot: '/tmp/repository',
+    targetBranch: 'main',
+    status: 'integration-conflict',
+    chunks: [{ id: 'a', paths: ['src/**'] }],
+    integration: {
+      worker: { sessionId: 'repair' },
+      repairAttempts: [{ number: 1, sessionId: 'repair', phase: 'target', startedAt: '2026-01-01T00:00:00.000Z' }],
+      queue: { requestedAt: '2026-01-01T00:00:00.000Z', active: true, message: 'Integrate p' },
+      queueSource: { branch: 'source', worktree: '/tmp/source', base: 'base' },
+      conflict: { state: 'conflict', kind: 'target' },
+      reconciliation: { state: 'conflict', worktree: '/tmp/reconcile' }
+    }
+  };
+  const scheduler = {
+    load: () => structuredClone(execution),
+    save(value) {
+      execution = structuredClone(value);
+      return value;
+    },
+    list: () => [structuredClone(execution)]
+  };
+  const coordinator = new IntegrationCoordinator({
+    scheduler,
+    git: { root: '/tmp/repository', cleanupReconciliation() {} },
+    lineage: {},
+    now: () => new Date('2026-01-02')
+  });
+  coordinator.repaired('e', { state: 'fail', summary: 'could not preserve both sides' });
+  assert.equal(execution.status, 'verification-failed');
+  assert.equal(execution.integration.queue.active, false);
+  assert.deepEqual(
+    [
+      execution.integration.repairAttempts[0].result,
+      execution.integration.repairAttempts[0].summary,
+      execution.integration.repairAttempts[0].completedAt
+    ],
+    ['fail', 'could not preserve both sides', '2026-01-02T00:00:00.000Z']
+  );
 });
 
 test('recovers a resolved reconciliation that was interrupted before checks were recorded', async () => {
-  let execution = { id: 'e', planId: 'p', repositoryRoot: '/tmp/repository', targetBranch: 'main', targetHead: 'base', profile: { provider: 'codex' }, status: 'integration-conflict', globalValidation: { checks: [['npm', 'test']] }, chunks: [{ id: 'a', paths: ['src/**'] }], integration: { branch: 'original', worktree: '/tmp/reconcile', base: 'parallel', queue: { requestedAt: '2026-01-01T00:00:00.000Z', active: true, message: 'Integrate p' }, queueSource: { branch: 'original', worktree: '/tmp/original', base: 'base' }, conflict: { state: 'conflict', kind: 'target' }, reconciliation: { state: 'conflict', advanced: true, source: 'source', targetHead: 'parallel', worktree: '/tmp/reconcile' } } };
-  const events = []; const scheduler = { load: () => structuredClone(execution), save(value) { execution = structuredClone(value); }, list: () => [structuredClone(execution)] }; const git = { root: '/tmp/repository', reconciliationResolved: () => true, finishReconciliation(staged) { events.push('recovered'); return { ...staged, state: 'ready', commit: 'resolved' }; }, async runChecksAsync() { events.push('checks'); return [{ command: ['npm', 'test'], ok: true }]; }, verifierContext: () => '/tmp/context', patch: () => 'diff' };
-  const coordinator = new IntegrationCoordinator({ scheduler, git, lineage: {}, verifierLauncher() { events.push('verify'); return { sessionId: 'v' }; } }); coordinator.resumeIntegrationQueue(); assert.equal(execution.status, 'integration-checking'); assert.deepEqual(events, ['recovered']); await coordinator.waitForChecks('e'); assert.equal(execution.status, 'verifying'); assert.deepEqual(events, ['recovered', 'checks', 'verify']);
+  let execution = {
+    id: 'e',
+    planId: 'p',
+    repositoryRoot: '/tmp/repository',
+    targetBranch: 'main',
+    targetHead: 'base',
+    profile: { provider: 'codex' },
+    status: 'integration-conflict',
+    globalValidation: { checks: [['npm', 'test']] },
+    chunks: [{ id: 'a', paths: ['src/**'] }],
+    integration: {
+      branch: 'original',
+      worktree: '/tmp/reconcile',
+      base: 'parallel',
+      queue: { requestedAt: '2026-01-01T00:00:00.000Z', active: true, message: 'Integrate p' },
+      queueSource: { branch: 'original', worktree: '/tmp/original', base: 'base' },
+      conflict: { state: 'conflict', kind: 'target' },
+      reconciliation: {
+        state: 'conflict',
+        advanced: true,
+        source: 'source',
+        targetHead: 'parallel',
+        worktree: '/tmp/reconcile'
+      }
+    }
+  };
+  const events = [];
+  const scheduler = {
+    load: () => structuredClone(execution),
+    save(value) {
+      execution = structuredClone(value);
+    },
+    list: () => [structuredClone(execution)]
+  };
+  const git = {
+    root: '/tmp/repository',
+    reconciliationResolved: () => true,
+    finishReconciliation(staged) {
+      events.push('recovered');
+      return { ...staged, state: 'ready', commit: 'resolved' };
+    },
+    async runChecksAsync() {
+      events.push('checks');
+      return [{ command: ['npm', 'test'], ok: true }];
+    },
+    verifierContext: () => '/tmp/context',
+    patch: () => 'diff'
+  };
+  const coordinator = new IntegrationCoordinator({
+    scheduler,
+    git,
+    lineage: {},
+    verifierLauncher() {
+      events.push('verify');
+      return { sessionId: 'v' };
+    }
+  });
+  coordinator.resumeIntegrationQueue();
+  assert.equal(execution.status, 'integration-checking');
+  assert.deepEqual(events, ['recovered']);
+  await coordinator.waitForChecks('e');
+  assert.equal(execution.status, 'verifying');
+  assert.deepEqual(events, ['recovered', 'checks', 'verify']);
 });
 
 test('records and releases a recovered target repair when reconciliation finalization fails', () => {
-  let execution = { id: 'e', planId: 'p', repositoryRoot: '/tmp/repository', targetBranch: 'main', status: 'integration-conflict', chunks: [{ id: 'a', paths: ['src/**'] }], integration: { worker: { sessionId: 'repair' }, repairAttempts: [{ number: 1, sessionId: 'repair', phase: 'target', startedAt: '2026-01-01T00:00:00.000Z' }], queue: { requestedAt: '2026-01-01T00:00:00.000Z', active: true, message: 'Integrate p' }, queueSource: { branch: 'source', worktree: '/tmp/source', base: 'base' }, conflict: { state: 'conflict', kind: 'target' }, reconciliation: { state: 'conflict', targetHead: 'base', worktree: '/tmp/reconcile' } } }; const scheduler = { load: () => structuredClone(execution), save(value) { execution = structuredClone(value); return value; }, list: () => [structuredClone(execution)] }; const cleaned = []; const git = { root: '/tmp/repository', reconciliationResolved: () => true, finishReconciliation() { throw new Error('unable to checkpoint reconciliation'); }, cleanupReconciliation() { cleaned.push(true); } }; const coordinator = new IntegrationCoordinator({ scheduler, git, lineage: {}, now: () => new Date('2026-01-02') }); coordinator.resumeIntegrationQueue(); assert.equal(execution.status, 'verification-failed'); assert.equal(execution.integration.queue.active, false); assert.equal(execution.integration.repairAttempts[0].result, 'fail'); assert.equal(execution.integration.repairAttempts[0].summary, 'unable to checkpoint reconciliation'); assert.deepEqual(cleaned, [true]);
+  let execution = {
+    id: 'e',
+    planId: 'p',
+    repositoryRoot: '/tmp/repository',
+    targetBranch: 'main',
+    status: 'integration-conflict',
+    chunks: [{ id: 'a', paths: ['src/**'] }],
+    integration: {
+      worker: { sessionId: 'repair' },
+      repairAttempts: [{ number: 1, sessionId: 'repair', phase: 'target', startedAt: '2026-01-01T00:00:00.000Z' }],
+      queue: { requestedAt: '2026-01-01T00:00:00.000Z', active: true, message: 'Integrate p' },
+      queueSource: { branch: 'source', worktree: '/tmp/source', base: 'base' },
+      conflict: { state: 'conflict', kind: 'target' },
+      reconciliation: { state: 'conflict', targetHead: 'base', worktree: '/tmp/reconcile' }
+    }
+  };
+  const scheduler = {
+    load: () => structuredClone(execution),
+    save(value) {
+      execution = structuredClone(value);
+      return value;
+    },
+    list: () => [structuredClone(execution)]
+  };
+  const cleaned = [];
+  const git = {
+    root: '/tmp/repository',
+    reconciliationResolved: () => true,
+    finishReconciliation() {
+      throw new Error('unable to checkpoint reconciliation');
+    },
+    cleanupReconciliation() {
+      cleaned.push(true);
+    }
+  };
+  const coordinator = new IntegrationCoordinator({ scheduler, git, lineage: {}, now: () => new Date('2026-01-02') });
+  coordinator.resumeIntegrationQueue();
+  assert.equal(execution.status, 'verification-failed');
+  assert.equal(execution.integration.queue.active, false);
+  assert.equal(execution.integration.repairAttempts[0].result, 'fail');
+  assert.equal(execution.integration.repairAttempts[0].summary, 'unable to checkpoint reconciliation');
+  assert.deepEqual(cleaned, [true]);
 });
 
 test('requeues an interrupted reconciliation when an earlier integration advanced the target', () => {
-  let execution = { id: 'e', planId: 'p', repositoryRoot: '/tmp/repository', targetBranch: 'main', targetHead: 'base', profile: { provider: 'codex' }, status: 'integration-conflict', chunks: [{ id: 'a', paths: ['src/**'] }], integration: { branch: 'reconcile', worktree: '/tmp/reconcile', base: 'parallel', queue: { requestedAt: '2026-01-01T00:00:00.000Z', active: true, message: 'Integrate p' }, queueSource: { branch: 'original', worktree: '/tmp/original', base: 'base' }, conflict: { state: 'conflict', kind: 'target' }, reconciliation: { state: 'conflict', advanced: true, source: 'source', targetHead: 'parallel', worktree: '/tmp/reconcile' } } };
-  const events = []; const scheduler = { load: () => structuredClone(execution), save(value) { execution = structuredClone(value); }, list: () => [structuredClone(execution)] }; const git = { root: '/tmp/repository', reconciliationResolved: () => true, baseline: () => 'new-head', cleanupReconciliation() { events.push('cleanup:stale'); }, stageIntegration(integration) { events.push(`stage:${integration.branch}`); return { state: 'ready', advanced: false, commit: 'fresh', targetHead: 'new-head', worktree: integration.worktree }; }, completeIntegration(staged) { events.push(`integrate:${staged.commit}`); return staged.commit; } };
-  const coordinator = new IntegrationCoordinator({ scheduler, git, lineage: {} }); coordinator.resumeIntegrationQueue(); assert.equal(execution.status, 'complete'); assert.equal(execution.finalCommit, 'fresh'); assert.equal(execution.integration.lastReconciliation.targetHead, 'parallel'); assert.match(execution.integration.queue.retryReason, /Target advanced/); assert.deepEqual(events, ['cleanup:stale', 'stage:original', 'integrate:fresh']);
+  let execution = {
+    id: 'e',
+    planId: 'p',
+    repositoryRoot: '/tmp/repository',
+    targetBranch: 'main',
+    targetHead: 'base',
+    profile: { provider: 'codex' },
+    status: 'integration-conflict',
+    chunks: [{ id: 'a', paths: ['src/**'] }],
+    integration: {
+      branch: 'reconcile',
+      worktree: '/tmp/reconcile',
+      base: 'parallel',
+      queue: { requestedAt: '2026-01-01T00:00:00.000Z', active: true, message: 'Integrate p' },
+      queueSource: { branch: 'original', worktree: '/tmp/original', base: 'base' },
+      conflict: { state: 'conflict', kind: 'target' },
+      reconciliation: {
+        state: 'conflict',
+        advanced: true,
+        source: 'source',
+        targetHead: 'parallel',
+        worktree: '/tmp/reconcile'
+      }
+    }
+  };
+  const events = [];
+  const scheduler = {
+    load: () => structuredClone(execution),
+    save(value) {
+      execution = structuredClone(value);
+    },
+    list: () => [structuredClone(execution)]
+  };
+  const git = {
+    root: '/tmp/repository',
+    reconciliationResolved: () => true,
+    baseline: () => 'new-head',
+    cleanupReconciliation() {
+      events.push('cleanup:stale');
+    },
+    stageIntegration(integration) {
+      events.push(`stage:${integration.branch}`);
+      return {
+        state: 'ready',
+        advanced: false,
+        commit: 'fresh',
+        targetHead: 'new-head',
+        worktree: integration.worktree
+      };
+    },
+    completeIntegration(staged) {
+      events.push(`integrate:${staged.commit}`);
+      return staged.commit;
+    }
+  };
+  const coordinator = new IntegrationCoordinator({ scheduler, git, lineage: {} });
+  coordinator.resumeIntegrationQueue();
+  assert.equal(execution.status, 'complete');
+  assert.equal(execution.finalCommit, 'fresh');
+  assert.equal(execution.integration.lastReconciliation.targetHead, 'parallel');
+  assert.match(execution.integration.queue.retryReason, /Target advanced/);
+  assert.deepEqual(events, ['cleanup:stale', 'stage:original', 'integrate:fresh']);
 });
 
 test('keeps a failed reconciled tree and launches a visible validation-repair agent', async () => {
-  let execution = { id: 'e', planId: 'p', repositoryRoot: '/tmp/repository', targetBranch: 'main', targetHead: 'base', profile: { provider: 'codex' }, status: 'integrating', globalValidation: { checks: [['npm', 'test']] }, chunks: [{ id: 'a', paths: ['src/**'] }], integration: { branch: 'reconcile', worktree: '/tmp/reconcile', base: 'parallel', head: 'combined', queue: { requestedAt: '2026-01-01T00:00:00.000Z', active: true, message: 'Integrate p' }, queueSource: { branch: 'original', worktree: '/tmp/original', base: 'base' }, reconciliation: { state: 'ready', advanced: true, source: 'source', targetHead: 'parallel', worktree: '/tmp/reconcile', commit: 'combined' } } };
-  const events = []; let checks = 0; const scheduler = { load: () => structuredClone(execution), save(value) { execution = structuredClone(value); }, list: () => [structuredClone(execution)] }; const git = { root: '/tmp/repository', async runChecksAsync() { checks += 1; return checks === 1 ? [{ command: ['npm', 'test'], ok: false, output: 'Expected planning sessionType' }] : [{ command: ['npm', 'test'], ok: true, output: 'pass' }]; }, finishReconciliation(staged) { events.push('checkpoint'); return { ...staged, state: 'ready', commit: 'repaired' }; }, baseline: () => 'parallel', verifierContext: () => '/tmp/context', patch: () => 'diff', cleanupReconciliation() { events.push('cleanup'); } };
-  const coordinator = new IntegrationCoordinator({ scheduler, git, lineage: {}, agentLauncher({ agent, result, phase }) { events.push(`${phase}:${phase === 'target-validation' ? result.message.includes('Expected planning sessionType') : agent.sessionId}`); return { sessionId: agent?.sessionId || 'execution-agent' }; } }); coordinator.startChecks(execution, execution.integration, 'combined', { purpose: 'target-reconciliation' }); await coordinator.waitForChecks('e'); assert.equal(execution.status, 'integration-conflict'); assert.equal(execution.integration.queue.active, true); assert.equal(execution.integration.validationRepairAttempts, 1); assert.deepEqual(events, ['target-validation:true']); coordinator.repaired('e', { state: 'pass', summary: 'updated inherited assertion' }); await coordinator.waitForChecks('e'); assert.equal(execution.status, 'verifying'); assert.deepEqual(events, ['target-validation:true', 'checkpoint', 'verification:execution-agent']); assert.equal(execution.integration.agent.sessionId, 'execution-agent');
-  assert.deepEqual(execution.integration.repairAttempts.map((attempt) => [attempt.sessionId, attempt.phase, attempt.result || null]), [['execution-agent', 'target-validation', 'pass']]); assert.equal(execution.integration.repairAttempts[0].summary, 'updated inherited assertion');
+  let execution = {
+    id: 'e',
+    planId: 'p',
+    repositoryRoot: '/tmp/repository',
+    targetBranch: 'main',
+    targetHead: 'base',
+    profile: { provider: 'codex' },
+    status: 'integrating',
+    globalValidation: { checks: [['npm', 'test']] },
+    chunks: [{ id: 'a', paths: ['src/**'] }],
+    integration: {
+      branch: 'reconcile',
+      worktree: '/tmp/reconcile',
+      base: 'parallel',
+      head: 'combined',
+      queue: { requestedAt: '2026-01-01T00:00:00.000Z', active: true, message: 'Integrate p' },
+      queueSource: { branch: 'original', worktree: '/tmp/original', base: 'base' },
+      reconciliation: {
+        state: 'ready',
+        advanced: true,
+        source: 'source',
+        targetHead: 'parallel',
+        worktree: '/tmp/reconcile',
+        commit: 'combined'
+      }
+    }
+  };
+  const events = [];
+  let checks = 0;
+  const scheduler = {
+    load: () => structuredClone(execution),
+    save(value) {
+      execution = structuredClone(value);
+    },
+    list: () => [structuredClone(execution)]
+  };
+  const git = {
+    root: '/tmp/repository',
+    async runChecksAsync() {
+      checks += 1;
+      return checks === 1
+        ? [{ command: ['npm', 'test'], ok: false, output: 'Expected planning sessionType' }]
+        : [{ command: ['npm', 'test'], ok: true, output: 'pass' }];
+    },
+    finishReconciliation(staged) {
+      events.push('checkpoint');
+      return { ...staged, state: 'ready', commit: 'repaired' };
+    },
+    baseline: () => 'parallel',
+    verifierContext: () => '/tmp/context',
+    patch: () => 'diff',
+    cleanupReconciliation() {
+      events.push('cleanup');
+    }
+  };
+  const coordinator = new IntegrationCoordinator({
+    scheduler,
+    git,
+    lineage: {},
+    agentLauncher({ agent, result, phase }) {
+      events.push(
+        `${phase}:${phase === 'target-validation' ? result.message.includes('Expected planning sessionType') : agent.sessionId}`
+      );
+      return { sessionId: agent?.sessionId || 'execution-agent' };
+    }
+  });
+  coordinator.startChecks(execution, execution.integration, 'combined', { purpose: 'target-reconciliation' });
+  await coordinator.waitForChecks('e');
+  assert.equal(execution.status, 'integration-conflict');
+  assert.equal(execution.integration.queue.active, true);
+  assert.equal(execution.integration.validationRepairAttempts, 1);
+  assert.deepEqual(events, ['target-validation:true']);
+  coordinator.repaired('e', { state: 'pass', summary: 'updated inherited assertion' });
+  await coordinator.waitForChecks('e');
+  assert.equal(execution.status, 'verifying');
+  assert.deepEqual(events, ['target-validation:true', 'checkpoint', 'verification:execution-agent']);
+  assert.equal(execution.integration.agent.sessionId, 'execution-agent');
+  assert.deepEqual(
+    execution.integration.repairAttempts.map((attempt) => [attempt.sessionId, attempt.phase, attempt.result || null]),
+    [['execution-agent', 'target-validation', 'pass']]
+  );
+  assert.equal(execution.integration.repairAttempts[0].summary, 'updated inherited assertion');
 });
 
 test('requeues a legacy reconciled validation failure once after restart', () => {
-  let execution = { id: 'e', planId: 'p', repositoryRoot: '/tmp/repository', targetBranch: 'main', targetHead: 'base', profile: { provider: 'codex' }, status: 'verification-failed', verification: { state: 'fail', summary: 'Reconciled target validation failed: npm test' }, chunks: [{ id: 'a', paths: ['src/**'] }], integration: { branch: 'original', worktree: '/tmp/original', base: 'base', queue: { requestedAt: '2026-01-01T00:00:00.000Z', active: false, message: 'Integrate p' }, lastReconciliation: { state: 'ready', advanced: true, targetHead: 'parallel', commit: 'failed' } } };
-  const events = []; const scheduler = { load: () => structuredClone(execution), save(value) { execution = structuredClone(value); }, list: () => [structuredClone(execution)] }; const git = { root: '/tmp/repository', stageIntegration() { events.push('stage'); return { state: 'conflict', advanced: true, source: 'source', targetHead: 'current', worktree: '/tmp/new-reconcile', message: 'new target conflict' }; } };
-  const coordinator = new IntegrationCoordinator({ scheduler, git, lineage: {}, integrationLauncher() { events.push('repair'); return { sessionId: 'repair' }; } }); coordinator.resumeIntegrationQueue(); assert.equal(execution.status, 'integration-conflict'); assert.equal(execution.integration.queue.active, true); assert.match(execution.integration.queue.retryReason, /visible repair agent/); assert.deepEqual(events, ['stage', 'repair']);
+  let execution = {
+    id: 'e',
+    planId: 'p',
+    repositoryRoot: '/tmp/repository',
+    targetBranch: 'main',
+    targetHead: 'base',
+    profile: { provider: 'codex' },
+    status: 'verification-failed',
+    verification: { state: 'fail', summary: 'Reconciled target validation failed: npm test' },
+    chunks: [{ id: 'a', paths: ['src/**'] }],
+    integration: {
+      branch: 'original',
+      worktree: '/tmp/original',
+      base: 'base',
+      queue: { requestedAt: '2026-01-01T00:00:00.000Z', active: false, message: 'Integrate p' },
+      lastReconciliation: { state: 'ready', advanced: true, targetHead: 'parallel', commit: 'failed' }
+    }
+  };
+  const events = [];
+  const scheduler = {
+    load: () => structuredClone(execution),
+    save(value) {
+      execution = structuredClone(value);
+    },
+    list: () => [structuredClone(execution)]
+  };
+  const git = {
+    root: '/tmp/repository',
+    stageIntegration() {
+      events.push('stage');
+      return {
+        state: 'conflict',
+        advanced: true,
+        source: 'source',
+        targetHead: 'current',
+        worktree: '/tmp/new-reconcile',
+        message: 'new target conflict'
+      };
+    }
+  };
+  const coordinator = new IntegrationCoordinator({
+    scheduler,
+    git,
+    lineage: {},
+    integrationLauncher() {
+      events.push('repair');
+      return { sessionId: 'repair' };
+    }
+  });
+  coordinator.resumeIntegrationQueue();
+  assert.equal(execution.status, 'integration-conflict');
+  assert.equal(execution.integration.queue.active, true);
+  assert.match(execution.integration.queue.retryReason, /visible repair agent/);
+  assert.deepEqual(events, ['stage', 'repair']);
 });
 
 test('retries preserved consolidated checks and resumes verification only after they pass', async () => {
-  const value = fixture(); let checks = 0; let notifications = 0; value.git.runChecks = () => { checks += 1; return [{ command: ['npm', 'test'], ok: checks > 1, output: checks > 1 ? 'pass' : 'fail' }]; }; value.coordinator.onChange = () => { notifications += 1; };
-  value.coordinator.prepare('e'); await value.coordinator.waitForChecks('e'); assert.equal(value.state().status, 'verification-failed'); assert.equal(value.launches.filter(([kind]) => kind === 'verifier').length, 0); const notificationsAfterFailure = notifications;
-  value.coordinator.retry('e'); assert.equal(value.state().status, 'integration-checking'); assert.equal(value.state().verification, undefined); assert.throws(() => value.coordinator.retry('e'), /failed verification state/); await value.coordinator.waitForChecks('e'); assert.equal(value.state().status, 'verifying'); assert.equal(value.state().integration.verifier.sessionId, 'execution-agent'); assert.equal(checks, 2); assert.ok(notifications > notificationsAfterFailure);
+  const value = fixture();
+  let checks = 0;
+  let notifications = 0;
+  value.git.runChecks = () => {
+    checks += 1;
+    return [{ command: ['npm', 'test'], ok: checks > 1, output: checks > 1 ? 'pass' : 'fail' }];
+  };
+  value.coordinator.onChange = () => {
+    notifications += 1;
+  };
+  value.coordinator.prepare('e');
+  await value.coordinator.waitForChecks('e');
+  assert.equal(value.state().status, 'verification-failed');
+  assert.equal(value.launches.filter(([kind]) => kind === 'verifier').length, 0);
+  const notificationsAfterFailure = notifications;
+  value.coordinator.retry('e');
+  assert.equal(value.state().status, 'integration-checking');
+  assert.equal(value.state().verification, undefined);
+  assert.throws(() => value.coordinator.retry('e'), /failed verification state/);
+  await value.coordinator.waitForChecks('e');
+  assert.equal(value.state().status, 'verifying');
+  assert.equal(value.state().integration.verifier.sessionId, 'execution-agent');
+  assert.equal(checks, 2);
+  assert.ok(notifications > notificationsAfterFailure);
 });
 
 test('reruns checks and records a fresh verifier attempt after a reported verifier failure', async () => {
-  const value = fixture(); value.coordinator.prepare('e'); await value.coordinator.waitForChecks('e'); value.coordinator.verification('e', { state: 'fail', summary: 'review found a bug' }); assert.equal(value.state().integration.verifierAttempts[0].result, 'fail');
-  value.coordinator.retryIntegration('e'); assert.equal(value.state().status, 'integration-checking'); await value.coordinator.waitForChecks('e'); assert.equal(value.state().integration.verifier.sessionId, 'execution-agent'); assert.deepEqual(value.state().integration.verifierAttempts.map((attempt) => [attempt.number, attempt.sessionId, attempt.result || null]), [[1, 'execution-agent', 'fail'], [2, 'execution-agent', null]]);
+  const value = fixture();
+  value.coordinator.prepare('e');
+  await value.coordinator.waitForChecks('e');
+  value.coordinator.verification('e', { state: 'fail', summary: 'review found a bug', affectedChunkIds: ['a'] });
+  assert.equal(value.state().integration.verifierAttempts[0].result, 'fail');
+  value.coordinator.retryIntegration('e');
+  assert.equal(value.state().status, 'integration-checking');
+  await value.coordinator.waitForChecks('e');
+  assert.equal(value.state().integration.verifier.sessionId, 'execution-agent');
+  assert.deepEqual(
+    value
+      .state()
+      .integration.verifierAttempts.map((attempt) => [attempt.number, attempt.sessionId, attempt.result || null]),
+    [
+      [1, 'execution-agent', 'fail'],
+      [2, 'execution-agent', null]
+    ]
+  );
 });
 
 test('relaunches a preserved consolidation conflict with its original allowed paths', () => {
-  const value = fixture({ state: 'conflict', chunkIds: ['a'], pendingChunkIds: [], message: 'conflict' }); value.coordinator.prepare('e'); const preserved = value.state().integration; value.coordinator.repaired('e', { state: 'fail', summary: 'agent stopped' }); const retried = value.coordinator.retry('e'); assert.equal(value.state().status, 'integration-conflict'); assert.equal(value.state().integration.worktree, preserved.worktree); assert.equal(value.state().integration.base, preserved.base); assert.deepEqual(value.state().integration.allowedPaths, ['src/a/**', 'src/b/**']); assert.equal(value.state().integration.repairAttempts.length, 2); assert.equal(retried.worker.sessionId, 'execution-agent'); assert.deepEqual(value.agentLaunches.filter((launch) => ['consolidation', 'consolidation-retry'].includes(launch.phase)).map((launch) => launch.phase), ['consolidation', 'consolidation-retry']);
+  const value = fixture({ state: 'conflict', chunkIds: ['a'], pendingChunkIds: [], message: 'conflict' });
+  value.coordinator.prepare('e');
+  const preserved = value.state().integration;
+  value.coordinator.repaired('e', { state: 'fail', summary: 'agent stopped' });
+  const retried = value.coordinator.retry('e');
+  assert.equal(value.state().status, 'integration-conflict');
+  assert.equal(value.state().integration.worktree, preserved.worktree);
+  assert.equal(value.state().integration.base, preserved.base);
+  assert.deepEqual(value.state().integration.allowedPaths, ['src/a/**', 'src/b/**']);
+  assert.equal(value.state().integration.repairAttempts.length, 2);
+  assert.equal(retried.worker.sessionId, 'execution-agent');
+  assert.deepEqual(
+    value.agentLaunches
+      .filter((launch) => ['consolidation', 'consolidation-retry'].includes(launch.phase))
+      .map((launch) => launch.phase),
+    ['consolidation', 'consolidation-retry']
+  );
 });
 
 test('requeues failed target integration safely and cannot integrate it twice', () => {
-  const value = fixture(); let stages = 0; value.git.stageIntegration = (integration, target) => { value.launches.push(['stage', target]); stages += 1; if (stages === 1) { const error = new Error('target moved'); error.code = 'TARGET_CHANGED'; throw error; } return { state: 'ready', advanced: false, commit: 'retried-final', targetHead: 'new-target', worktree: integration.worktree }; };
-  value.coordinator.prepare('e'); return value.coordinator.waitForChecks('e').then(() => { value.coordinator.verification('e', { state: 'pass', summary: 'good' }); value.coordinator.finalize('e'); assert.equal(value.state().status, 'verification-failed'); assert.equal(value.launches.filter(([kind]) => kind === 'integrate').length, 0); assert.equal(value.coordinator.retry('e'), 'final'); assert.equal(value.state().status, 'complete'); assert.equal(value.launches.filter(([kind]) => kind === 'integrate').length, 1); assert.throws(() => value.coordinator.retry('e'), /Terminal executions/); });
+  const value = fixture();
+  let stages = 0;
+  value.git.stageIntegration = (integration, target) => {
+    value.launches.push(['stage', target]);
+    stages += 1;
+    if (stages === 1) {
+      const error = new Error('target moved');
+      error.code = 'TARGET_CHANGED';
+      throw error;
+    }
+    return {
+      state: 'ready',
+      advanced: false,
+      commit: 'retried-final',
+      targetHead: 'new-target',
+      worktree: integration.worktree
+    };
+  };
+  value.coordinator.prepare('e');
+  return value.coordinator.waitForChecks('e').then(() => {
+    value.coordinator.verification('e', { state: 'pass', summary: 'good' });
+    value.coordinator.finalize('e');
+    assert.equal(value.state().status, 'verification-failed');
+    assert.equal(value.launches.filter(([kind]) => kind === 'integrate').length, 0);
+    assert.equal(value.coordinator.retry('e'), 'final');
+    assert.equal(value.state().status, 'complete');
+    assert.equal(value.launches.filter(([kind]) => kind === 'integrate').length, 1);
+    assert.throws(() => value.coordinator.retry('e'), /Terminal executions/);
+  });
 });
 
 test('rejects retries without preserved integration context', () => {
-  const value = fixture(); const failed = value.scheduler.load('e'); failed.status = 'verification-failed'; delete failed.integration; value.scheduler.save(failed); assert.throws(() => value.coordinator.retry('e'), /context is missing/);
+  const value = fixture();
+  const failed = value.scheduler.load('e');
+  failed.status = 'verification-failed';
+  delete failed.integration;
+  value.scheduler.save(failed);
+  assert.throws(() => value.coordinator.retry('e'), /context is missing/);
 });

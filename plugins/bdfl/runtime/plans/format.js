@@ -4,28 +4,44 @@ const path = require('node:path');
 const { sha256 } = require('../core/plans');
 
 const IDS = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MAX_PLAN_TITLE = 72;
 
 function validateChecks(value, label = 'Validation') {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new Error(`${label} checks must be argv arrays`);
   return value.map((command) => {
-    if (!Array.isArray(command) || !command.length || command.some((argument) => typeof argument !== 'string' || !argument || argument.includes('\0'))) throw new Error(`${label} checks must be non-empty argv arrays`);
-    if (new Set(['sh', 'bash', 'zsh', 'fish', 'cmd', 'cmd.exe', 'powershell', 'pwsh']).has(path.basename(command[0]).toLowerCase())) throw new Error(`${label} checks cannot invoke a shell`);
+    if (
+      !Array.isArray(command) ||
+      !command.length ||
+      command.some((argument) => typeof argument !== 'string' || !argument || argument.includes('\0'))
+    )
+      throw new Error(`${label} checks must be non-empty argv arrays`);
+    if (
+      new Set(['sh', 'bash', 'zsh', 'fish', 'cmd', 'cmd.exe', 'powershell', 'pwsh']).has(
+        path.basename(command[0]).toLowerCase()
+      )
+    )
+      throw new Error(`${label} checks cannot invoke a shell`);
     return [...command];
   });
 }
 
 function normalizeOwnedPath(value) {
-  if (typeof value !== 'string' || !value.trim() || path.isAbsolute(value)) throw new Error(`Unsafe owned path: ${value}`);
+  if (typeof value !== 'string' || !value.trim() || path.isAbsolute(value))
+    throw new Error(`Unsafe owned path: ${value}`);
   const normalized = value.trim().replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '');
   const parts = normalized.split('/');
-  if (parts.some((part) => !part || part === '..') || parts[0] === '.git' || parts[0] === '.bdfl') throw new Error(`Unsafe owned path: ${value}`);
+  if (parts.some((part) => !part || part === '..') || parts[0] === '.git' || parts[0] === '.bdfl')
+    throw new Error(`Unsafe owned path: ${value}`);
   return normalized;
 }
 
 function parseMetadata(raw, kind) {
-  try { return JSON.parse(raw); }
-  catch (error) { throw new Error(`Invalid ${kind} metadata: ${error.message}`); }
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Invalid ${kind} metadata: ${error.message}`);
+  }
 }
 
 function requiredSubsections(body, id) {
@@ -34,17 +50,53 @@ function requiredSubsections(body, id) {
   }
 }
 
+function validatePlanTitle(value) {
+  if (
+    typeof value !== 'string' ||
+    value !== value.trim() ||
+    !value ||
+    value.length > MAX_PLAN_TITLE ||
+    /[\u0000-\u001f\u007f-\u009f]/u.test(value)
+  )
+    throw new Error(`Plan titles must be concise, imperative, and at most ${MAX_PLAN_TITLE} characters`);
+  if (/^(?:a|an|the|this|that|these|those|we|i|plan|planning)\b/iu.test(value) || /[.!?;:]$/u.test(value))
+    throw new Error('Plan titles must be concise and imperative');
+  return value;
+}
+
+function parseSummary(body) {
+  if (!/^##\s+Summary\s*$/imu.test(body)) throw new Error('Summary section requires its heading');
+  const bullets = body
+    .split('\n')
+    .filter((line) => /^\s*-\s+\S/u.test(line))
+    .map((line) => line.replace(/^\s*-\s+/u, '').trim());
+  if (
+    bullets.length < 1 ||
+    bullets.length > 5 ||
+    body.split('\n').some((line) => line.trim() && !/^##\s+Summary\s*$/iu.test(line) && !/^\s*-\s+\S/u.test(line))
+  )
+    throw new Error('Summary must contain 1–5 commit-ready bullet points');
+  return bullets;
+}
+
 function section(source, start, end, label) {
   const begin = source.indexOf(start);
   const finish = source.indexOf(end);
   if (begin < 0 || finish < 0 || finish < begin) throw new Error(`Plan requires exactly one ${label} section`);
-  if (source.indexOf(start, begin + start.length) >= 0 || source.indexOf(end, finish + end.length) >= 0) throw new Error(`Plan requires exactly one ${label} section`);
+  if (source.indexOf(start, begin + start.length) >= 0 || source.indexOf(end, finish + end.length) >= 0)
+    throw new Error(`Plan requires exactly one ${label} section`);
   return source.slice(begin + start.length, finish).replace(/^\s*\n|\s+$/g, '');
 }
 
 function pathsOverlap(left, right) {
-  const plain = (value) => value.replace(/\*\*.*$/, '').replace(/\*.*$/, '').replace(/\/+$/, '');
-  const a = plain(left); const b = plain(right); if (!a || !b) return true;
+  const plain = (value) =>
+    value
+      .replace(/\*\*.*$/, '')
+      .replace(/\*.*$/, '')
+      .replace(/\/+$/, '');
+  const a = plain(left);
+  const b = plain(right);
+  if (!a || !b) return true;
   return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
@@ -62,7 +114,8 @@ function orderedByDependency(left, right, byId) {
 function validateGraph(chunks) {
   const byId = new Map(chunks.map((chunk) => [chunk.id, chunk]));
   if (byId.size !== chunks.length) throw new Error('Chunk IDs must be unique');
-  const visiting = new Set(); const visited = new Set();
+  const visiting = new Set();
+  const visited = new Set();
   const visit = (id) => {
     if (visiting.has(id)) throw new Error(`Chunk dependency cycle at ${id}`);
     if (visited.has(id)) return;
@@ -73,75 +126,146 @@ function validateGraph(chunks) {
       if (!byId.has(dependency)) throw new Error(`Unknown chunk dependency: ${dependency}`);
       visit(dependency);
     }
-    visiting.delete(id); visited.add(id);
+    visiting.delete(id);
+    visited.add(id);
   };
   for (const chunk of chunks) visit(chunk.id);
-  for (let left = 0; left < chunks.length; left += 1) for (let right = left + 1; right < chunks.length; right += 1) {
-    const a = chunks[left]; const b = chunks[right];
-    if (!orderedByDependency(a, b, byId) && a.paths.some((one) => b.paths.some((two) => pathsOverlap(one, two)))) {
-      throw new Error(`Concurrently eligible chunks own overlapping paths: ${a.id}, ${b.id}`);
+  for (let left = 0; left < chunks.length; left += 1)
+    for (let right = left + 1; right < chunks.length; right += 1) {
+      const a = chunks[left];
+      const b = chunks[right];
+      if (!orderedByDependency(a, b, byId) && a.paths.some((one) => b.paths.some((two) => pathsOverlap(one, two)))) {
+        throw new Error(`Concurrently eligible chunks own overlapping paths: ${a.id}, ${b.id}`);
+      }
     }
-  }
 }
 
 function stripMarkers(value) {
-  return value.replace(/<!--\s*bdfl-(?:plan(?::[^]*?|:end|end)|shared:(?:start|end)|chunk(?::[^]*?|:end|end)|global(?::[^]*?|:end|end))\s*-->/g, '').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  return (
+    value
+      .replace(
+        /<!--\s*bdfl-(?:plan(?::[^]*?|:end|end)|summary:(?:start|end)|shared:(?:start|end)|chunk(?::[^]*?|:end|end)|global(?::[^]*?|:end|end))\s*-->/g,
+        ''
+      )
+      .replace(/\n{3,}/g, '\n\n')
+      .trim() + '\n'
+  );
 }
 
-function parsePlan(source) {
+function parsePlan(source, { requireSummary = true } = {}) {
   if (typeof source !== 'string') throw new Error('Plan source must be Markdown');
   const headerMatch = source.match(/<!--\s*bdfl-plan:(\{[^\n]*\})\s*-->/);
   if (!headerMatch) throw new Error('Plan header is missing');
   const metadata = parseMetadata(headerMatch[1], 'plan');
-  if (metadata.schema !== 1 || typeof metadata.title !== 'string' || !metadata.title.trim() || /[\u0000-\u001f]/u.test(metadata.title)) throw new Error('Unsupported plan schema or missing title');
+  if (metadata.schema !== 1) throw new Error('Unsupported plan schema');
+  if (requireSummary) validatePlanTitle(metadata.title);
+  else if (typeof metadata.title !== 'string' || !metadata.title.trim()) throw new Error('Plan title is missing');
   if (!/<!--\s*bdfl-plan:end\s*-->/.test(source)) throw new Error('Plan end marker is missing');
+  const hasSummary = /<!--\s*bdfl-summary:start\s*-->/.test(source) || /<!--\s*bdfl-summary:end\s*-->/.test(source);
+  if (requireSummary && !hasSummary) throw new Error('Plan requires exactly one Summary section');
+  let summary = null;
+  if (hasSummary) {
+    const body = section(source, '<!-- bdfl-summary:start -->', '<!-- bdfl-summary:end -->', 'Summary');
+    summary = { id: 'summary', body: `${body}\n`, bullets: parseSummary(body), sha: sha256(`${body}\n`) };
+  }
   const shared = section(source, '<!-- bdfl-shared:start -->', '<!-- bdfl-shared:end -->', 'shared');
-  const globalHeaders = [...source.matchAll(/<!--\s*bdfl-global:(start|\{[^\n]*\})\s*-->/g)]; const globalHeader = globalHeaders[0];
+  const globalHeaders = [...source.matchAll(/<!--\s*bdfl-global:(start|\{[^\n]*\})\s*-->/g)];
+  const globalHeader = globalHeaders[0];
   if (globalHeaders.length !== 1) throw new Error('Plan requires exactly one global-validation section');
   const globalValidation = section(source, globalHeader[0], '<!-- bdfl-global:end -->', 'global-validation');
-  const globalControl = globalHeader[1] === 'start' ? {} : parseMetadata(globalHeader[1], 'global-validation'); const globalChecksSpecified = Object.hasOwn(globalControl, 'checks');
+  const globalControl = globalHeader[1] === 'start' ? {} : parseMetadata(globalHeader[1], 'global-validation');
+  const globalChecksSpecified = Object.hasOwn(globalControl, 'checks');
   const globalChecks = validateChecks(globalControl.checks, 'Global validation');
-  if (!/^##\s+Global validation\s*$/im.test(globalValidation)) throw new Error('Global validation section requires its heading');
+  if (!/^##\s+Global validation\s*$/im.test(globalValidation))
+    throw new Error('Global validation section requires its heading');
   const chunks = [];
   const pattern = /<!--\s*bdfl-chunk:(\{[^\n]*\})\s*-->([\s\S]*?)<!--\s*bdfl-chunk:end\s*-->/g;
   let match;
   while ((match = pattern.exec(source))) {
     const control = parseMetadata(match[1], 'chunk');
     if (!IDS.test(control.id || '')) throw new Error(`Invalid chunk ID: ${control.id}`);
-    if (!Array.isArray(control.paths) || !control.paths.length || !Array.isArray(control.dependsOn) || !Array.isArray(control.locks)) throw new Error(`Invalid chunk metadata: ${control.id}`);
+    if (
+      !Array.isArray(control.paths) ||
+      !control.paths.length ||
+      !Array.isArray(control.dependsOn) ||
+      !Array.isArray(control.locks)
+    )
+      throw new Error(`Invalid chunk metadata: ${control.id}`);
     if (control.locks.some((lock) => !IDS.test(lock))) throw new Error(`Invalid lock name in ${control.id}`);
     const body = match[2].replace(/^\s*\n|\s+$/g, '');
     const title = body.match(/^##\s+(.+?)\s*$/mu)?.[1]?.trim();
     if (!title) throw new Error(`Chunk ${control.id} is missing its ## title`);
     requiredSubsections(body, control.id);
-    chunks.push({ id: control.id, title, paths: control.paths.map(normalizeOwnedPath), dependsOn: [...control.dependsOn], locks: [...new Set(control.locks)], checks: validateChecks(control.checks, `Chunk ${control.id}`), checksSpecified: Object.hasOwn(control, 'checks'), body: `${body}\n`, sha: sha256(`${match[1]}\n${body}\n`) });
+    chunks.push({
+      id: control.id,
+      title,
+      paths: control.paths.map(normalizeOwnedPath),
+      dependsOn: [...control.dependsOn],
+      locks: [...new Set(control.locks)],
+      checks: validateChecks(control.checks, `Chunk ${control.id}`),
+      checksSpecified: Object.hasOwn(control, 'checks'),
+      body: `${body}\n`,
+      sha: sha256(`${match[1]}\n${body}\n`)
+    });
   }
   if (!chunks.length) throw new Error('Plan requires at least one executable chunk');
   validateGraph(chunks);
   return {
-    schema: 1, title: metadata.title, source, consolidated: stripMarkers(source),
+    schema: 1,
+    title: metadata.title,
+    source,
+    consolidated: stripMarkers(source),
+    summary,
     shared: { id: 'shared', body: `${shared}\n`, sha: sha256(`${shared}\n`) },
     chunks,
-    globalValidation: { id: 'global-validation', checks: globalChecks, checksSpecified: globalChecksSpecified, body: `${globalValidation}\n`, sha: globalChecksSpecified ? sha256(`${JSON.stringify(globalChecks)}\n${globalValidation}\n`) : sha256(`${globalValidation}\n`) }
+    globalValidation: {
+      id: 'global-validation',
+      checks: globalChecks,
+      checksSpecified: globalChecksSpecified,
+      body: `${globalValidation}\n`,
+      sha: globalChecksSpecified
+        ? sha256(`${JSON.stringify(globalChecks)}\n${globalValidation}\n`)
+        : sha256(`${globalValidation}\n`)
+    }
   };
 }
 
 function scheduleWaves(chunks, capacity = 4) {
-  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 5) throw new Error('Worker capacity must be an integer from 1 to 5');
+  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 5)
+    throw new Error('Worker capacity must be an integer from 1 to 5');
   validateGraph(chunks);
-  const pending = new Set(chunks.map((chunk) => chunk.id)); const completed = new Set(); const waves = [];
+  const pending = new Set(chunks.map((chunk) => chunk.id));
+  const completed = new Set();
+  const waves = [];
   while (pending.size) {
-    const wave = []; const locks = new Set();
+    const wave = [];
+    const locks = new Set();
     for (const chunk of chunks) {
       if (!pending.has(chunk.id) || !chunk.dependsOn.every((id) => completed.has(id))) continue;
       if (chunk.locks.some((lock) => locks.has(lock))) continue;
-      wave.push(chunk.id); chunk.locks.forEach((lock) => locks.add(lock));
+      wave.push(chunk.id);
+      chunk.locks.forEach((lock) => locks.add(lock));
       if (wave.length === capacity) break;
     }
     if (!wave.length) throw new Error('No schedulable chunks');
-    wave.forEach((id) => { pending.delete(id); completed.add(id); }); waves.push(wave);
+    wave.forEach((id) => {
+      pending.delete(id);
+      completed.add(id);
+    });
+    waves.push(wave);
   }
   return waves;
 }
 
-module.exports = { IDS, validateChecks, normalizeOwnedPath, pathsOverlap, validateGraph, parsePlan, stripMarkers, scheduleWaves };
+module.exports = {
+  IDS,
+  MAX_PLAN_TITLE,
+  validatePlanTitle,
+  validateChecks,
+  normalizeOwnedPath,
+  pathsOverlap,
+  validateGraph,
+  parsePlan,
+  stripMarkers,
+  scheduleWaves
+};

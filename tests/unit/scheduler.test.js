@@ -1,16 +1,385 @@
 'use strict';
-const test = require('node:test'); const assert = require('node:assert/strict'); const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path'); const { WorkerScheduler } = require('../../src/workers/scheduler');
-function fixture(t, capacity = 2) { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-scheduler-')); t.after(() => fs.rmSync(root, { recursive: true, force: true })); const manifest = { globalValidation: { sha: 'g' }, chunks: [{ id: 'foundation', title: 'Foundation layer', order: 0, sha: '1', paths: ['src/core/**'], dependsOn: [], locks: [] }, { id: 'api', order: 1, sha: '2', paths: ['src/api/**'], dependsOn: ['foundation'], locks: [] }, { id: 'ui', order: 2, sha: '3', paths: ['src/ui/**'], dependsOn: ['foundation'], locks: [] }, { id: 'migration', order: 3, sha: '4', paths: ['migrations/**'], dependsOn: ['foundation'], locks: [] }] }; const lineage = { executable: () => true, readManifest: () => manifest, readSection: (_p, _v, id) => `## ${id} title\n### Outcome\nDeliver ${id}.\n\nMore detail.\n### Implementation\nBuild it.\n` }; const store = { load: () => ({ workstreams: [{ id: 'w', workerCapacity: capacity, workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' } }] }) }; let n = 0; const starts = []; const scheduler = new WorkerScheduler(root, { lineage, store, id: () => `${++n}`, launcher: ({ chunk, attempt, taskSnippet }) => { starts.push([chunk.id, attempt.base, taskSnippet]); return { sessionId: `session-${chunk.id}` }; }, now: () => new Date('2026-01-01') }); return { scheduler, starts, manifest }; }
-test('starts no dependent worker before its predecessor is accepted and uses predecessor base', (t) => { const { scheduler, starts } = fixture(t, 5); const execution = scheduler.freeze('p', 1, 'w', 'base'); assert.deepEqual(starts, [['foundation', 'base', 'foundation title — Deliver foundation.']]); assert.equal(scheduler.load(execution.id).chunks[0].attempts[0].sessionId, 'session-foundation'); scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'done', commit: 'foundation-sha' }); assert.equal(starts.length, 1); scheduler.accept(execution.id, 'foundation'); assert.deepEqual(starts.slice(1).map((row) => row.slice(0, 2)), [['api', 'foundation-sha'], ['ui', 'foundation-sha'], ['migration', 'foundation-sha']]); });
-test('persists chunk titles in executions and exposes legacy title fallbacks in status', (t) => { const { scheduler } = fixture(t); const execution = scheduler.freeze('p', 1, 'w'); assert.equal(execution.chunks[0].title, 'Foundation layer'); const status = scheduler.status(execution.id); assert.equal(status.chunks[0].title, 'Foundation layer'); assert.equal(status.chunks[1].title, 'api'); });
-test('capacity changes gate new work without stopping active workers', (t) => { const { scheduler, starts } = fixture(t, 2); const execution = scheduler.freeze('p', 1, 'w'); scheduler.complete(execution.id, 'foundation', { state: 'pass', commit: 'f' }); scheduler.accept(execution.id, 'foundation'); assert.deepEqual(starts.map((row) => row[0]), ['foundation', 'api', 'ui']); scheduler.setCapacity(execution.id, 1); scheduler.complete(execution.id, 'api', { state: 'pass', commit: 'a' }); assert.equal(starts.length, 3); scheduler.complete(execution.id, 'ui', { state: 'pass', commit: 'u' }); assert.equal(starts.at(-1)[0], 'migration'); });
-test('requires each worker launch to return the created session ID', (t) => { const { scheduler } = fixture(t); scheduler.launcher = () => ({}); assert.throws(() => scheduler.freeze('p', 1, 'w'), /created sessionId/); });
-test('deduplicates execution and composes every accepted ancestor in plan order', (t) => { const { scheduler, manifest } = fixture(t, 5); manifest.chunks.find((chunk) => chunk.id === 'migration').dependsOn = ['api', 'ui']; const composed = []; scheduler.worktrees = { target: () => ({ branch: 'main', head: 'base' }), baseline: (value) => value, composeBase(_execution, _chunk, _attempt, baseline, chunks) { composed.push([baseline, chunks.map((item) => item.commit)]); return 'combined'; } }; const execution = scheduler.freeze('p', 1, 'w'); scheduler.complete(execution.id, 'foundation', { state: 'pass', commit: 'f' }); scheduler.accept(execution.id, 'foundation'); for (const [id, commit] of [['api', 'a'], ['ui', 'u']]) { scheduler.complete(execution.id, id, { state: 'pass', commit }); scheduler.accept(execution.id, id); } assert.equal(scheduler.load(execution.id).chunks.find((chunk) => chunk.id === 'migration').attempts[0].base, 'combined'); assert.deepEqual(composed.at(-1), ['base', ['f', 'a', 'u']]); const retry = scheduler.freeze('p', 1, 'w'); assert.equal(retry.id, execution.id); assert.equal(retry.duplicate, true); });
-test('freezes workload and profile and permits only one active execution per lineage', (t) => { const { scheduler } = fixture(t, 3); const execution = scheduler.freeze('p', 1, 'w', 'head-one'); assert.deepEqual(execution.workload, { implementationWorkers: 4, verifierWorkers: 1, maxConcurrent: 3 }); assert.equal(execution.profile.model, 'gpt-5'); assert.throws(() => scheduler.freeze('p', 2, 'w', 'head-two'), /already has active execution/); const state = scheduler.load(execution.id); state.status = 'complete'; scheduler.save(state); const historical = scheduler.freeze('p', 2, 'w', 'head-two'); assert.equal(historical.version, 2); assert.notEqual(historical.id, execution.id); });
-test('reports repository-local execution paths from a parent catalog', (t) => { const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-scheduler-parent-')); t.after(() => fs.rmSync(parent, { recursive: true, force: true })); const repository = path.join(parent, 'claudia'); fs.mkdirSync(repository); const scheduler = new WorkerScheduler(parent, { store: { repositoryRoots: () => [repository] } }); scheduler.save({ id: 'execution-repo', planId: 'plan-repo', version: 1, status: 'running', capacity: 1, chunks: [], repositoryRoot: repository }); assert.equal(scheduler.status('execution-repo').paths.execution, path.join(repository, '.bdfl', 'executions', 'execution-repo', 'execution.json')); assert.equal(fs.existsSync(path.join(parent, '.bdfl', 'executions')), false); });
-test('resumes ready queued workers after a supervisor restart', (t) => { const { scheduler, starts } = fixture(t, 2); const execution = scheduler.freeze('p', 1, 'w'); const interrupted = scheduler.load(execution.id); Object.assign(interrupted.chunks[0], { status: 'accepted', commit: 'f' }); scheduler.save(interrupted); scheduler.resume(); assert.deepEqual(starts.map((row) => row[0]), ['foundation', 'api', 'ui']); });
-test('returns worker questions and failures to their active attempt through feedback', (t) => { const { scheduler } = fixture(t); const execution = scheduler.freeze('p', 1, 'w'); const sent = []; scheduler.complete(execution.id, 'foundation', { state: 'blocked', summary: 'Which format?' }); assert.equal(scheduler.load(execution.id).chunks[0].status, 'waiting'); scheduler.feedback(execution.id, 'foundation', 'Use JSON', (...args) => sent.push(args)); assert.equal(scheduler.load(execution.id).chunks[0].status, 'running'); scheduler.complete(execution.id, 'foundation', { state: 'fail', summary: 'JSON failed' }); assert.equal(scheduler.load(execution.id).chunks[0].status, 'failed'); scheduler.feedback(execution.id, 'foundation', 'Retry with valid JSON', (...args) => sent.push(args)); assert.equal(scheduler.load(execution.id).chunks[0].status, 'running'); assert.deepEqual(sent.map((args) => args.slice(1)), [['foundation', 'Use JSON'], ['foundation', 'Retry with valid JSON']]); });
-test('stores structured feedback selections without losing the active review identity', (t) => { const { scheduler } = fixture(t); const execution = scheduler.freeze('p', 1, 'w'); const sent = []; scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'first revision', commit: 'revision-one', diff: 'review diff' }); const value = { message: '  Address both excerpts  ', selections: [{ file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: 4, endLine: 5, text: '-old\n+new' }, { file: 'src/b.js', hunk: '@@ -8 +8 @@', sourceStartLine: 9, sourceEndLine: 9, selectedText: '+second' }] }; scheduler.feedback(execution.id, 'foundation', value, (...args) => sent.push(args)); value.selections[0].text = 'mutated later'; const chunk = scheduler.load(execution.id).chunks[0]; assert.equal(chunk.id, 'foundation'); assert.equal(chunk.status, 'running'); assert.equal(chunk.commit, 'revision-one'); assert.equal(chunk.diff, 'review diff'); assert.deepEqual(chunk.feedback[0], { message: 'Address both excerpts', selections: [{ file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: 4, endLine: 5, text: '-old\n+new' }, { file: 'src/b.js', hunk: '@@ -8 +8 @@', startLine: 9, endLine: 9, text: '+second' }], at: '2026-01-01T00:00:00.000Z' }); assert.match(sent[0][2], /^Address both excerpts\n\nSelected diff excerpts:/); assert.match(sent[0][2], /Selection 1: src\/a\.js/); assert.match(sent[0][2], /Selection 2: src\/b\.js/); assert.equal(scheduler.load(execution.id).events.at(-1).type, 'worker.feedback'); });
-test('rejects malformed structured selections without breaking message-only or aliased legacy callers', (t) => { const { scheduler } = fixture(t); const execution = scheduler.freeze('p', 1, 'w'); scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'review' }); const malformed = [{ file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: 0, endLine: 1, text: '+bad' }, { file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: -1, endLine: 1, text: '+bad' }, { file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: Number.MAX_SAFE_INTEGER + 1, endLine: Number.MAX_SAFE_INTEGER + 1, text: '+bad' }, { file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: 4, endLine: 3, text: '+bad' }, { file: '', hunk: '@@ -1 +1 @@', startLine: 1, endLine: 1, text: '+bad' }, { file: 'src/a.js', hunk: '', startLine: 1, endLine: 1, text: '+bad' }, { file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: 1, endLine: 1, text: '   ' }]; for (const selection of malformed) assert.throws(() => scheduler.feedback(execution.id, 'foundation', { message: 'Fix this', selections: [selection] }), /selection 1 requires/); assert.equal(scheduler.load(execution.id).chunks[0].status, 'review'); scheduler.feedback(execution.id, 'foundation', 'Legacy plain feedback'); assert.equal(scheduler.load(execution.id).chunks[0].feedback[0].message, 'Legacy plain feedback'); scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'review again' }); scheduler.feedback(execution.id, 'foundation', { message: 'Legacy aliases', selections: [{ file: 'src/a.js', hunk: '@@ -1 +1 @@', sourceStartLine: 2, sourceEndLine: 2, selectedText: '+valid' }] }); assert.deepEqual(scheduler.load(execution.id).chunks[0].feedback.at(-1).selections[0], { file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: 2, endLine: 2, text: '+valid' }); });
-test('notifies observers after each durable scheduler transition', (t) => { const { scheduler } = fixture(t); const statuses = []; scheduler.onChange = (execution) => statuses.push(execution.chunks[0]?.status || execution.status); const execution = scheduler.freeze('p', 1, 'w'); scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'review' }); scheduler.accept(execution.id, 'foundation'); assert.ok(statuses.includes('review')); assert.ok(statuses.includes('accepted')); });
-test('keeps review feedback retryable when delivery fails', (t) => { const { scheduler } = fixture(t); const execution = scheduler.freeze('p', 1, 'w'); scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'review me', diff: '+change' }); const before = scheduler.load(execution.id); assert.throws(() => scheduler.feedback(execution.id, 'foundation', 'Try again', () => { throw new Error('worker is paused'); }), /worker is paused/); const unchanged = scheduler.load(execution.id); assert.equal(unchanged.chunks[0].status, 'review'); assert.equal(unchanged.chunks[0].feedback, undefined); assert.deepEqual(unchanged.events, before.events); const sent = []; scheduler.feedback(execution.id, 'foundation', 'Try again', (...args) => sent.push(args)); assert.equal(scheduler.load(execution.id).chunks[0].status, 'running'); assert.equal(scheduler.load(execution.id).chunks[0].feedback.length, 1); assert.equal(sent.length, 1); });
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { WorkerScheduler } = require('../../src/workers/scheduler');
+function fixture(t, capacity = 2) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-scheduler-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const manifest = {
+    globalValidation: { sha: 'g' },
+    chunks: [
+      {
+        id: 'foundation',
+        title: 'Foundation layer',
+        order: 0,
+        sha: '1',
+        paths: ['src/core/**'],
+        dependsOn: [],
+        locks: []
+      },
+      { id: 'api', order: 1, sha: '2', paths: ['src/api/**'], dependsOn: ['foundation'], locks: [] },
+      { id: 'ui', order: 2, sha: '3', paths: ['src/ui/**'], dependsOn: ['foundation'], locks: [] },
+      { id: 'migration', order: 3, sha: '4', paths: ['migrations/**'], dependsOn: ['foundation'], locks: [] }
+    ]
+  };
+  const lineage = {
+    executable: () => true,
+    readManifest: () => manifest,
+    readSection: (_p, _v, id) =>
+      `## ${id} title\n### Outcome\nDeliver ${id}.\n\nMore detail.\n### Implementation\nBuild it.\n`
+  };
+  const store = {
+    load: () => ({
+      workstreams: [
+        {
+          id: 'w',
+          workerCapacity: capacity,
+          workerProfile: { provider: 'codex', model: 'gpt-5', effort: 'medium', permissionMode: 'workspace-write' }
+        }
+      ]
+    })
+  };
+  let n = 0;
+  const starts = [];
+  const scheduler = new WorkerScheduler(root, {
+    lineage,
+    store,
+    id: () => `${++n}`,
+    launcher: ({ chunk, attempt, taskSnippet }) => {
+      starts.push([chunk.id, attempt.base, taskSnippet]);
+      return { sessionId: `session-${chunk.id}` };
+    },
+    now: () => new Date('2026-01-01')
+  });
+  return { scheduler, starts, manifest };
+}
+test('starts no dependent worker before its predecessor is accepted and uses predecessor base', (t) => {
+  const { scheduler, starts } = fixture(t, 5);
+  const execution = scheduler.freeze('p', 1, 'w', 'base');
+  assert.deepEqual(starts, [['foundation', 'base', 'foundation title — Deliver foundation.']]);
+  assert.equal(scheduler.load(execution.id).chunks[0].attempts[0].sessionId, 'session-foundation');
+  scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'done', commit: 'foundation-sha' });
+  assert.equal(starts.length, 1);
+  scheduler.accept(execution.id, 'foundation');
+  assert.deepEqual(
+    starts.slice(1).map((row) => row.slice(0, 2)),
+    [
+      ['api', 'foundation-sha'],
+      ['ui', 'foundation-sha'],
+      ['migration', 'foundation-sha']
+    ]
+  );
+});
+test('persists chunk titles in executions and exposes legacy title fallbacks in status', (t) => {
+  const { scheduler } = fixture(t);
+  const execution = scheduler.freeze('p', 1, 'w');
+  assert.equal(execution.chunks[0].title, 'Foundation layer');
+  const status = scheduler.status(execution.id);
+  assert.equal(status.chunks[0].title, 'Foundation layer');
+  assert.equal(status.chunks[1].title, 'api');
+});
+test('capacity changes gate new work without stopping active workers', (t) => {
+  const { scheduler, starts } = fixture(t, 2);
+  const execution = scheduler.freeze('p', 1, 'w');
+  scheduler.complete(execution.id, 'foundation', { state: 'pass', commit: 'f' });
+  scheduler.accept(execution.id, 'foundation');
+  assert.deepEqual(
+    starts.map((row) => row[0]),
+    ['foundation', 'api', 'ui']
+  );
+  scheduler.setCapacity(execution.id, 1);
+  scheduler.complete(execution.id, 'api', { state: 'pass', commit: 'a' });
+  assert.equal(starts.length, 3);
+  scheduler.complete(execution.id, 'ui', { state: 'pass', commit: 'u' });
+  assert.equal(starts.at(-1)[0], 'migration');
+});
+test('requires each worker launch to return the created session ID', (t) => {
+  const { scheduler } = fixture(t);
+  scheduler.launcher = () => ({});
+  assert.throws(() => scheduler.freeze('p', 1, 'w'), /created sessionId/);
+});
+test('deduplicates execution and composes every accepted ancestor in plan order', (t) => {
+  const { scheduler, manifest } = fixture(t, 5);
+  manifest.chunks.find((chunk) => chunk.id === 'migration').dependsOn = ['api', 'ui'];
+  const composed = [];
+  scheduler.worktrees = {
+    target: () => ({ branch: 'main', head: 'base' }),
+    baseline: (value) => value,
+    composeBase(_execution, _chunk, _attempt, baseline, chunks) {
+      composed.push([baseline, chunks.map((item) => item.commit)]);
+      return 'combined';
+    }
+  };
+  const execution = scheduler.freeze('p', 1, 'w');
+  scheduler.complete(execution.id, 'foundation', { state: 'pass', commit: 'f' });
+  scheduler.accept(execution.id, 'foundation');
+  for (const [id, commit] of [
+    ['api', 'a'],
+    ['ui', 'u']
+  ]) {
+    scheduler.complete(execution.id, id, { state: 'pass', commit });
+    scheduler.accept(execution.id, id);
+  }
+  assert.equal(
+    scheduler.load(execution.id).chunks.find((chunk) => chunk.id === 'migration').attempts[0].base,
+    'combined'
+  );
+  assert.deepEqual(composed.at(-1), ['base', ['f', 'a', 'u']]);
+  const retry = scheduler.freeze('p', 1, 'w');
+  assert.equal(retry.id, execution.id);
+  assert.equal(retry.duplicate, true);
+});
+test('freezes workload and profile and permits only one active execution per lineage', (t) => {
+  const { scheduler } = fixture(t, 3);
+  const execution = scheduler.freeze('p', 1, 'w', 'head-one');
+  assert.deepEqual(execution.workload, { implementationWorkers: 4, verifierWorkers: 1, maxConcurrent: 3 });
+  assert.equal(execution.profile.model, 'gpt-5');
+  assert.throws(() => scheduler.freeze('p', 2, 'w', 'head-two'), /already has active execution/);
+  const state = scheduler.load(execution.id);
+  state.status = 'complete';
+  scheduler.save(state);
+  const historical = scheduler.freeze('p', 2, 'w', 'head-two');
+  assert.equal(historical.version, 2);
+  assert.notEqual(historical.id, execution.id);
+});
+test('reports repository-local execution paths from a parent catalog', (t) => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-scheduler-parent-'));
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  const repository = path.join(parent, 'claudia');
+  fs.mkdirSync(repository);
+  const scheduler = new WorkerScheduler(parent, { store: { repositoryRoots: () => [repository] } });
+  scheduler.save({
+    id: 'execution-repo',
+    planId: 'plan-repo',
+    version: 1,
+    status: 'running',
+    capacity: 1,
+    chunks: [],
+    repositoryRoot: repository
+  });
+  assert.equal(
+    scheduler.status('execution-repo').paths.execution,
+    path.join(repository, '.bdfl', 'executions', 'execution-repo', 'execution.json')
+  );
+  assert.equal(fs.existsSync(path.join(parent, '.bdfl', 'executions')), false);
+});
+test('resumes ready queued workers after a supervisor restart', (t) => {
+  const { scheduler, starts } = fixture(t, 2);
+  const execution = scheduler.freeze('p', 1, 'w');
+  const interrupted = scheduler.load(execution.id);
+  Object.assign(interrupted.chunks[0], { status: 'accepted', commit: 'f' });
+  scheduler.save(interrupted);
+  scheduler.resume();
+  assert.deepEqual(
+    starts.map((row) => row[0]),
+    ['foundation', 'api', 'ui']
+  );
+});
+test('returns worker questions and failures to their active attempt through feedback', (t) => {
+  const { scheduler } = fixture(t);
+  const execution = scheduler.freeze('p', 1, 'w');
+  const sent = [];
+  scheduler.complete(execution.id, 'foundation', { state: 'blocked', summary: 'Which format?' });
+  assert.equal(scheduler.load(execution.id).chunks[0].status, 'waiting');
+  scheduler.feedback(execution.id, 'foundation', 'Use JSON', (...args) => sent.push(args));
+  assert.equal(scheduler.load(execution.id).chunks[0].status, 'running');
+  scheduler.complete(execution.id, 'foundation', { state: 'fail', summary: 'JSON failed' });
+  assert.equal(scheduler.load(execution.id).chunks[0].status, 'failed');
+  scheduler.feedback(execution.id, 'foundation', 'Retry with valid JSON', (...args) => sent.push(args));
+  assert.equal(scheduler.load(execution.id).chunks[0].status, 'running');
+  assert.deepEqual(
+    sent.map((args) => args.slice(1)),
+    [
+      ['foundation', 'Use JSON'],
+      ['foundation', 'Retry with valid JSON']
+    ]
+  );
+});
+test('stores structured feedback selections without losing the active review identity', (t) => {
+  const { scheduler } = fixture(t);
+  const execution = scheduler.freeze('p', 1, 'w');
+  const sent = [];
+  scheduler.complete(execution.id, 'foundation', {
+    state: 'pass',
+    summary: 'first revision',
+    commit: 'revision-one',
+    diff: 'review diff'
+  });
+  const value = {
+    message: '  Address both excerpts  ',
+    selections: [
+      { file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: 4, endLine: 5, text: '-old\n+new' },
+      { file: 'src/b.js', hunk: '@@ -8 +8 @@', sourceStartLine: 9, sourceEndLine: 9, selectedText: '+second' }
+    ]
+  };
+  scheduler.feedback(execution.id, 'foundation', value, (...args) => sent.push(args));
+  value.selections[0].text = 'mutated later';
+  const chunk = scheduler.load(execution.id).chunks[0];
+  assert.equal(chunk.id, 'foundation');
+  assert.equal(chunk.status, 'running');
+  assert.equal(chunk.commit, 'revision-one');
+  assert.equal(chunk.diff, 'review diff');
+  assert.deepEqual(chunk.feedback[0], {
+    message: 'Address both excerpts',
+    selections: [
+      { file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: 4, endLine: 5, text: '-old\n+new' },
+      { file: 'src/b.js', hunk: '@@ -8 +8 @@', startLine: 9, endLine: 9, text: '+second' }
+    ],
+    at: '2026-01-01T00:00:00.000Z'
+  });
+  assert.match(sent[0][2], /^Address both excerpts\n\nSelected diff excerpts:/);
+  assert.match(sent[0][2], /Selection 1: src\/a\.js/);
+  assert.match(sent[0][2], /Selection 2: src\/b\.js/);
+  assert.equal(scheduler.load(execution.id).events.at(-1).type, 'worker.feedback');
+});
+test('rejects malformed structured selections without breaking message-only or aliased legacy callers', (t) => {
+  const { scheduler } = fixture(t);
+  const execution = scheduler.freeze('p', 1, 'w');
+  scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'review' });
+  const malformed = [
+    { file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: 0, endLine: 1, text: '+bad' },
+    { file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: -1, endLine: 1, text: '+bad' },
+    {
+      file: 'src/a.js',
+      hunk: '@@ -1 +1 @@',
+      startLine: Number.MAX_SAFE_INTEGER + 1,
+      endLine: Number.MAX_SAFE_INTEGER + 1,
+      text: '+bad'
+    },
+    { file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: 4, endLine: 3, text: '+bad' },
+    { file: '', hunk: '@@ -1 +1 @@', startLine: 1, endLine: 1, text: '+bad' },
+    { file: 'src/a.js', hunk: '', startLine: 1, endLine: 1, text: '+bad' },
+    { file: 'src/a.js', hunk: '@@ -1 +1 @@', startLine: 1, endLine: 1, text: '   ' }
+  ];
+  for (const selection of malformed)
+    assert.throws(
+      () => scheduler.feedback(execution.id, 'foundation', { message: 'Fix this', selections: [selection] }),
+      /selection 1 requires/
+    );
+  assert.equal(scheduler.load(execution.id).chunks[0].status, 'review');
+  scheduler.feedback(execution.id, 'foundation', 'Legacy plain feedback');
+  assert.equal(scheduler.load(execution.id).chunks[0].feedback[0].message, 'Legacy plain feedback');
+  scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'review again' });
+  scheduler.feedback(execution.id, 'foundation', {
+    message: 'Legacy aliases',
+    selections: [
+      { file: 'src/a.js', hunk: '@@ -1 +1 @@', sourceStartLine: 2, sourceEndLine: 2, selectedText: '+valid' }
+    ]
+  });
+  assert.deepEqual(scheduler.load(execution.id).chunks[0].feedback.at(-1).selections[0], {
+    file: 'src/a.js',
+    hunk: '@@ -1 +1 @@',
+    startLine: 2,
+    endLine: 2,
+    text: '+valid'
+  });
+});
+test('notifies observers after each durable scheduler transition', (t) => {
+  const { scheduler } = fixture(t);
+  const statuses = [];
+  scheduler.onChange = (execution) => statuses.push(execution.chunks[0]?.status || execution.status);
+  const execution = scheduler.freeze('p', 1, 'w');
+  scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'review' });
+  scheduler.accept(execution.id, 'foundation');
+  assert.ok(statuses.includes('review'));
+  assert.ok(statuses.includes('accepted'));
+});
+test('keeps review feedback retryable when delivery fails', (t) => {
+  const { scheduler } = fixture(t);
+  const execution = scheduler.freeze('p', 1, 'w');
+  scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'review me', diff: '+change' });
+  const before = scheduler.load(execution.id);
+  assert.throws(
+    () =>
+      scheduler.feedback(execution.id, 'foundation', 'Try again', () => {
+        throw new Error('worker is paused');
+      }),
+    /worker is paused/
+  );
+  const unchanged = scheduler.load(execution.id);
+  assert.equal(unchanged.chunks[0].status, 'review');
+  assert.equal(unchanged.chunks[0].feedback, undefined);
+  assert.deepEqual(unchanged.events, before.events);
+  const sent = [];
+  scheduler.feedback(execution.id, 'foundation', 'Try again', (...args) => sent.push(args));
+  assert.equal(scheduler.load(execution.id).chunks[0].status, 'running');
+  assert.equal(scheduler.load(execution.id).chunks[0].feedback.length, 1);
+  assert.equal(sent.length, 1);
+});
+
+test('validates reported worker completion asynchronously without blocking the caller', async (t) => {
+  const { scheduler } = fixture(t);
+  let release;
+  let calls = 0;
+  scheduler.validator = () => {
+    calls += 1;
+    return new Promise((resolve) => {
+      release = resolve;
+    });
+  };
+  const execution = scheduler.freeze('p', 1, 'w');
+  const reported = scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'ready' });
+  assert.equal(reported.status, 'checking');
+  assert.equal(calls, 0);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+  release({ state: 'pass', commit: 'checked', changedPaths: ['src/core/a.js'], checks: [], diff: '+checked' });
+  await scheduler.waitForValidation(execution.id, 'foundation');
+  const checked = scheduler.load(execution.id).chunks[0];
+  assert.equal(checked.status, 'review');
+  assert.equal(checked.commit, 'checked');
+});
+
+test('materializes the full frozen plan and keeps verification repairs in separate review rounds', (t) => {
+  const { scheduler } = fixture(t, 2);
+  const execution = scheduler.freeze('p', 1, 'w');
+  const context = path.join(scheduler.root, '.bdfl', 'workers', execution.id, 'foundation', 'context');
+  assert.match(fs.readFileSync(path.join(context, 'plan.md'), 'utf8'), /migration title/);
+  assert.equal(fs.existsSync(path.join(context, 'chunks', 'ui.md')), true);
+  const assignment = JSON.parse(fs.readFileSync(path.join(context, 'assignment.json'), 'utf8'));
+  assert.deepEqual(
+    assignment.chunks.map((chunk) => chunk.id),
+    ['foundation', 'api', 'ui', 'migration']
+  );
+  assert.equal(assignment.assignment.chunkId, 'foundation');
+
+  const prepared = scheduler.load(execution.id);
+  for (const chunk of prepared.chunks) {
+    chunk.status = 'accepted';
+    if (!chunk.attempts.length)
+      chunk.attempts.push({ number: 1, base: 'base', sessionId: `session-${chunk.id}`, completedAt: 'now' });
+    chunk.commit ||= `${chunk.id}-commit`;
+  }
+  prepared.integration = { head: 'combined' };
+  scheduler.save(prepared);
+  const repairStarts = [];
+  scheduler.launcher = ({ chunk, attempt, repair }) => {
+    repairStarts.push({ chunkId: chunk.id, base: attempt.base, round: repair.round });
+    return { sessionId: repair.originalSessionId, worktree: `/repair/${chunk.id}` };
+  };
+  let accepted;
+  scheduler.onRepairsAccepted = (...args) => {
+    accepted = args;
+  };
+  scheduler.startVerificationRepairs(execution.id, {
+    base: 'combined',
+    chunkIds: ['foundation', 'api'],
+    findings: 'Fix both contracts.',
+    guidance: 'Keep compatibility.'
+  });
+  assert.deepEqual(repairStarts, [
+    { chunkId: 'foundation', base: 'combined', round: 1 },
+    { chunkId: 'api', base: 'combined', round: 1 }
+  ]);
+  scheduler.complete(execution.id, 'foundation', { state: 'pass', summary: 'fixed foundation', commit: 'rf' });
+  scheduler.complete(execution.id, 'api', { state: 'pass', summary: 'fixed api', commit: 'ra' });
+  assert.equal(scheduler.load(execution.id).chunks[0].status, 'accepted');
+  assert.equal(scheduler.load(execution.id).chunks[0].verificationRepairs[0].status, 'review');
+  scheduler.accept(execution.id, 'foundation');
+  assert.equal(accepted, undefined);
+  scheduler.accept(execution.id, 'api');
+  assert.deepEqual(accepted, [execution.id, 1]);
+});

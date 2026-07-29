@@ -15,6 +15,8 @@
 
 BDFL is a terminal supervisor for Codex, Claude Code, and Ollama-backed Codex sessions. Work with a planning agent, compare and approve versioned plans or individual sections, then let isolated worker agents implement the approved work while BDFL handles scheduling, checks, review, verification, integration, and recovery.
 
+Mouse tracking keeps BDFL chrome clickable and lets unmodified drags select structured diff excerpts in Review. Use Shift-drag for native terminal text selection everywhere.
+
 _BDFL also stands for [Benevolent Dictator for Life](https://en.wikipedia.org/wiki/Benevolent_dictator_for_life). In this project, BDFL delegates the work to LLMs. Hence the name!_
 
 ## Index
@@ -121,7 +123,7 @@ Plans use immutable versions with individually managed sections.
 
 #### DAG-based isolated execution
 
-Each implementation worker receives an isolated and focused context. One durable execution agent then owns verification, accepted repairs, and final reconciliation in the same provider conversation.
+Each implementation worker receives an isolated worktree plus the complete frozen plan and an explicit assignment. One durable execution agent owns combined verification and reconciliation; accepted verification fixes return to the affected original workers in fresh isolated worktrees.
 
 - Navigate to any worker or the execution agent from the bottom rail to follow its progress or respond when it needs attention.
 - Independent chunks can run in parallel within the configured worker limit.
@@ -138,7 +140,7 @@ Inspect each worker’s summary, diff, changed paths, checks, and commit metadat
 
 - Accept the result or send feedback to the same worker for revision.
 - Review the consolidated result after global checks and an explicit verification phase.
-- If verification fails, accept its recorded remedy or add repair guidance from Review. The same visible execution agent continues in the integration worktree, fixes the accepted findings, audits the full result, reruns focused checks, and then receives the next verification phase with its earlier reasoning intact.
+- If verification fails, accept its recorded remedy or add repair guidance through the confirmation modal. Affected original workers resume in repair worktrees from the verified combined head. Every repair diff returns to Review for explicit re-acceptance before BDFL combines it, reruns global checks, and continues the same verifier conversation.
 - Integration requests enter a durable per-repository queue, so only one verified result at a time can reconcile with and advance the target branch.
 - If other work has committed meanwhile, BDFL reconciles the verified result in a disposable worktree. The execution agent retains its verification and repair context while resolving conflicts or validation failures. Bounded global checks run in the background so the supervisor stays responsive, and a passing combined tree receives another verification phase in that same conversation before BDFL adds one commit on top. Interrupted checks and legacy reconciliation failures resume from durable state. Uncommitted target changes and rewritten history still stop integration without touching the target.
 

@@ -1,51 +1,386 @@
 'use strict';
 
-const fs = require('node:fs'); const path = require('node:path'); const { execFileSync, spawn, spawnSync } = require('node:child_process');
-const { pathsOverlap, validateChecks } = require('../plans/format'); const { atomicWrite } = require('../core/plans');
+const fs = require('node:fs');
+const path = require('node:path');
+const { execFileSync, spawn, spawnSync } = require('node:child_process');
+const { pathsOverlap, validateChecks } = require('../plans/format');
+const { atomicWrite } = require('../core/plans');
 const DEFAULT_CHECK_TIMEOUT_MS = 300000;
 const CHECK_OUTPUT_LIMIT = 12000;
 
 class ExecutionGit {
-  constructor(root, { git = execFileSync, io = fs, spawnProcess = spawn, checkTimeoutMs = DEFAULT_CHECK_TIMEOUT_MS } = {}) { this.root = path.resolve(root); this.gitCommand = git; this.io = io; this.spawnProcess = spawnProcess; this.checkTimeoutMs = checkTimeoutMs; this.activeChecks = new Set(); }
-  git(args, cwd = this.root, options = {}) { return `${this.gitCommand('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options })}`.trim(); }
-  baseline(reference = 'HEAD', repository = this.root) { return this.git(['rev-parse', reference], repository); }
-  target(repository = this.root) { const branch = this.git(['branch', '--show-current'], repository); const head = this.baseline('HEAD', repository); this.assertTarget(branch, head, repository); return { branch, head }; }
-  assertTarget(expectedBranch, expectedHead, repository = this.root, { allowAdvance = false } = {}) { const branch = this.git(['branch', '--show-current'], repository); const head = this.baseline('HEAD', repository); const dirty = this.git(['status', '--porcelain=v1', '--untracked-files=all'], repository).split('\n').filter((line) => line && !line.slice(3).startsWith('.bdfl/')).join('\n'); if (branch !== expectedBranch || !allowAdvance && head !== expectedHead || dirty) { const error = new Error('Original target changed or is dirty; final integration stopped'); error.code = 'TARGET_CHANGED'; throw error; } return head; }
-  createWorker(executionId, chunkId, attempt, base, repository = this.root) { const safe = `${executionId}-${chunkId}-${attempt}`.replace(/[^a-zA-Z0-9._-]/g, '-'); const branch = `bdfl/${safe}`; const worktree = path.join(repository, '.bdfl', 'worktrees', 'workers', safe); this.io.mkdirSync(path.dirname(worktree), { recursive: true }); const commit = this.baseline(base, repository); this.git(['worktree', 'add', '-b', branch, worktree, commit], repository); return { branch, worktree, base: commit }; }
-  checkpoint(worktree, message) { this.git(['add', '-A'], worktree); if (this.git(['diff', '--cached', '--name-only'], worktree)) this.git(['commit', '-m', message], worktree); return this.git(['rev-parse', 'HEAD'], worktree); }
-  changed(base, head, cwd = this.root) { const output = this.git(['diff', '--name-only', '--diff-filter=ACMRTUXB', `${base}..${head}`], cwd); return output ? output.split('\n') : []; }
-  patch(base, head, cwd = this.root) { return this.git(['diff', '--no-ext-diff', `${base}..${head}`], cwd); }
-  checkResult(command, { status = null, stdout = '', stderr = '', error = null, timedOut = false } = {}) { const detail = timedOut ? `Check timed out after ${this.checkTimeoutMs}ms` : error?.message || ''; const output = [stdout, stderr, detail].filter(Boolean).join('\n').slice(-CHECK_OUTPUT_LIMIT); return { command, ok: status === 0 && !timedOut && !error, output, ...(timedOut ? { timedOut: true } : {}) }; }
-  runChecks(checks, cwd) { const results = []; for (const command of validateChecks(checks)) { const result = spawnSync(command[0], command.slice(1), { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: this.checkTimeoutMs, killSignal: 'SIGKILL' }); const checked = this.checkResult(command, { ...result, timedOut: result.error?.code === 'ETIMEDOUT' }); results.push(checked); if (!checked.ok) break; } return results; }
-  terminateCheck(child) { if (!child) return; try { if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL'); else child.kill('SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch {} } }
-  cancelChecks() { for (const child of this.activeChecks) this.terminateCheck(child); }
-  async runChecksAsync(checks, cwd) { const results = []; for (const command of validateChecks(checks)) { const checked = await new Promise((resolve) => { let stdout = ''; let stderr = ''; let settled = false; let timedOut = false; const child = this.spawnProcess(command[0], command.slice(1), { cwd, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' }); this.activeChecks.add(child); const append = (current, chunk) => `${current}${chunk}`.slice(-CHECK_OUTPUT_LIMIT); const finish = (status, error = null) => { if (settled) return; settled = true; clearTimeout(timer); this.activeChecks.delete(child); resolve(this.checkResult(command, { status, stdout, stderr, error, timedOut })); }; child.stdout?.on('data', (chunk) => { stdout = append(stdout, chunk); }); child.stderr?.on('data', (chunk) => { stderr = append(stderr, chunk); }); child.on('error', (error) => finish(null, error)); child.on('close', (status) => finish(status)); const timer = setTimeout(() => { timedOut = true; this.terminateCheck(child); setTimeout(() => finish(null), 1000).unref?.(); }, this.checkTimeoutMs); timer.unref?.(); }); results.push(checked); if (!checked.ok) break; } return results; }
-  verifyResult({ base, head, ownedPaths, checks = [], worktree }) { const changedPaths = this.changed(base, head, worktree); const violations = changedPaths.filter((file) => !ownedPaths.some((owned) => pathsOverlap(file, owned))); if (violations.length) throw new Error(`Worker changed paths outside ownership: ${violations.join(', ')}`); const results = this.runChecks(checks, worktree); return { state: results.some((result) => !result.ok) ? 'fail' : 'pass', commit: head, changedPaths, checks: results, diff: this.patch(base, head, worktree) }; }
-  resultDiff(chunk, repository = this.root) { const base = chunk.attempts?.at(-1)?.base; if (!base || !chunk.commit) return chunk.diff || ''; return this.patch(base, chunk.commit, repository); }
-  resultCommit(chunk, repository = this.root) { const head = chunk.commit; const base = chunk.attempts?.at(-1)?.base; if (!head) throw new Error(`Worker result has no commit: ${chunk.id}`); if (!base) return head; const tree = this.git(['rev-parse', `${head}^{tree}`], repository); const baseTree = this.git(['rev-parse', `${base}^{tree}`], repository); if (tree === baseTree) return null; return this.git(['commit-tree', tree, '-p', base, '-m', `BDFL result ${chunk.id}`], repository); }
-  discardGeneratedWorktree(branch, worktree, repository = this.root) { let exists = this.io.existsSync(worktree); try { this.git(['rev-parse', '--verify', branch], repository); exists = true; } catch {} if (!exists) return; try { this.git(['worktree', 'remove', '--force', worktree], repository); } catch {} this.git(['worktree', 'prune'], repository); try { this.git(['branch', '-D', branch], repository); } catch {} if (this.io.existsSync(worktree)) throw new Error(`Unable to reset generated worktree: ${worktree}`); }
-  composeBase(executionId, chunkId, attempt, baseline, chunks, repository = this.root) { const safe = `${executionId}-${chunkId}-${attempt}`.replace(/[^a-zA-Z0-9._-]/g, '-'); const branch = `bdfl/base-${safe}`; const worktree = path.join(repository, '.bdfl', 'worktrees', 'bases', safe); this.discardGeneratedWorktree(branch, worktree, repository); this.io.mkdirSync(path.dirname(worktree), { recursive: true }); this.git(['worktree', 'add', '-b', branch, worktree, baseline], repository); for (const chunk of chunks) { const commit = this.resultCommit(chunk, repository); if (commit) this.git(['cherry-pick', commit], worktree); } return this.git(['rev-parse', 'HEAD'], worktree); }
-  createIntegration(executionId, base, repository = this.root) { const safe = executionId.replace(/[^a-zA-Z0-9._-]/g, '-'); const branch = `bdfl/integration-${safe}`; const worktree = path.join(repository, '.bdfl', 'worktrees', 'integration', safe); this.io.mkdirSync(path.dirname(worktree), { recursive: true }); this.git(['worktree', 'add', '-b', branch, worktree, base], repository); return { branch, worktree, base }; }
-  consolidate(integration, chunks) { const ordered = [...chunks].sort((left, right) => left.order - right.order); for (const chunk of ordered) { try { const commit = this.resultCommit(chunk, integration.worktree); if (commit) this.git(['cherry-pick', commit], integration.worktree); } catch (error) { return { state: 'conflict', chunkIds: ordered.slice(0, ordered.indexOf(chunk) + 1).map((item) => item.id), pendingChunkIds: ordered.slice(ordered.indexOf(chunk) + 1).map((item) => item.id), message: `${error.stderr || error.message}`.slice(0, 800) }; } } return { state: 'pass', head: this.git(['rev-parse', 'HEAD'], integration.worktree), changedPaths: this.changed(integration.base, 'HEAD', integration.worktree) }; }
-  verifierContext(execution, integration, lineage) { const directory = path.join(execution.repositoryRoot || this.root, '.bdfl', 'workers', execution.id, 'verifier', 'context'); this.io.mkdirSync(path.join(directory, 'chunks'), { recursive: true }); atomicWrite(path.join(directory, 'shared.md'), lineage.readSection(execution.planId, execution.version, 'shared')); for (const chunk of execution.chunks) atomicWrite(path.join(directory, 'chunks', `${chunk.id}.md`), lineage.readSection(execution.planId, execution.version, chunk.id)); atomicWrite(path.join(directory, 'global-validation.md'), lineage.readSection(execution.planId, execution.version, 'global-validation')); atomicWrite(path.join(directory, 'diff.patch'), this.git(['diff', '--no-ext-diff', `${integration.base}..HEAD`], integration.worktree)); atomicWrite(path.join(directory, 'checks.json'), `${JSON.stringify({ chunks: execution.chunks.map(({ id, checks, checkResults }) => ({ id, approved: checks, results: checkResults || [] })), global: { approved: execution.globalValidation.checks || [], results: integration.checkResults || [] } }, null, 2)}\n`); return directory; }
-  cleanupReconciliation(staged, repository = this.root) { if (!staged?.worktree || !staged.advanced) return; try { this.git(['worktree', 'remove', '--force', staged.worktree], repository); } catch {} try { this.git(['worktree', 'prune'], repository); } catch {} }
+  constructor(
+    root,
+    { git = execFileSync, io = fs, spawnProcess = spawn, checkTimeoutMs = DEFAULT_CHECK_TIMEOUT_MS } = {}
+  ) {
+    this.root = path.resolve(root);
+    this.gitCommand = git;
+    this.io = io;
+    this.spawnProcess = spawnProcess;
+    this.checkTimeoutMs = checkTimeoutMs;
+    this.activeChecks = new Set();
+  }
+  git(args, cwd = this.root, options = {}) {
+    return `${this.gitCommand('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options })}`.trim();
+  }
+  baseline(reference = 'HEAD', repository = this.root) {
+    return this.git(['rev-parse', reference], repository);
+  }
+  target(repository = this.root) {
+    const branch = this.git(['branch', '--show-current'], repository);
+    const head = this.baseline('HEAD', repository);
+    this.assertTarget(branch, head, repository);
+    return { branch, head };
+  }
+  assertTarget(expectedBranch, expectedHead, repository = this.root, { allowAdvance = false } = {}) {
+    const branch = this.git(['branch', '--show-current'], repository);
+    const head = this.baseline('HEAD', repository);
+    const dirty = this.git(['status', '--porcelain=v1', '--untracked-files=all'], repository)
+      .split('\n')
+      .filter((line) => line && !line.slice(3).startsWith('.bdfl/'))
+      .join('\n');
+    if (branch !== expectedBranch || (!allowAdvance && head !== expectedHead) || dirty) {
+      const error = new Error('Original target changed or is dirty; final integration stopped');
+      error.code = 'TARGET_CHANGED';
+      throw error;
+    }
+    return head;
+  }
+  createWorker(executionId, chunkId, attempt, base, repository = this.root) {
+    const safe = `${executionId}-${chunkId}-${attempt}`.replace(/[^a-zA-Z0-9._-]/g, '-');
+    const branch = `bdfl/${safe}`;
+    const worktree = path.join(repository, '.bdfl', 'worktrees', 'workers', safe);
+    this.io.mkdirSync(path.dirname(worktree), { recursive: true });
+    const commit = this.baseline(base, repository);
+    this.git(['worktree', 'add', '-b', branch, worktree, commit], repository);
+    return { branch, worktree, base: commit };
+  }
+  checkpoint(worktree, message) {
+    this.git(['add', '-A'], worktree);
+    if (this.git(['diff', '--cached', '--name-only'], worktree)) this.git(['commit', '-m', message], worktree);
+    return this.git(['rev-parse', 'HEAD'], worktree);
+  }
+  changed(base, head, cwd = this.root) {
+    const output = this.git(['diff', '--name-only', '--diff-filter=ACMRTUXB', `${base}..${head}`], cwd);
+    return output ? output.split('\n') : [];
+  }
+  patch(base, head, cwd = this.root) {
+    return this.git(['diff', '--no-ext-diff', `${base}..${head}`], cwd);
+  }
+  checkResult(command, { status = null, stdout = '', stderr = '', error = null, timedOut = false } = {}) {
+    const detail = timedOut ? `Check timed out after ${this.checkTimeoutMs}ms` : error?.message || '';
+    const output = [stdout, stderr, detail].filter(Boolean).join('\n').slice(-CHECK_OUTPUT_LIMIT);
+    return { command, ok: status === 0 && !timedOut && !error, output, ...(timedOut ? { timedOut: true } : {}) };
+  }
+  runChecks(checks, cwd) {
+    const results = [];
+    for (const command of validateChecks(checks)) {
+      const result = spawnSync(command[0], command.slice(1), {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: this.checkTimeoutMs,
+        killSignal: 'SIGKILL'
+      });
+      const checked = this.checkResult(command, { ...result, timedOut: result.error?.code === 'ETIMEDOUT' });
+      results.push(checked);
+      if (!checked.ok) break;
+    }
+    return results;
+  }
+  terminateCheck(child) {
+    if (!child) return;
+    try {
+      if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL');
+      else child.kill('SIGKILL');
+    } catch {
+      try {
+        child.kill('SIGKILL');
+      } catch {}
+    }
+  }
+  cancelChecks() {
+    for (const child of this.activeChecks) this.terminateCheck(child);
+  }
+  async runChecksAsync(checks, cwd) {
+    const results = [];
+    for (const command of validateChecks(checks)) {
+      const checked = await new Promise((resolve) => {
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+        let timedOut = false;
+        const child = this.spawnProcess(command[0], command.slice(1), {
+          cwd,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          detached: process.platform !== 'win32'
+        });
+        this.activeChecks.add(child);
+        const append = (current, chunk) => `${current}${chunk}`.slice(-CHECK_OUTPUT_LIMIT);
+        const finish = (status, error = null) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          this.activeChecks.delete(child);
+          resolve(this.checkResult(command, { status, stdout, stderr, error, timedOut }));
+        };
+        child.stdout?.on('data', (chunk) => {
+          stdout = append(stdout, chunk);
+        });
+        child.stderr?.on('data', (chunk) => {
+          stderr = append(stderr, chunk);
+        });
+        child.on('error', (error) => finish(null, error));
+        child.on('close', (status) => finish(status));
+        const timer = setTimeout(() => {
+          timedOut = true;
+          this.terminateCheck(child);
+          setTimeout(() => finish(null), 1000).unref?.();
+        }, this.checkTimeoutMs);
+        timer.unref?.();
+      });
+      results.push(checked);
+      if (!checked.ok) break;
+    }
+    return results;
+  }
+  verifyResult({ base, head, ownedPaths, checks = [], worktree }) {
+    const changedPaths = this.changed(base, head, worktree);
+    const violations = changedPaths.filter((file) => !ownedPaths.some((owned) => pathsOverlap(file, owned)));
+    if (violations.length) throw new Error(`Worker changed paths outside ownership: ${violations.join(', ')}`);
+    const results = this.runChecks(checks, worktree);
+    return {
+      state: results.some((result) => !result.ok) ? 'fail' : 'pass',
+      commit: head,
+      changedPaths,
+      checks: results,
+      diff: this.patch(base, head, worktree)
+    };
+  }
+  async verifyResultAsync({ base, head, ownedPaths, checks = [], worktree }) {
+    const changedPaths = this.changed(base, head, worktree);
+    const violations = changedPaths.filter((file) => !ownedPaths.some((owned) => pathsOverlap(file, owned)));
+    if (violations.length) throw new Error(`Worker changed paths outside ownership: ${violations.join(', ')}`);
+    const results = await this.runChecksAsync(checks, worktree);
+    return {
+      state: results.some((result) => !result.ok) ? 'fail' : 'pass',
+      commit: head,
+      changedPaths,
+      checks: results,
+      diff: this.patch(base, head, worktree)
+    };
+  }
+  resultDiff(chunk, repository = this.root) {
+    const base = chunk.attempts?.at(-1)?.base;
+    if (!base || !chunk.commit) return chunk.diff || '';
+    return this.patch(base, chunk.commit, repository);
+  }
+  resultCommit(chunk, repository = this.root) {
+    const head = chunk.commit;
+    const base = chunk.attempts?.at(-1)?.base;
+    if (!head) throw new Error(`Worker result has no commit: ${chunk.id}`);
+    if (!base) return head;
+    const tree = this.git(['rev-parse', `${head}^{tree}`], repository);
+    const baseTree = this.git(['rev-parse', `${base}^{tree}`], repository);
+    if (tree === baseTree) return null;
+    return this.git(['commit-tree', tree, '-p', base, '-m', `BDFL result ${chunk.id}`], repository);
+  }
+  discardGeneratedWorktree(branch, worktree, repository = this.root) {
+    let exists = this.io.existsSync(worktree);
+    try {
+      this.git(['rev-parse', '--verify', branch], repository);
+      exists = true;
+    } catch {}
+    if (!exists) return;
+    try {
+      this.git(['worktree', 'remove', '--force', worktree], repository);
+    } catch {}
+    this.git(['worktree', 'prune'], repository);
+    try {
+      this.git(['branch', '-D', branch], repository);
+    } catch {}
+    if (this.io.existsSync(worktree)) throw new Error(`Unable to reset generated worktree: ${worktree}`);
+  }
+  composeBase(executionId, chunkId, attempt, baseline, chunks, repository = this.root) {
+    const safe = `${executionId}-${chunkId}-${attempt}`.replace(/[^a-zA-Z0-9._-]/g, '-');
+    const branch = `bdfl/base-${safe}`;
+    const worktree = path.join(repository, '.bdfl', 'worktrees', 'bases', safe);
+    this.discardGeneratedWorktree(branch, worktree, repository);
+    this.io.mkdirSync(path.dirname(worktree), { recursive: true });
+    this.git(['worktree', 'add', '-b', branch, worktree, baseline], repository);
+    for (const chunk of chunks) {
+      const commit = this.resultCommit(chunk, repository);
+      if (commit) this.git(['cherry-pick', commit], worktree);
+    }
+    return this.git(['rev-parse', 'HEAD'], worktree);
+  }
+  createIntegration(executionId, base, repository = this.root) {
+    const safe = executionId.replace(/[^a-zA-Z0-9._-]/g, '-');
+    const branch = `bdfl/integration-${safe}`;
+    const worktree = path.join(repository, '.bdfl', 'worktrees', 'integration', safe);
+    this.io.mkdirSync(path.dirname(worktree), { recursive: true });
+    this.git(['worktree', 'add', '-b', branch, worktree, base], repository);
+    return { branch, worktree, base };
+  }
+  consolidate(integration, chunks) {
+    const ordered = [...chunks].sort((left, right) => left.order - right.order);
+    for (const chunk of ordered) {
+      try {
+        const commit = this.resultCommit(chunk, integration.worktree);
+        if (commit) this.git(['cherry-pick', commit], integration.worktree);
+      } catch (error) {
+        return {
+          state: 'conflict',
+          chunkIds: ordered.slice(0, ordered.indexOf(chunk) + 1).map((item) => item.id),
+          pendingChunkIds: ordered.slice(ordered.indexOf(chunk) + 1).map((item) => item.id),
+          message: `${error.stderr || error.message}`.slice(0, 800)
+        };
+      }
+    }
+    return {
+      state: 'pass',
+      head: this.git(['rev-parse', 'HEAD'], integration.worktree),
+      changedPaths: this.changed(integration.base, 'HEAD', integration.worktree)
+    };
+  }
+  verifierContext(execution, integration, lineage) {
+    const directory = path.join(
+      execution.repositoryRoot || this.root,
+      '.bdfl',
+      'workers',
+      execution.id,
+      'verifier',
+      'context'
+    );
+    this.io.mkdirSync(path.join(directory, 'chunks'), { recursive: true });
+    atomicWrite(path.join(directory, 'shared.md'), lineage.readSection(execution.planId, execution.version, 'shared'));
+    for (const chunk of execution.chunks)
+      atomicWrite(
+        path.join(directory, 'chunks', `${chunk.id}.md`),
+        lineage.readSection(execution.planId, execution.version, chunk.id)
+      );
+    atomicWrite(
+      path.join(directory, 'global-validation.md'),
+      lineage.readSection(execution.planId, execution.version, 'global-validation')
+    );
+    atomicWrite(
+      path.join(directory, 'diff.patch'),
+      this.git(['diff', '--no-ext-diff', `${integration.base}..HEAD`], integration.worktree)
+    );
+    atomicWrite(
+      path.join(directory, 'checks.json'),
+      `${JSON.stringify({ chunks: execution.chunks.map(({ id, checks, checkResults }) => ({ id, approved: checks, results: checkResults || [] })), global: { approved: execution.globalValidation.checks || [], results: integration.checkResults || [] } }, null, 2)}\n`
+    );
+    return directory;
+  }
+  cleanupReconciliation(staged, repository = this.root) {
+    if (!staged?.worktree || !staged.advanced) return;
+    try {
+      this.git(['worktree', 'remove', '--force', staged.worktree], repository);
+    } catch {}
+    try {
+      this.git(['worktree', 'prune'], repository);
+    } catch {}
+  }
   stageIntegration(integration, { targetBranch, targetHead, message, repository = this.root }) {
     const currentHead = this.assertTarget(targetBranch, targetHead, repository, { allowAdvance: true });
-    if (currentHead !== targetHead) { try { this.git(['merge-base', '--is-ancestor', targetHead, currentHead], repository); } catch { const error = new Error('Original target history was rewritten; final integration stopped'); error.code = 'TARGET_CHANGED'; throw error; } }
-    const tree = this.git(['rev-parse', `${integration.branch}^{tree}`], integration.worktree); const source = this.git(['commit-tree', tree, '-p', targetHead, '-m', message], repository);
-    if (currentHead === targetHead) return { state: 'ready', advanced: false, commit: source, source, targetHead: currentHead, worktree: integration.worktree };
-    const safe = integration.branch.replace(/[^a-zA-Z0-9._-]/g, '-'); const worktree = path.join(repository, '.bdfl', 'worktrees', 'reconcile', `${safe}-${process.pid}-${Date.now()}`); this.io.mkdirSync(path.dirname(worktree), { recursive: true }); this.git(['worktree', 'add', '--detach', worktree, currentHead], repository);
-    try { this.git(['cherry-pick', '--allow-empty', source], worktree); return { state: 'ready', advanced: true, commit: this.git(['rev-parse', 'HEAD'], worktree), source, targetHead: currentHead, worktree }; }
-    catch (error) { return { state: 'conflict', advanced: true, source, targetHead: currentHead, worktree, message: `${error.stderr || error.message}`.slice(0, 800) }; }
+    if (currentHead !== targetHead) {
+      try {
+        this.git(['merge-base', '--is-ancestor', targetHead, currentHead], repository);
+      } catch {
+        const error = new Error('Original target history was rewritten; final integration stopped');
+        error.code = 'TARGET_CHANGED';
+        throw error;
+      }
+    }
+    const tree = this.git(['rev-parse', `${integration.branch}^{tree}`], integration.worktree);
+    const source = this.git(['commit-tree', tree, '-p', targetHead, '-m', message], repository);
+    if (currentHead === targetHead)
+      return {
+        state: 'ready',
+        advanced: false,
+        commit: source,
+        source,
+        targetHead: currentHead,
+        worktree: integration.worktree
+      };
+    const safe = integration.branch.replace(/[^a-zA-Z0-9._-]/g, '-');
+    const worktree = path.join(repository, '.bdfl', 'worktrees', 'reconcile', `${safe}-${process.pid}-${Date.now()}`);
+    this.io.mkdirSync(path.dirname(worktree), { recursive: true });
+    this.git(['worktree', 'add', '--detach', worktree, currentHead], repository);
+    try {
+      this.git(['cherry-pick', '--allow-empty', source], worktree);
+      return {
+        state: 'ready',
+        advanced: true,
+        commit: this.git(['rev-parse', 'HEAD'], worktree),
+        source,
+        targetHead: currentHead,
+        worktree
+      };
+    } catch (error) {
+      return {
+        state: 'conflict',
+        advanced: true,
+        source,
+        targetHead: currentHead,
+        worktree,
+        message: `${error.stderr || error.message}`.slice(0, 800)
+      };
+    }
   }
-  reconciliationResolved(staged) { try { const unresolved = this.git(['diff', '--name-only', '--diff-filter=U'], staged.worktree); const stagedPaths = this.git(['diff', '--cached', '--name-only'], staged.worktree); return !unresolved && (this.baseline('HEAD', staged.worktree) !== staged.targetHead || Boolean(stagedPaths)); } catch { return false; } }
+  reconciliationResolved(staged) {
+    try {
+      const unresolved = this.git(['diff', '--name-only', '--diff-filter=U'], staged.worktree);
+      const stagedPaths = this.git(['diff', '--cached', '--name-only'], staged.worktree);
+      return !unresolved && (this.baseline('HEAD', staged.worktree) !== staged.targetHead || Boolean(stagedPaths));
+    } catch {
+      return false;
+    }
+  }
   finishReconciliation(staged, repository = this.root) {
-    this.git(['add', '-A'], staged.worktree); const unresolved = this.git(['diff', '--name-only', '--diff-filter=U'], staged.worktree); if (unresolved) { const error = new Error(`Integration still has unresolved paths: ${unresolved.split('\n').join(', ')}`); error.code = 'TARGET_CONFLICT'; throw error; }
-    const tree = this.git(['write-tree'], staged.worktree); const message = this.git(['log', '-1', '--format=%B', staged.source], repository) || 'Integrate BDFL result'; const commit = this.git(['commit-tree', tree, '-p', staged.targetHead, '-m', message], repository); this.git(['reset', '--hard', commit], staged.worktree);
+    this.git(['add', '-A'], staged.worktree);
+    const unresolved = this.git(['diff', '--name-only', '--diff-filter=U'], staged.worktree);
+    if (unresolved) {
+      const error = new Error(`Integration still has unresolved paths: ${unresolved.split('\n').join(', ')}`);
+      error.code = 'TARGET_CONFLICT';
+      throw error;
+    }
+    const tree = this.git(['write-tree'], staged.worktree);
+    const message = this.git(['log', '-1', '--format=%B', staged.source], repository) || 'Integrate BDFL result';
+    const commit = this.git(['commit-tree', tree, '-p', staged.targetHead, '-m', message], repository);
+    this.git(['reset', '--hard', commit], staged.worktree);
     return { ...staged, state: 'ready', commit };
   }
-  completeIntegration(staged, { targetBranch, repository = this.root }) { this.assertTarget(targetBranch, staged.targetHead, repository); this.git(['merge', '--ff-only', staged.commit], repository); this.cleanupReconciliation(staged, repository); return staged.commit; }
-  integrate(integration, { targetBranch, targetHead, message, checks = [], repository = this.root }) { const staged = this.stageIntegration(integration, { targetBranch, targetHead, message, repository }); if (staged.state === 'conflict') { this.cleanupReconciliation(staged, repository); const conflict = new Error('Committed target changes conflict with the approved BDFL result; final integration stopped'); conflict.code = 'TARGET_CONFLICT'; throw conflict; } if (staged.advanced) { const results = this.runChecks(checks, staged.worktree); const failed = results.find((result) => !result.ok); if (failed) { this.cleanupReconciliation(staged, repository); const error = new Error(`Reconciled target validation failed: ${failed.command.join(' ')}`); error.code = 'TARGET_VALIDATION_FAILED'; error.checkResults = results; throw error; } } return this.completeIntegration(staged, { targetBranch, repository }); }
+  completeIntegration(staged, { targetBranch, repository = this.root }) {
+    this.assertTarget(targetBranch, staged.targetHead, repository);
+    this.git(['merge', '--ff-only', staged.commit], repository);
+    this.cleanupReconciliation(staged, repository);
+    return staged.commit;
+  }
+  integrate(integration, { targetBranch, targetHead, message, checks = [], repository = this.root }) {
+    const staged = this.stageIntegration(integration, { targetBranch, targetHead, message, repository });
+    if (staged.state === 'conflict') {
+      this.cleanupReconciliation(staged, repository);
+      const conflict = new Error(
+        'Committed target changes conflict with the approved BDFL result; final integration stopped'
+      );
+      conflict.code = 'TARGET_CONFLICT';
+      throw conflict;
+    }
+    if (staged.advanced) {
+      const results = this.runChecks(checks, staged.worktree);
+      const failed = results.find((result) => !result.ok);
+      if (failed) {
+        this.cleanupReconciliation(staged, repository);
+        const error = new Error(`Reconciled target validation failed: ${failed.command.join(' ')}`);
+        error.code = 'TARGET_VALIDATION_FAILED';
+        error.checkResults = results;
+        throw error;
+      }
+    }
+    return this.completeIntegration(staged, { targetBranch, repository });
+  }
 }
 
 module.exports = { ExecutionGit, DEFAULT_CHECK_TIMEOUT_MS, CHECK_OUTPUT_LIMIT };

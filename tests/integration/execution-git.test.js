@@ -1,14 +1,245 @@
 'use strict';
-const test = require('node:test'); const assert = require('node:assert/strict'); const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path'); const { execFileSync } = require('node:child_process'); const { ExecutionGit } = require('../../src/worktrees/execution');
-function git(root, args) { return `${execFileSync('git', args, { cwd: root, encoding: 'utf8' })}`.trim(); }
-function fixture(t) { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-git-')); git(root, ['init', '-b', 'main']); git(root, ['config', 'user.email', 'test@example.com']); git(root, ['config', 'user.name', 'Test']); fs.appendFileSync(path.join(root, '.git', 'info', 'exclude'), '.bdfl/\n'); fs.writeFileSync(path.join(root, 'base.txt'), 'base\n'); git(root, ['add', '.']); git(root, ['commit', '-m', 'base']); t.after(() => fs.rmSync(root, { recursive: true, force: true })); return root; }
-test('verifies owned changes, consolidates dependency order, and creates one target commit', (t) => { const root = fixture(t); const manager = new ExecutionGit(root); const baseline = manager.baseline(); const worker = manager.createWorker('e', 'api', 1, baseline); fs.mkdirSync(path.join(worker.worktree, 'src'), { recursive: true }); fs.writeFileSync(path.join(worker.worktree, 'src/api.js'), 'ok\n'); const commit = manager.checkpoint(worker.worktree, 'worker'); const verified = manager.verifyResult({ base: baseline, head: commit, ownedPaths: ['src/**'], worktree: worker.worktree }); assert.deepEqual(verified.changedPaths, ['src/api.js']); const integration = manager.createIntegration('e', baseline); assert.equal(manager.consolidate(integration, [{ id: 'api', order: 0, commit }]).state, 'pass'); const final = manager.integrate(integration, { targetBranch: 'main', targetHead: baseline, message: 'Integrate work' }); assert.equal(git(root, ['rev-list', '--count', `${baseline}..${final}`]), '1'); assert.equal(fs.readFileSync(path.join(root, 'src/api.js'), 'utf8'), 'ok\n'); });
-test('reconciles an approved result onto clean commits added by parallel work', (t) => { const root = fixture(t); const manager = new ExecutionGit(root); const baseline = manager.baseline(); const worker = manager.createWorker('parallel', 'api', 1, baseline); fs.writeFileSync(path.join(worker.worktree, 'bdfl.txt'), 'bdfl\n'); const workerCommit = manager.checkpoint(worker.worktree, 'worker'); const integration = manager.createIntegration('parallel', baseline); assert.equal(manager.consolidate(integration, [{ id: 'api', order: 0, commit: workerCommit }]).state, 'pass'); fs.writeFileSync(path.join(root, 'parallel.txt'), 'parallel\n'); git(root, ['add', 'parallel.txt']); git(root, ['commit', '-m', 'parallel target work']); const parallelHead = manager.baseline(); const final = manager.integrate(integration, { targetBranch: 'main', targetHead: baseline, message: 'Integrate work' }); assert.equal(git(root, ['rev-parse', `${final}^`]), parallelHead); assert.equal(fs.readFileSync(path.join(root, 'parallel.txt'), 'utf8'), 'parallel\n'); assert.equal(fs.readFileSync(path.join(root, 'bdfl.txt'), 'utf8'), 'bdfl\n'); assert.equal(git(root, ['status', '--porcelain']), ''); });
-test('keeps the target clean when committed parallel work conflicts with the approved result', (t) => { const root = fixture(t); const manager = new ExecutionGit(root); const baseline = manager.baseline(); const worker = manager.createWorker('conflict', 'api', 1, baseline); fs.writeFileSync(path.join(worker.worktree, 'base.txt'), 'bdfl\n'); const workerCommit = manager.checkpoint(worker.worktree, 'worker'); const integration = manager.createIntegration('conflict', baseline); assert.equal(manager.consolidate(integration, [{ id: 'api', order: 0, commit: workerCommit }]).state, 'pass'); fs.writeFileSync(path.join(root, 'base.txt'), 'parallel\n'); git(root, ['add', 'base.txt']); git(root, ['commit', '-m', 'parallel conflict']); const parallelHead = manager.baseline(); assert.throws(() => manager.integrate(integration, { targetBranch: 'main', targetHead: baseline, message: 'Integrate work' }), (error) => error.code === 'TARGET_CONFLICT'); assert.equal(manager.baseline(), parallelHead); assert.equal(fs.readFileSync(path.join(root, 'base.txt'), 'utf8'), 'parallel\n'); assert.equal(git(root, ['status', '--porcelain']), ''); assert.equal(git(integration.worktree, ['status', '--porcelain']), ''); });
-test('preserves a target conflict for agent repair and integrates the resolved tree', (t) => { const root = fixture(t); const manager = new ExecutionGit(root); const baseline = manager.baseline(); const worker = manager.createWorker('agent-conflict', 'api', 1, baseline); fs.writeFileSync(path.join(worker.worktree, 'base.txt'), 'bdfl\n'); const workerCommit = manager.checkpoint(worker.worktree, 'worker'); const integration = manager.createIntegration('agent-conflict', baseline); manager.consolidate(integration, [{ id: 'api', order: 0, commit: workerCommit }]); fs.writeFileSync(path.join(root, 'base.txt'), 'parallel\n'); git(root, ['add', 'base.txt']); git(root, ['commit', '-m', 'parallel conflict']); const parallelHead = manager.baseline(); const staged = manager.stageIntegration(integration, { targetBranch: 'main', targetHead: baseline, message: 'Integrate work' }); assert.equal(staged.state, 'conflict'); assert.match(fs.readFileSync(path.join(staged.worktree, 'base.txt'), 'utf8'), /<<<<<<< HEAD/); assert.equal(manager.baseline(), parallelHead); fs.writeFileSync(path.join(staged.worktree, 'base.txt'), 'parallel\nbdfl\n'); const repaired = manager.finishReconciliation(staged); assert.equal(repaired.state, 'ready'); assert.equal(git(root, ['rev-parse', `${repaired.commit}^`]), parallelHead); const final = manager.completeIntegration(repaired, { targetBranch: 'main' }); assert.equal(final, repaired.commit); assert.equal(fs.readFileSync(path.join(root, 'base.txt'), 'utf8'), 'parallel\nbdfl\n'); assert.equal(git(root, ['status', '--porcelain']), ''); assert.equal(fs.existsSync(staged.worktree), false); });
-test('validates a reconciled result before advancing the target', (t) => { const root = fixture(t); const manager = new ExecutionGit(root); const baseline = manager.baseline(); const worker = manager.createWorker('validation', 'api', 1, baseline); fs.writeFileSync(path.join(worker.worktree, 'bdfl.txt'), 'bdfl\n'); const workerCommit = manager.checkpoint(worker.worktree, 'worker'); const integration = manager.createIntegration('validation', baseline); manager.consolidate(integration, [{ id: 'api', order: 0, commit: workerCommit }]); fs.writeFileSync(path.join(root, 'parallel.txt'), 'parallel\n'); git(root, ['add', 'parallel.txt']); git(root, ['commit', '-m', 'parallel target work']); const parallelHead = manager.baseline(); const checks = [[process.execPath, '-e', "process.exit(require('fs').existsSync('parallel.txt') ? 1 : 0)"]]; assert.throws(() => manager.integrate(integration, { targetBranch: 'main', targetHead: baseline, message: 'Integrate work', checks }), (error) => error.code === 'TARGET_VALIDATION_FAILED' && error.checkResults.length === 1); assert.equal(manager.baseline(), parallelHead); assert.equal(fs.existsSync(path.join(root, 'bdfl.txt')), false); assert.equal(git(root, ['status', '--porcelain']), ''); });
-test('stops integration for uncommitted target changes or worker ownership violations', (t) => { const root = fixture(t); const manager = new ExecutionGit(root); const baseline = manager.baseline(); const worker = manager.createWorker('e', 'bad', 1, baseline); fs.writeFileSync(path.join(worker.worktree, 'outside.txt'), 'bad'); const commit = manager.checkpoint(worker.worktree, 'bad'); assert.throws(() => manager.verifyResult({ base: baseline, head: commit, ownedPaths: ['src/**'], worktree: worker.worktree }), /outside ownership/); fs.writeFileSync(path.join(root, 'dirty.txt'), 'dirty'); assert.throws(() => manager.assertTarget('main', baseline), /dirty/); });
-test('creates and verifies worktrees inside the selected repository when launched from its parent', (t) => { const root = fixture(t); const parent = path.dirname(root); const manager = new ExecutionGit(parent); const baseline = manager.baseline('HEAD', root); const worker = manager.createWorker('parent', 'repo', 1, baseline, root); assert.equal(worker.worktree.startsWith(`${path.resolve(root)}${path.sep}.bdfl${path.sep}worktrees${path.sep}`), true); fs.mkdirSync(path.join(worker.worktree, 'src'), { recursive: true }); fs.writeFileSync(path.join(worker.worktree, 'src', 'parent.js'), 'ok\n'); const head = manager.checkpoint(worker.worktree, 'parent worker'); assert.deepEqual(manager.verifyResult({ base: baseline, head, ownedPaths: ['src/**'], worktree: worker.worktree }).changedPaths, ['src/parent.js']); assert.equal(fs.existsSync(path.join(parent, '.bdfl', 'worktrees')), false); });
-test('composes and integrates the complete worker result after feedback adds another commit', (t) => { const root = fixture(t); const manager = new ExecutionGit(root); const baseline = manager.baseline(); const worker = manager.createWorker('feedback', 'worker', 1, baseline); fs.writeFileSync(path.join(worker.worktree, 'result.txt'), 'first\n'); const first = manager.checkpoint(worker.worktree, 'first result'); fs.writeFileSync(path.join(worker.worktree, 'result.txt'), 'second\n'); const second = manager.checkpoint(worker.worktree, 'feedback result'); assert.notEqual(first, second); const chunk = { id: 'worker', order: 0, commit: second, attempts: [{ base: baseline }] }; const diff = manager.resultDiff(chunk); assert.match(diff, /\+second/); assert.doesNotMatch(diff, /\+first/); manager.composeBase('feedback', 'dependent', 1, baseline, [chunk]); assert.equal(fs.readFileSync(path.join(root, '.bdfl', 'worktrees', 'bases', 'feedback-dependent-1', 'result.txt'), 'utf8'), 'second\n'); manager.composeBase('feedback', 'dependent', 1, baseline, [chunk]); assert.equal(fs.readFileSync(path.join(root, '.bdfl', 'worktrees', 'bases', 'feedback-dependent-1', 'result.txt'), 'utf8'), 'second\n'); const integration = manager.createIntegration('feedback-integration', baseline); const result = manager.consolidate(integration, [chunk]); assert.equal(result.state, 'pass'); assert.equal(fs.readFileSync(path.join(integration.worktree, 'result.txt'), 'utf8'), 'second\n'); assert.deepEqual(result.changedPaths, ['result.txt']); });
-test('runs background checks without blocking and terminates a hung command at its deadline', async (t) => { const root = fixture(t); const manager = new ExecutionGit(root, { checkTimeoutMs: 75 }); let timerFired = false; const pending = manager.runChecksAsync([[process.execPath, '-e', 'setInterval(() => {}, 1000)']], root); await new Promise((resolve) => setTimeout(() => { timerFired = true; resolve(); }, 20)); assert.equal(timerFired, true); const results = await pending; assert.equal(results.length, 1); assert.equal(results[0].ok, false); assert.equal(results[0].timedOut, true); assert.match(results[0].output, /timed out after 75ms/); });
-test('retains the failing tail of long background check output', async (t) => { const root = fixture(t); const manager = new ExecutionGit(root); const results = await manager.runChecksAsync([[process.execPath, '-e', "process.stdout.write('progress\\n'.repeat(3000)); process.stdout.write('FINAL ASSERTION FAILED\\n'); process.exit(1)"]], root); assert.equal(results[0].ok, false); assert.match(results[0].output, /FINAL ASSERTION FAILED/); assert.ok(results[0].output.length <= 12000); });
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+const { ExecutionGit } = require('../../src/worktrees/execution');
+function git(root, args) {
+  return `${execFileSync('git', args, { cwd: root, encoding: 'utf8' })}`.trim();
+}
+function fixture(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-git-'));
+  git(root, ['init', '-b', 'main']);
+  git(root, ['config', 'user.email', 'test@example.com']);
+  git(root, ['config', 'user.name', 'Test']);
+  fs.appendFileSync(path.join(root, '.git', 'info', 'exclude'), '.bdfl/\n');
+  fs.writeFileSync(path.join(root, 'base.txt'), 'base\n');
+  git(root, ['add', '.']);
+  git(root, ['commit', '-m', 'base']);
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  return root;
+}
+test('verifies owned changes, consolidates dependency order, and creates one target commit', (t) => {
+  const root = fixture(t);
+  const manager = new ExecutionGit(root);
+  const baseline = manager.baseline();
+  const worker = manager.createWorker('e', 'api', 1, baseline);
+  fs.mkdirSync(path.join(worker.worktree, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(worker.worktree, 'src/api.js'), 'ok\n');
+  const commit = manager.checkpoint(worker.worktree, 'worker');
+  const verified = manager.verifyResult({
+    base: baseline,
+    head: commit,
+    ownedPaths: ['src/**'],
+    worktree: worker.worktree
+  });
+  assert.deepEqual(verified.changedPaths, ['src/api.js']);
+  const integration = manager.createIntegration('e', baseline);
+  assert.equal(manager.consolidate(integration, [{ id: 'api', order: 0, commit }]).state, 'pass');
+  const final = manager.integrate(integration, {
+    targetBranch: 'main',
+    targetHead: baseline,
+    message: 'Integrate work'
+  });
+  assert.equal(git(root, ['rev-list', '--count', `${baseline}..${final}`]), '1');
+  assert.equal(fs.readFileSync(path.join(root, 'src/api.js'), 'utf8'), 'ok\n');
+});
+test('reconciles an approved result onto clean commits added by parallel work', (t) => {
+  const root = fixture(t);
+  const manager = new ExecutionGit(root);
+  const baseline = manager.baseline();
+  const worker = manager.createWorker('parallel', 'api', 1, baseline);
+  fs.writeFileSync(path.join(worker.worktree, 'bdfl.txt'), 'bdfl\n');
+  const workerCommit = manager.checkpoint(worker.worktree, 'worker');
+  const integration = manager.createIntegration('parallel', baseline);
+  assert.equal(manager.consolidate(integration, [{ id: 'api', order: 0, commit: workerCommit }]).state, 'pass');
+  fs.writeFileSync(path.join(root, 'parallel.txt'), 'parallel\n');
+  git(root, ['add', 'parallel.txt']);
+  git(root, ['commit', '-m', 'parallel target work']);
+  const parallelHead = manager.baseline();
+  const final = manager.integrate(integration, {
+    targetBranch: 'main',
+    targetHead: baseline,
+    message: 'Integrate work'
+  });
+  assert.equal(git(root, ['rev-parse', `${final}^`]), parallelHead);
+  assert.equal(fs.readFileSync(path.join(root, 'parallel.txt'), 'utf8'), 'parallel\n');
+  assert.equal(fs.readFileSync(path.join(root, 'bdfl.txt'), 'utf8'), 'bdfl\n');
+  assert.equal(git(root, ['status', '--porcelain']), '');
+});
+test('keeps the target clean when committed parallel work conflicts with the approved result', (t) => {
+  const root = fixture(t);
+  const manager = new ExecutionGit(root);
+  const baseline = manager.baseline();
+  const worker = manager.createWorker('conflict', 'api', 1, baseline);
+  fs.writeFileSync(path.join(worker.worktree, 'base.txt'), 'bdfl\n');
+  const workerCommit = manager.checkpoint(worker.worktree, 'worker');
+  const integration = manager.createIntegration('conflict', baseline);
+  assert.equal(manager.consolidate(integration, [{ id: 'api', order: 0, commit: workerCommit }]).state, 'pass');
+  fs.writeFileSync(path.join(root, 'base.txt'), 'parallel\n');
+  git(root, ['add', 'base.txt']);
+  git(root, ['commit', '-m', 'parallel conflict']);
+  const parallelHead = manager.baseline();
+  assert.throws(
+    () => manager.integrate(integration, { targetBranch: 'main', targetHead: baseline, message: 'Integrate work' }),
+    (error) => error.code === 'TARGET_CONFLICT'
+  );
+  assert.equal(manager.baseline(), parallelHead);
+  assert.equal(fs.readFileSync(path.join(root, 'base.txt'), 'utf8'), 'parallel\n');
+  assert.equal(git(root, ['status', '--porcelain']), '');
+  assert.equal(git(integration.worktree, ['status', '--porcelain']), '');
+});
+test('preserves a target conflict for agent repair and integrates the resolved tree', (t) => {
+  const root = fixture(t);
+  const manager = new ExecutionGit(root);
+  const baseline = manager.baseline();
+  const worker = manager.createWorker('agent-conflict', 'api', 1, baseline);
+  fs.writeFileSync(path.join(worker.worktree, 'base.txt'), 'bdfl\n');
+  const workerCommit = manager.checkpoint(worker.worktree, 'worker');
+  const integration = manager.createIntegration('agent-conflict', baseline);
+  manager.consolidate(integration, [{ id: 'api', order: 0, commit: workerCommit }]);
+  fs.writeFileSync(path.join(root, 'base.txt'), 'parallel\n');
+  git(root, ['add', 'base.txt']);
+  git(root, ['commit', '-m', 'parallel conflict']);
+  const parallelHead = manager.baseline();
+  const staged = manager.stageIntegration(integration, {
+    targetBranch: 'main',
+    targetHead: baseline,
+    message: 'Integrate work'
+  });
+  assert.equal(staged.state, 'conflict');
+  assert.match(fs.readFileSync(path.join(staged.worktree, 'base.txt'), 'utf8'), /<<<<<<< HEAD/);
+  assert.equal(manager.baseline(), parallelHead);
+  fs.writeFileSync(path.join(staged.worktree, 'base.txt'), 'parallel\nbdfl\n');
+  const repaired = manager.finishReconciliation(staged);
+  assert.equal(repaired.state, 'ready');
+  assert.equal(git(root, ['rev-parse', `${repaired.commit}^`]), parallelHead);
+  const final = manager.completeIntegration(repaired, { targetBranch: 'main' });
+  assert.equal(final, repaired.commit);
+  assert.equal(fs.readFileSync(path.join(root, 'base.txt'), 'utf8'), 'parallel\nbdfl\n');
+  assert.equal(git(root, ['status', '--porcelain']), '');
+  assert.equal(fs.existsSync(staged.worktree), false);
+});
+test('validates a reconciled result before advancing the target', (t) => {
+  const root = fixture(t);
+  const manager = new ExecutionGit(root);
+  const baseline = manager.baseline();
+  const worker = manager.createWorker('validation', 'api', 1, baseline);
+  fs.writeFileSync(path.join(worker.worktree, 'bdfl.txt'), 'bdfl\n');
+  const workerCommit = manager.checkpoint(worker.worktree, 'worker');
+  const integration = manager.createIntegration('validation', baseline);
+  manager.consolidate(integration, [{ id: 'api', order: 0, commit: workerCommit }]);
+  fs.writeFileSync(path.join(root, 'parallel.txt'), 'parallel\n');
+  git(root, ['add', 'parallel.txt']);
+  git(root, ['commit', '-m', 'parallel target work']);
+  const parallelHead = manager.baseline();
+  const checks = [[process.execPath, '-e', "process.exit(require('fs').existsSync('parallel.txt') ? 1 : 0)"]];
+  assert.throws(
+    () =>
+      manager.integrate(integration, { targetBranch: 'main', targetHead: baseline, message: 'Integrate work', checks }),
+    (error) => error.code === 'TARGET_VALIDATION_FAILED' && error.checkResults.length === 1
+  );
+  assert.equal(manager.baseline(), parallelHead);
+  assert.equal(fs.existsSync(path.join(root, 'bdfl.txt')), false);
+  assert.equal(git(root, ['status', '--porcelain']), '');
+});
+test('stops integration for uncommitted target changes or worker ownership violations', (t) => {
+  const root = fixture(t);
+  const manager = new ExecutionGit(root);
+  const baseline = manager.baseline();
+  const worker = manager.createWorker('e', 'bad', 1, baseline);
+  fs.writeFileSync(path.join(worker.worktree, 'outside.txt'), 'bad');
+  const commit = manager.checkpoint(worker.worktree, 'bad');
+  assert.throws(
+    () => manager.verifyResult({ base: baseline, head: commit, ownedPaths: ['src/**'], worktree: worker.worktree }),
+    /outside ownership/
+  );
+  fs.writeFileSync(path.join(root, 'dirty.txt'), 'dirty');
+  assert.throws(() => manager.assertTarget('main', baseline), /dirty/);
+});
+test('creates and verifies worktrees inside the selected repository when launched from its parent', (t) => {
+  const root = fixture(t);
+  const parent = path.dirname(root);
+  const manager = new ExecutionGit(parent);
+  const baseline = manager.baseline('HEAD', root);
+  const worker = manager.createWorker('parent', 'repo', 1, baseline, root);
+  assert.equal(
+    worker.worktree.startsWith(`${path.resolve(root)}${path.sep}.bdfl${path.sep}worktrees${path.sep}`),
+    true
+  );
+  fs.mkdirSync(path.join(worker.worktree, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(worker.worktree, 'src', 'parent.js'), 'ok\n');
+  const head = manager.checkpoint(worker.worktree, 'parent worker');
+  assert.deepEqual(
+    manager.verifyResult({ base: baseline, head, ownedPaths: ['src/**'], worktree: worker.worktree }).changedPaths,
+    ['src/parent.js']
+  );
+  assert.equal(fs.existsSync(path.join(parent, '.bdfl', 'worktrees')), false);
+});
+test('composes and integrates the complete worker result after feedback adds another commit', (t) => {
+  const root = fixture(t);
+  const manager = new ExecutionGit(root);
+  const baseline = manager.baseline();
+  const worker = manager.createWorker('feedback', 'worker', 1, baseline);
+  fs.writeFileSync(path.join(worker.worktree, 'result.txt'), 'first\n');
+  const first = manager.checkpoint(worker.worktree, 'first result');
+  fs.writeFileSync(path.join(worker.worktree, 'result.txt'), 'second\n');
+  const second = manager.checkpoint(worker.worktree, 'feedback result');
+  assert.notEqual(first, second);
+  const chunk = { id: 'worker', order: 0, commit: second, attempts: [{ base: baseline }] };
+  const diff = manager.resultDiff(chunk);
+  assert.match(diff, /\+second/);
+  assert.doesNotMatch(diff, /\+first/);
+  manager.composeBase('feedback', 'dependent', 1, baseline, [chunk]);
+  assert.equal(
+    fs.readFileSync(path.join(root, '.bdfl', 'worktrees', 'bases', 'feedback-dependent-1', 'result.txt'), 'utf8'),
+    'second\n'
+  );
+  manager.composeBase('feedback', 'dependent', 1, baseline, [chunk]);
+  assert.equal(
+    fs.readFileSync(path.join(root, '.bdfl', 'worktrees', 'bases', 'feedback-dependent-1', 'result.txt'), 'utf8'),
+    'second\n'
+  );
+  const integration = manager.createIntegration('feedback-integration', baseline);
+  const result = manager.consolidate(integration, [chunk]);
+  assert.equal(result.state, 'pass');
+  assert.equal(fs.readFileSync(path.join(integration.worktree, 'result.txt'), 'utf8'), 'second\n');
+  assert.deepEqual(result.changedPaths, ['result.txt']);
+});
+test('runs background checks without blocking and terminates a hung command at its deadline', async (t) => {
+  const root = fixture(t);
+  const manager = new ExecutionGit(root, { checkTimeoutMs: 75 });
+  let timerFired = false;
+  const pending = manager.runChecksAsync([[process.execPath, '-e', 'setInterval(() => {}, 1000)']], root);
+  await new Promise((resolve) =>
+    setTimeout(() => {
+      timerFired = true;
+      resolve();
+    }, 20)
+  );
+  assert.equal(timerFired, true);
+  const results = await pending;
+  assert.equal(results.length, 1);
+  assert.equal(results[0].ok, false);
+  assert.equal(results[0].timedOut, true);
+  assert.match(results[0].output, /timed out after 75ms/);
+});
+test('retains the failing tail of long background check output', async (t) => {
+  const root = fixture(t);
+  const manager = new ExecutionGit(root);
+  const results = await manager.runChecksAsync(
+    [
+      [
+        process.execPath,
+        '-e',
+        "process.stdout.write('progress\\n'.repeat(3000)); process.stdout.write('FINAL ASSERTION FAILED\\n'); process.exit(1)"
+      ]
+    ],
+    root
+  );
+  assert.equal(results[0].ok, false);
+  assert.match(results[0].output, /FINAL ASSERTION FAILED/);
+  assert.ok(results[0].output.length <= 12000);
+});

@@ -9,18 +9,41 @@
     "url": "git+https://github.com/thisisnsh/bdfl.git"
   },
   "type": "commonjs",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@xterm/headless": "^6.0.0",
     "node-pty": "^1.1.0",
     "semver": "^7.8.5"
   },
-  "bin": { "bdfl": "bin/bdfl", "bfdl": "bin/bfdl" },
+  "bin": {
+    "bdfl": "bin/bdfl",
+    "bfdl": "bin/bfdl"
+  },
   "scripts": {
     "test": "node --test tests/**/*.test.js",
+    "lint": "eslint .",
+    "format": "prettier --write \"**/*.{js,json}\"",
+    "format:check": "prettier --check \"**/*.{js,json}\"",
     "package": "node scripts/package.js",
     "package:check": "node scripts/package.js --check",
-    "validate": "npm run package:check"
+    "validate": "npm run lint && npm run format:check && npm test && npm run package:check"
   },
-  "files": ["bin/bdfl", "bin/bfdl", "bin/bdfl-mcp.js", "skills/", "src/", "LICENSE", "README.md", "SECURITY.md", "SUPPORT.md"]
+  "files": [
+    "bin/bdfl",
+    "bin/bfdl",
+    "bin/bdfl-mcp.js",
+    "skills/",
+    "src/",
+    "LICENSE",
+    "README.md",
+    "SECURITY.md",
+    "SUPPORT.md"
+  ],
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "globals": "^16.5.0",
+    "prettier": "^3.9.6"
+  }
 }

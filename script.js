@@ -21,7 +21,9 @@
     try {
       await navigator.clipboard.writeText(copyButton.dataset.copy);
       label.textContent = 'Copied';
-      window.setTimeout(() => { label.textContent = 'Copy'; }, 1800);
+      window.setTimeout(() => {
+        label.textContent = 'Copy';
+      }, 1800);
     } catch {
       label.textContent = 'Select';
     }
@@ -177,7 +179,9 @@
   const renderDemo = (key, sourceButton) => {
     const view = demoViews[key];
     if (!demoContent || !view) return;
-    document.querySelectorAll('.demo-actions button, .demo-rail button').forEach((button) => button.classList.remove('active'));
+    document
+      .querySelectorAll('.demo-actions button, .demo-rail button')
+      .forEach((button) => button.classList.remove('active'));
     sourceButton?.classList.add('active');
     demoContent.classList.add('swap');
     window.setTimeout(() => {
@@ -197,13 +201,16 @@
 
   const revealItems = document.querySelectorAll('.reveal');
   if ('IntersectionObserver' in window && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
-        entry.target.classList.add('visible');
-        observer.unobserve(entry.target);
-      });
-    }, { threshold: 0.12 });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        });
+      },
+      { threshold: 0.12 }
+    );
     revealItems.forEach((item) => observer.observe(item));
   } else {
     revealItems.forEach((item) => item.classList.add('visible'));

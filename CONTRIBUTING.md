@@ -8,7 +8,7 @@ Thanks for helping make supervised multi-agent work calmer and safer.
 git clone https://github.com/thisisnsh/bdfl.git
 cd bdfl
 npm ci
-npm test
+npm run validate
 ```
 
 Use Node.js 20 or newer. Claude Code, Codex, and Ollama are needed only for opt-in provider smoke testing; the deterministic suite must not require credentials, a running model service, or downloaded models.
@@ -26,8 +26,10 @@ Use Node.js 20 or newer. Claude Code, Codex, and Ollama are needed only for opt-
 
 ```bash
 npm run package
+npm run format:check
+npm run lint
 npm test
-npm run validate
+npm run package:check
 npm pack --dry-run
 git status --short
 ```
