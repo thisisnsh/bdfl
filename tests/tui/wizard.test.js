@@ -27,7 +27,7 @@ test('arrows choose wizard options, left goes back, and no body click targets ar
 
 test('distinguishes planning and direct sessions before agent setup', () => {
   const wizard = new WorkstreamWizard({ models }); enter(wizard); const screen = wizard.render().replace(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
-  assert.match(screen, /Planning agent/); assert.match(screen, /read-only planning agent and isolated managed workers/); assert.match(screen, /Worker agent/); assert.match(screen, /workspace-write agent without BDFL delegation tools/);
+  assert.match(screen, /Planning agent/); assert.match(screen, /read-only planning agent and isolated managed workers/); assert.match(screen, /Direct agent/); assert.match(screen, /workspace-write agent without BDFL delegation tools/);
   planning(wizard); assert.equal(wizard.key(), 'delegatorProvider'); wizard.back(); wizard.back(); direct(wizard); assert.equal(wizard.key(), 'directProvider');
 });
 
@@ -43,8 +43,8 @@ test('creates a direct configuration with only one editable profile', () => {
 });
 
 test('offers independent last-used presets for each session type', () => {
-  const lastUsed = { ...planningPreset, directProfile }; const planningWizard = new WorkstreamWizard({ models, lastUsed }); enter(planningWizard); enter(planningWizard); assert.equal(planningWizard.key(), 'preset'); assert.match(planningWizard.render(), /Planning agent.*Claude Code/); const restoredPlanning = enter(planningWizard); assert.equal(restoredPlanning.sessionType, 'planning'); assert.equal(restoredPlanning.workerCapacity, 3);
-  const directWizard = new WorkstreamWizard({ models, lastUsed }); enter(directWizard); select(directWizard, 1); assert.equal(directWizard.key(), 'preset'); assert.match(directWizard.render(), /Direct agent.*Codex/); assert.deepEqual(enter(directWizard).directProfile, directProfile);
+  const lastUsed = { ...planningPreset, directProfile }; const planningWizard = new WorkstreamWizard({ models, lastUsed }); enter(planningWizard); enter(planningWizard); assert.equal(planningWizard.key(), 'preset'); assert.match(planningWizard.render(), /Planning agent.*Claude Code/); enter(planningWizard); assert.equal(planningWizard.key(), 'confirmation'); assert.match(planningWizard.render(), /✓ Setup.*Last used/); const restoredPlanning = enter(planningWizard); assert.equal(restoredPlanning.sessionType, 'planning'); assert.equal(restoredPlanning.workerCapacity, 3);
+  const directWizard = new WorkstreamWizard({ models, lastUsed }); enter(directWizard); select(directWizard, 1); assert.equal(directWizard.key(), 'preset'); assert.match(directWizard.render(), /Direct agent.*Codex/); enter(directWizard); assert.deepEqual(enter(directWizard).directProfile, directProfile);
 });
 
 test('preserves type-specific values and cursor choices when going back', () => {
@@ -57,5 +57,9 @@ test('accepts manual Ollama models and validates worker capacity', () => {
 });
 
 test('renders either setup and confirmation within a standard terminal', () => {
-  const wizard = new WorkstreamWizard({ models: { claude: ['opus'] } }); planning(wizard); wizard.step = wizard.steps.indexOf('confirmation'); wizard.values = { sessionType: 'planning', delegatorProvider: 'claude', delegatorModel: 'opus', delegatorEffort: 'medium', delegatorArgs: [], workerProvider: 'claude', workerModel: 'opus', workerEffort: 'medium', workerArgs: [], workerCapacity: 5 }; const lines = wizard.render().split('\n'); assert.ok(lines.length <= 21); assert.match(lines.join('\n'), /Create session/); assert.match(lines.join('\n'), /1\. Planning agent/); assert.match(lines.join('\n'), /7\. Max worker count/);
+  const wizard = new WorkstreamWizard({ models: { claude: ['opus'] } }); planning(wizard); Object.assign(wizard.values, { repository: '.', sessionType: 'planning', preset: 'Customize', delegatorProvider: 'claude', delegatorModel: 'opus', delegatorEffort: 'medium', delegatorArgs: [], workerProvider: 'claude', workerModel: 'opus', workerEffort: 'medium', workerArgs: [], workerCapacity: 5 }); wizard.rebuildSteps(); wizard.step = wizard.steps.indexOf('confirmation'); const lines = wizard.render().split('\n'); assert.ok(lines.length <= 21); assert.match(lines.join('\n'), /○ Create session/); assert.match(lines.join('\n'), /✓ Planning agent/); assert.match(lines.join('\n'), /✓ Max worker count/);
+});
+
+test('keeps earlier questions visible and hides planning-only questions for direct sessions', () => {
+  const wizard = new WorkstreamWizard({ models: { codex: ['gpt-5.4'] } }); enter(wizard); select(wizard, 1); enter(wizard); const screen = wizard.render().replace(/\u001b\[[0-9;?]*[A-Za-z]/g, ''); assert.match(screen, /✓ Repository/); assert.match(screen, /✓ Session type.*Direct agent/); assert.match(screen, /✓ Setup.*Customize/); assert.match(screen, /○ Direct agent/); assert.doesNotMatch(screen, /Worker agent|Planning model|Max worker count/);
 });
