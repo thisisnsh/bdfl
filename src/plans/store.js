@@ -9,6 +9,7 @@ const { parsePlan, validateGraph } = require('./format');
 function versionName(number) { return `v${String(number).padStart(4, '0')}`; }
 function cleanBody(value) { return value.replace(/^\s*\n|\s+$/g, '') + '\n'; }
 function safePlanId(value) { if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(value)) throw new Error(`Invalid plan ID: ${value}`); return value; }
+function safePlanName(value) { if (typeof value !== 'string' || value !== value.trim() || value.length < 1 || value.length > 80 || /[\u0000-\u001f\u007f-\u009f]/u.test(value)) throw new Error('Plan names must be 1–80 printable characters'); return value; }
 
 function parsePatch(source) {
   const header = source.match(/<!--\s*bdfl-plan-patch:(\{[^\n]*\})\s*-->/);
@@ -89,6 +90,10 @@ class LineageStore {
     const planIds = this.io.readdirSync(this.directory, { withFileTypes: true }).filter((entry) => entry.isDirectory() && /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(entry.name)).map((entry) => entry.name).sort();
     this.io.rmSync(this.directory, { recursive: true, force: false });
     return { planIds, deleted: planIds.length };
+  }
+
+  rename(id, name) {
+    const lineage = this.load(id); lineage.name = safePlanName(name); lineage.updatedAt = this.now().toISOString(); atomicWrite(this.lineageFile(id), `${JSON.stringify(lineage, null, 2)}\n`, this.io); return lineage;
   }
 
   current({ workstreamId, sessionId } = {}) {
@@ -203,4 +208,4 @@ class LineageStore {
   }
 }
 
-module.exports = { LineageStore, parsePatch, renderSource, versionName, safePlanId };
+module.exports = { LineageStore, parsePatch, renderSource, versionName, safePlanId, safePlanName };

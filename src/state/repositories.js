@@ -83,6 +83,7 @@ class LineageCatalog {
   removeApproval(id, version, section) { return this.find(id).store.removeApproval(id, version, section); }
   executable(id, version) { return this.find(id).store.executable(id, version); }
   revise(id, source) { return this.find(id).store.revise(id, source); }
+  rename(id, name) { const found = this.find(id); return { ...found.store.rename(id, name), repositoryRoot: found.root, repository: this.workspaces.entries.get(found.root)?.label }; }
   delete(id) { const found = this.find(id); return { ...found.store.delete(id), repositoryRoot: found.root, repository: this.workspaces.entries.get(found.root)?.label }; }
   deleteAll() { const repositories = []; let deleted = 0; for (const [root, store] of this.stores) { const result = store.deleteAll(); deleted += result.deleted; repositories.push({ ...result, repositoryRoot: root, repository: this.workspaces.entries.get(root)?.label }); } return { deleted, repositories }; }
 }
