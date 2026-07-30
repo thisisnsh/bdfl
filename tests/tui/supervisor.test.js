@@ -3,7 +3,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  COLORS,
   Navigation,
   TerminalRenderer,
   TerminalSupervisor,
@@ -1155,7 +1154,7 @@ test('durable transitions close accepted workers and finished verifier and integ
   assert.equal(closed.length, 3);
 });
 
-test('managed-session reconciliation preserves only current interactive attempts', () => {
+test('managed-session reconciliation preserves current attempts and user-resumed historical workers', () => {
   const state = workspace();
   state.sessions.push(
     {
@@ -1184,6 +1183,17 @@ test('managed-session reconciliation preserves only current interactive attempts
       workstreamId: 'one',
       role: 'integration',
       paneNumber: 6,
+      profile: { provider: 'codex' },
+      status: 'running',
+      explicitlyClosed: false
+    },
+    {
+      id: 'user-resumed-worker',
+      executionId: 'historical-execution',
+      workstreamId: 'one',
+      role: 'worker',
+      lifecycleOwner: 'user',
+      paneNumber: 7,
       profile: { provider: 'codex' },
       status: 'running',
       explicitlyClosed: false
@@ -1439,30 +1449,4 @@ test('Review keeps remedy, integration, and override confirmations separate', ()
   supervisor.draw();
   assert.match(stripAnsi(supervisor.actionPageLines().join('\n')), /Complete/);
   supervisor.stop();
-});
-
-test('double Ctrl+C remains the only quit gesture', () => {
-  const state = workspace();
-  let shutdowns = 0;
-  let timeout;
-  const { supervisor, handlers } = harness(state, {
-    sessions: {
-      shutdown() {
-        shutdowns += 1;
-      }
-    },
-    setTimeout(fn, ms) {
-      timeout = { fn, ms, unref() {} };
-      return timeout;
-    }
-  });
-  supervisor.start();
-  handlers.get('data')('\u0003');
-  assert.equal(supervisor.running, true);
-  assert.equal(timeout.ms, 5000);
-  assert.match(stripAnsi(supervisor.renderer.lastLayout.output), /Press Ctrl\+C again to quit/);
-  assert.match(supervisor.renderer.lastLayout.output, new RegExp(COLORS.red.replace('[', '\\[')));
-  handlers.get('data')('\u0003');
-  assert.equal(supervisor.running, false);
-  assert.equal(shutdowns, 1);
 });

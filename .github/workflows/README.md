@@ -8,3 +8,5 @@
 | `release.yml` production jobs | Published GitHub Release | Derive the package version from the stable release tag, test supported Node versions, wait for `production` approval, publish npm `latest`, and attach evidence |
 
 The workflow uses npm trusted publishing through GitHub OIDC. It does not require `NPM_TOKEN`, a local version edit, or a version commit, and it does not publish to GitHub Packages. Complete registry, environment, release, verification, and failure-recovery instructions live in [RELEASE.md](../../RELEASE.md).
+
+Test and release jobs install the system tmux package before running the Node 20, 22, and 24 matrices so the isolated-server integration suite exercises the production prerequisite.

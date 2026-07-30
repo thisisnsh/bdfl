@@ -64,23 +64,21 @@ function validateSessionRecord(session) {
     throw new Error(`Invalid session timestamp${session?.id ? ` for ${session.id}` : ''}`);
   if (
     (session.turnState !== undefined && !['working', 'idle'].includes(session.turnState)) ||
-    (session.turnStateReason !== undefined && !printable(session.turnStateReason))
+    (session.turnStateReason !== undefined && !printable(session.turnStateReason)) ||
+    (session.lifecycleOwner !== undefined && !['managed', 'user'].includes(session.lifecycleOwner))
   )
     throw new Error(`Invalid session turn state${session?.id ? ` for ${session.id}` : ''}`);
 }
 
-function migrateLegacyWorkerNames(sessions) {
-  for (const session of sessions) {
-    if (session.role !== 'worker' || session.name !== `W ${session.roleSequence}`) continue;
-    const replacement = `Worker ${session.roleSequence}`;
-    const collision = sessions.some(
-      (item) =>
-        item.id !== session.id &&
-        item.workstreamId === session.workstreamId &&
-        item.name.toLocaleLowerCase() === replacement.toLocaleLowerCase()
-    );
-    if (!collision) session.name = replacement;
-  }
+function historicalSession(session) {
+  return Boolean(
+    session.accepted ||
+    session.completed ||
+    session.superseded ||
+    ['accepted', 'cancelled', 'complete', 'completed', 'done', 'integrated', 'rejected', 'superseded'].includes(
+      session.status
+    )
+  );
 }
 
 class WorkspaceStore {
@@ -107,10 +105,13 @@ class WorkspaceStore {
         stream.sessionType ||= 'planning';
         validateWorkstreamConfig({ ...stream, version: 1 });
       }
-      migrateLegacyWorkerNames(value.sessions || []);
       for (const session of value.sessions || []) {
         const stream = value.workstreams.find((item) => item.id === session.workstreamId);
         session.sessionType ||= stream?.sessionType || 'planning';
+        session.lifecycleOwner ||=
+          ['worker', 'verifier', 'integration'].includes(session.role) && !session.explicitlyClosed
+            ? 'managed'
+            : 'user';
         session.taskSnippet = normalizeTaskSnippet(session.taskSnippet);
         validateSessionRecord(session);
       }
@@ -121,8 +122,9 @@ class WorkspaceStore {
           primary?.name ||
           `${planningProviderName((stream.sessionType === 'direct' ? stream.directProfile : stream.delegatorProfile)?.provider)} ${stream.providerSequence || 1}`;
         if (!validName(stream.name)) throw new Error(`Invalid workstream name for ${stream.id}`);
-        const names = sessions.map((session) => session.name.toLocaleLowerCase());
-        const sequences = sessions.map((session) => `${session.role}:${session.roleSequence}`);
+        const current = sessions.filter((session) => !historicalSession(session));
+        const names = current.map((session) => session.name.toLocaleLowerCase());
+        const sequences = current.map((session) => `${session.role}:${session.roleSequence}`);
         if (new Set(names).size !== names.length || new Set(sequences).size !== sequences.length)
           throw new Error('Duplicate agent metadata');
       }
@@ -380,6 +382,8 @@ class WorkspaceStore {
         profile: structuredClone(profile),
         status: fields.status || 'closed',
         explicitlyClosed: Boolean(fields.explicitlyClosed),
+        lifecycleOwner:
+          fields.lifecycleOwner || (['worker', 'verifier', 'integration'].includes(role) ? 'managed' : 'user'),
         createdAt,
         updatedAt: createdAt
       };

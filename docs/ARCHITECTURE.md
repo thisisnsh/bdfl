@@ -2,11 +2,17 @@
 
 ```text
 Real terminal
-  └─ foreground supervisor
+  └─ foreground bdfl launcher
+       └─ isolated tmux server (.bdfl/run/tmux.sock)
+            ├─ session windows + tiled agent panes
+            ├─ native scrollback, copy mode, layouts, and zoom
+            ├─ New / Plans / Sessions / Reviews popups
+            └─ provider pane helpers
+
+Background supervisor daemon
        ├─ launch-scope repository catalog
-       ├─ input router + alternate-screen renderer
-       ├─ interactive provider PTYs + headless terminal snapshots
-       ├─ native Plan / Review / Sessions panes
+       ├─ mode-0600 Unix-socket action/state protocol
+       ├─ tmux notification reconciliation
        ├─ atomic workspace state + append-only events
        ├─ plan parser + immutable lineage
        ├─ dependency/lock/capacity scheduler
@@ -14,7 +20,9 @@ Real terminal
        └─ Git worktrees + consolidation + final integration
 ```
 
-The supervisor is the only durable-state writer. There is no daemon or headless provider broker. When launched inside a Git repository, BDFL scopes itself to that repository's top level. When launched from a non-Git parent, its repository catalog discovers Git repositories up to two levels below the launch directory and aggregates their state. Provider adapters construct interactive delegator, isolated worker, resume, and durable execution-agent launches while provider-native authentication stays outside BDFL. Ollama is a Codex-backed adapter: its outer launcher selects and prepares the model, while the inner Codex arguments carry BDFL's MCP, permission, notification, and recovery contract.
+The daemon is the only durable-state writer. The foreground command verifies tmux 3.2+, starts or reconnects the daemon, selects the leftmost live session and its first agent, and attaches the real terminal. It opens New only when no live sessions exist. tmux runs on BDFL's private socket with generated configuration under `.bdfl/run/`; terminal or daemon crashes leave provider panes available for reattachment. Provider argv, environment, and working directories cross the tmux boundary in a mode-0600 JSON descriptor consumed by a fixed pane helper, never as interpolated shell input.
+
+When launched inside a Git repository, BDFL scopes itself to that repository's top level. When launched from a non-Git parent, its repository catalog discovers Git repositories up to two levels below the launch directory and aggregates their state. Provider adapters construct interactive delegator, isolated worker, resume, and durable execution-agent launches while provider-native authentication stays outside BDFL. Ollama is a Codex-backed adapter: its outer launcher selects and prepares the model, while the inner Codex arguments carry BDFL's MCP, permission, notification, and recovery contract.
 
 ## Plans
 
@@ -30,6 +38,6 @@ Accepted commits apply to an integration worktree in dependency order. Implement
 
 ## Persistence
 
-Each repository's `.bdfl/` contains its schema-2 configuration and workspace/session records, plans, executions, worker contexts, worktrees, events, snapshots, and repository lock. A non-Git parent launch may contain only coordinator runtime data; repository state remains repository-local. Every session record carries a stable name, role-local sequence, and normalized task snippet. Schema-1 development state is reset explicitly rather than migrated by inference.
+Each repository's `.bdfl/` contains its schema-2 configuration and workspace/session records, plans, executions, worker contexts, worktrees, events, snapshots, and repository lock. A non-Git parent launch may contain only coordinator runtime data; repository state remains repository-local. Every session record carries a stable canonical name, role-local sequence, optional lifecycle owner, and normalized task snippet. Existing schema-2 state defaults lifecycle ownership from role and status without resetting provider IDs or history. One shared recent-file metadata index discovers Codex conversation identities instead of recursively polling per agent.
 
 Only repositories with a resolvable `HEAD` are offered for new sessions. BDFL does not initialize Git or create a bootstrap commit. Execution uses the repository recorded on the workstream, so one plan and its worktrees never span repositories.

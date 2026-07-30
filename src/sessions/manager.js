@@ -6,21 +6,9 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { atomicWrite } = require('../core/plans');
 const { buildLaunch, codexRuntime, skillDestination, pluginDestination, ROLE } = require('../providers/adapters');
-
-function ensurePtyHelperExecutable(io = fs) {
-  if (process.platform === 'win32') return;
-  const packageRoot = path.dirname(require.resolve('node-pty/package.json'));
-  const candidates = [
-    path.join(packageRoot, 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper'),
-    path.join(packageRoot, 'build', 'Release', 'spawn-helper')
-  ];
-  for (const helper of candidates) {
-    if (!io.existsSync(helper)) continue;
-    const mode = io.statSync(helper).mode;
-    if (!(mode & 0o111)) io.chmodSync(helper, mode | 0o111);
-    return;
-  }
-}
+const { CodexSessionIndex } = require('../providers/codex-index');
+const { fitsRail } = require('../tmux/cells');
+const { agentLabel } = require('../tmux/status');
 
 function substantivePlanningPrompt(value) {
   const prompt = `${value || ''}`
@@ -38,31 +26,12 @@ function substantivePlanningPrompt(value) {
   return prompt;
 }
 
-function planningInputTokens(value) {
-  return (
-    `${value}`.match(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)|\u001b\[[0-?]*[ -/]*[@-~]|\u001bO.|\u001b.|./gsu) || []
-  );
-}
-function wordCharacter(value) {
-  return /[\p{L}\p{N}_]/u.test(value || '');
-}
-function moveWordLeft(characters, cursor) {
-  while (cursor > 0 && !wordCharacter(characters[cursor - 1])) cursor -= 1;
-  while (cursor > 0 && wordCharacter(characters[cursor - 1])) cursor -= 1;
-  return cursor;
-}
-function moveWordRight(characters, cursor) {
-  while (cursor < characters.length && !wordCharacter(characters[cursor])) cursor += 1;
-  while (cursor < characters.length && wordCharacter(characters[cursor])) cursor += 1;
-  return cursor;
-}
-
 class SessionManager {
   constructor(
     root,
     store,
     {
-      pty = null,
+      tmux,
       io = fs,
       packageRoot = path.resolve(__dirname, '../..'),
       codexSessions = path.join(os.homedir(), '.codex', 'sessions'),
@@ -71,70 +40,39 @@ class SessionManager {
       dangerous = false,
       now = Date.now,
       setTimeout: schedule = setTimeout,
-      clearTimeout: cancel = clearTimeout,
-      activityWindow = 1500
+      clearTimeout: cancel = clearTimeout
     } = {}
   ) {
+    if (!tmux) throw new Error('SessionManager requires an isolated tmux server');
     this.root = path.resolve(root);
     this.store = store;
-    if (!pty) ensurePtyHelperExecutable();
-    this.pty = pty || require('node-pty');
+    this.tmux = tmux;
     this.io = io;
     this.packageRoot = packageRoot;
-    this.codexSessions = codexSessions;
     this.bridge = bridge;
     this.requireBridge = requireBridge;
     this.dangerous = dangerous;
     this.now = now;
     this.schedule = schedule;
     this.cancel = cancel;
-    this.activityWindow = activityWindow;
-    this.processes = new Map();
-    this.terminals = new Map();
-    this.loadingSessions = new Set();
-    this.closedScreens = new Map();
-    this.captureTimers = new Map();
-    this.terminationIntent = new WeakMap();
-    this.sessionGenerations = new Map();
-    this.activityDeadlines = new Map();
-    this.activityTimers = new Map();
-    this.pendingActivity = new Map();
-    this.promptBuffers = new Map();
-    this.viewedSessions = new Set();
-    this.planningSessions = new Set();
-    this.attentionNotified = new Set();
-    this.bridgeRecoveries = new Map();
-    this.registeredSessions = new Set();
-    this.pendingContinuations = new Map();
-    this.bridgeRecoveryWindow = 60000;
-    this.maxBridgeRecoveries = 3;
+    this.codexIndex = new CodexSessionIndex(codexSessions, { io, now });
+    this.codexPending = new Map();
+    this.codexTimer = null;
+    this.openSessions = new Set();
     this.onOutput = null;
     this.onActivity = null;
     this.onAttention = null;
-    this.onBridgeError = null;
     this.onExit = null;
-    this.bridge?.setProxyLossHandler?.((sessionId, detail) => {
-      this.registeredSessions.delete(sessionId);
-      return this.recoverBridge(sessionId, detail?.reason);
-    });
-    this.bridge?.setProxyRegistrationHandler?.((sessionId) => {
-      this.registeredSessions.add(sessionId);
-      this.store.update((value) => {
-        const session = value.sessions.find((item) => item.id === sessionId);
-        if (session?.bridgeRecoveryAttempt) {
-          session.bridgeRecoveredAt = new Date(this.nowMs()).toISOString();
-          session.bridgeRecoveryReason ||= 'Proxy heartbeat recovered';
-        }
-        return value;
-      });
-      return this.flushContinuation(sessionId);
-    });
+    this.bridge?.setProxyLossHandler?.((sessionId) => this.restartForBridge(sessionId));
   }
   rootFor(session) {
     return path.resolve(session?.repositoryRoot || this.root);
   }
   session(sessionId) {
     return this.store.load().sessions.find((item) => item.id === sessionId);
+  }
+  stream(session) {
+    return this.store.load().workstreams.find((item) => item.id === session.workstreamId);
   }
   injectSkill(session) {
     const destination = skillDestination(this.rootFor(session), session.profile.provider, session.id);
@@ -196,358 +134,128 @@ class SessionManager {
     );
     return { pluginDirectory, mcpConfig, allowedTools: tools.map((tool) => `mcp__bdfl__${tool}`) };
   }
-  cellStyle(cell) {
-    const codes = [];
-    if (cell.isBold()) codes.push(1);
-    if (cell.isDim()) codes.push(2);
-    if (cell.isItalic()) codes.push(3);
-    if (cell.isUnderline()) codes.push(4);
-    if (cell.isBlink()) codes.push(5);
-    if (cell.isInverse()) codes.push(7);
-    if (cell.isInvisible()) codes.push(8);
-    if (cell.isStrikethrough()) codes.push(9);
-    if (cell.isOverline()) codes.push(53);
-    const color = (kind) => {
-      const foreground = kind === 'Fg';
-      const value = cell[`get${kind}Color`]();
-      if (cell[`is${kind}RGB`]())
-        return `${foreground ? 38 : 48};2;${(value >> 16) & 255};${(value >> 8) & 255};${value & 255}`;
-      if (cell[`is${kind}Palette`]())
-        return value < 8
-          ? `${(foreground ? 30 : 40) + value}`
-          : value < 16
-            ? `${(foreground ? 90 : 100) + value - 8}`
-            : `${foreground ? 38 : 48};5;${value}`;
-      return null;
-    };
-    const foreground = color('Fg');
-    const background = color('Bg');
-    if (foreground) codes.push(foreground);
-    if (background) codes.push(background);
-    return codes.join(';');
+  admissionLabels(streamId, extra = null) {
+    const state = this.store.load();
+    const labels = state.sessions
+      .filter((session) => session.workstreamId === streamId && this.isOpen(session.id))
+      .map((session) => agentLabel(session));
+    if (extra) labels.push(agentLabel(extra));
+    return labels;
   }
-  styledLine(line, terminal) {
-    if (!line) return '';
-    const cell = terminal.buffer.active.getNullCell();
-    const result = [];
-    let previous = null;
-    for (let column = 0; column < line.length; column += 1) {
-      const value = line.getCell(column, cell);
-      if (!value || value.getWidth() === 0) continue;
-      const style = this.cellStyle(value);
-      if (style !== previous) {
-        result.push(`\u001b[0m${style ? `\u001b[${style}m` : ''}`);
-        previous = style;
-      }
-      result.push(value.getChars() || ' ');
-    }
-    return `${result.join('')}\u001b[0m`;
-  }
-  terminalLines(terminal, rows = terminal.rows) {
-    const lines = [];
-    const buffer = terminal.buffer.active;
-    const start = Math.max(0, buffer.viewportY);
-    for (let row = 0; row < rows; row += 1) lines.push(this.styledLine(buffer.getLine(start + row), terminal));
-    return lines;
-  }
-  terminalHasVisibleContent(terminal) {
-    const buffer = terminal.buffer.active;
-    for (let row = buffer.viewportY; row < buffer.viewportY + terminal.rows; row += 1)
-      if (buffer.getLine(row)?.translateToString(true).trim()) return true;
-    return false;
-  }
-  savedScreen(sessionId) {
-    if (this.closedScreens.has(sessionId)) return this.closedScreens.get(sessionId);
-    const session = this.session(sessionId);
-    if (!session) return [];
-    const file = path.join(this.rootFor(session), '.bdfl', 'sessions', sessionId, 'terminal.txt');
-    let lines = [];
-    try {
-      lines = this.io.readFileSync(file, 'utf8').replace(/\n$/u, '').split('\n');
-    } catch {}
-    this.closedScreens.set(sessionId, lines);
-    return lines;
-  }
-  presentation(sessionId, rows, { cursor = false } = {}) {
-    if (cursor && !this.viewedSessions.has(sessionId)) this.markViewed(sessionId);
-    if (this.loadingSessions.has(sessionId)) return { lines: ['Loading...'], cursor: null };
-    const terminal = this.terminals.get(sessionId);
-    if (terminal) {
-      const buffer = terminal.buffer.active;
-      const start = Math.max(0, buffer.viewportY);
-      const cursorRow = buffer.baseY + buffer.cursorY - start;
-      return {
-        lines: this.terminalLines(terminal, rows),
-        cursor: cursor && cursorRow >= 0 && cursorRow < rows ? { row: cursorRow, column: buffer.cursorX } : null
-      };
-    }
-    return { lines: this.savedScreen(sessionId).slice(-rows), cursor: null };
-  }
-  screen(sessionId, rows, options = {}) {
-    return this.presentation(sessionId, rows, options).lines;
-  }
-  snapshot(sessionId, terminal) {
-    const lines = [];
-    const buffer = terminal.buffer.active;
-    for (let row = 0; row < buffer.length; row += 1) {
-      const line = buffer.getLine(row)?.translateToString(true);
-      if (line) lines.push(line);
-    }
-    const file = path.join(this.rootFor(this.session(sessionId)), '.bdfl', 'sessions', sessionId, 'terminal.txt');
-    atomicWrite(file, `${lines.join('\n')}\n`, this.io);
-    return file;
-  }
-  codexMetadata() {
-    const found = [];
-    const visit = (directory) => {
-      let entries;
-      try {
-        entries = this.io.readdirSync(directory, { withFileTypes: true });
-      } catch {
-        return;
-      }
-      for (const entry of entries) {
-        const file = path.join(directory, entry.name);
-        if (entry.isDirectory()) visit(file);
-        else if (entry.name.endsWith('.jsonl')) {
-          try {
-            const value = JSON.parse(this.io.readFileSync(file, 'utf8').split('\n', 1)[0]);
-            const stat = this.io.statSync(file);
-            if (value.type === 'session_meta' && value.payload?.id)
-              found.push({
-                id: value.payload.id,
-                cwd: path.resolve(value.payload.cwd || ''),
-                created: stat.birthtimeMs || stat.ctimeMs
-              });
-          } catch {}
-        }
-      }
-    };
-    visit(this.codexSessions);
-    return found;
-  }
-  claimCodexSession(sessionId, cwd, launchedAt) {
-    const claimed = new Set(
-      this.store
-        .load()
-        .sessions.map((item) => item.providerSessionId)
-        .filter(Boolean)
-    );
-    const match = this.codexMetadata()
-      .filter((item) => item.cwd === path.resolve(cwd) && item.created >= launchedAt - 2000 && !claimed.has(item.id))
-      .sort((a, b) => a.created - b.created)[0];
-    if (!match) return false;
-    this.store.update((value) => {
-      const session = value.sessions.find((item) => item.id === sessionId);
-      if (session && !session.providerSessionId) {
-        session.providerSessionId = match.id;
-        session.providerSessionReady = true;
-      }
-      return value;
-    });
-    return true;
-  }
-  captureCodexSession(sessionId, cwd, launchedAt, { waitForRuntime = false } = {}) {
-    if (this.claimCodexSession(sessionId, cwd, launchedAt)) return;
-    let attempts = 0;
-    const poll = () => {
-      attempts += 1;
-      if (
-        !this.processes.has(sessionId) ||
-        this.claimCodexSession(sessionId, cwd, launchedAt) ||
-        (!waitForRuntime && attempts >= 60)
-      ) {
-        this.captureTimers.delete(sessionId);
-        return;
-      }
-      const timer = setTimeout(poll, attempts < 60 ? 500 : 2000);
-      timer.unref?.();
-      this.captureTimers.set(sessionId, timer);
-    };
-    const timer = setTimeout(poll, 500);
-    timer.unref?.();
-    this.captureTimers.set(sessionId, timer);
-  }
-  nowMs() {
-    return Number(this.now());
-  }
-  activityNowMs() {
-    return typeof this.store.now === 'function' ? Number(this.store.now()) : this.nowMs();
-  }
-  isActive(sessionId) {
-    return (this.activityDeadlines.get(sessionId) || 0) > this.nowMs();
-  }
-  isSessionActive(sessionId) {
-    return this.isActive(sessionId);
-  }
-  activityState(sessionId) {
-    return this.isActive(sessionId) ? 'running' : 'idle';
-  }
-  notifyActivity(sessionId, running) {
-    this.onActivity?.(sessionId, running);
-    this.onOutput?.(sessionId, { activity: running ? 'running' : 'idle' });
-  }
-  scheduleIdle(sessionId) {
-    const previous = this.activityTimers.get(sessionId);
-    if (previous) this.cancel(previous);
-    const delay = Math.max(0, (this.activityDeadlines.get(sessionId) || 0) - this.nowMs());
-    const timer = this.schedule(() => this.finishActivity(sessionId), delay);
-    timer?.unref?.();
-    this.activityTimers.set(sessionId, timer);
-  }
-  persistActivity(sessionId, activity = this.pendingActivity.get(sessionId)) {
-    if (!activity) return false;
-    this.pendingActivity.delete(sessionId);
-    try {
-      this.store.touchSession?.(sessionId, { conversation: activity.conversation, at: activity.at });
+  canOpen(session, automatic = false) {
+    const columns = this.tmux.narrowestClientWidth();
+    const opening = { ...session, status: 'running', turnState: 'working' };
+    const windows = this.tmux.windows();
+    const liveWorkstreams = new Set(windows.map((window) => window.workstreamId).filter(Boolean));
+    const state = this.store.load();
+    const stream = state.workstreams.find((item) => item.id === session.workstreamId);
+    const windowLabels = state.workstreams.filter((item) => liveWorkstreams.has(item.id)).map((item) => item.name);
+    if (!liveWorkstreams.has(session.workstreamId) && stream) windowLabels.push(stream.name);
+    if (fitsRail(windowLabels, columns) && fitsRail(this.admissionLabels(session.workstreamId, opening), columns))
       return true;
-    } catch {
-      return false;
-    }
-  }
-  finishActivity(sessionId, notify = true) {
-    const deadline = this.activityDeadlines.get(sessionId);
-    if (deadline === undefined) return false;
-    if (deadline > this.nowMs()) {
-      this.scheduleIdle(sessionId);
-      return false;
-    }
-    const timer = this.activityTimers.get(sessionId);
-    if (timer) this.cancel(timer);
-    this.activityTimers.delete(sessionId);
-    this.activityDeadlines.delete(sessionId);
-    this.persistActivity(sessionId);
-    if (notify) this.notifyActivity(sessionId, false);
-    return true;
-  }
-  clearActivity(sessionId, notify = false) {
-    const active = this.activityDeadlines.has(sessionId);
-    const timer = this.activityTimers.get(sessionId);
-    if (timer) this.cancel(timer);
-    this.activityTimers.delete(sessionId);
-    this.activityDeadlines.delete(sessionId);
-    this.persistActivity(sessionId);
-    if (active && notify) this.notifyActivity(sessionId, false);
-    return active;
-  }
-  markActivity(sessionId, force = false, conversation = false) {
-    const now = this.nowMs();
-    const deadline = this.activityDeadlines.get(sessionId);
-    if (deadline !== undefined && deadline <= now) this.finishActivity(sessionId);
-    const entered = !this.activityDeadlines.has(sessionId);
-    this.activityDeadlines.set(sessionId, now + this.activityWindow);
-    this.viewedSessions.delete(sessionId);
-    this.scheduleIdle(sessionId);
-    const activity = { at: this.activityNowMs(), conversation };
-    if (entered || force) {
-      this.pendingActivity.delete(sessionId);
-      this.persistActivity(sessionId, activity);
-    } else this.pendingActivity.set(sessionId, activity);
-    if (entered) this.notifyActivity(sessionId, true);
-    return entered;
-  }
-  markViewed(sessionId) {
-    if (!this.store.markSessionViewed && !this.store.viewSession) return false;
-    try {
-      (this.store.markSessionViewed || this.store.viewSession).call(this.store, sessionId);
-      this.viewedSessions.add(sessionId);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  view(sessionId) {
-    return this.markViewed(sessionId);
-  }
-  focus(sessionId) {
-    return this.markViewed(sessionId);
-  }
-  notifyAttention(sessionId) {
-    if (this.attentionNotified.has(sessionId)) return false;
-    this.attentionNotified.add(sessionId);
-    this.onAttention?.(sessionId);
-    return true;
-  }
-  acknowledgeAttention(sessionId) {
-    this.attentionNotified.add(sessionId);
-  }
-  isOpen(sessionId) {
-    return this.processes.has(sessionId);
-  }
-  flushContinuation(sessionId) {
-    const prompt = this.pendingContinuations.get(sessionId);
-    const child = this.processes.get(sessionId);
-    if (!prompt || !child || (this.bridge?.setProxyRegistrationHandler && !this.registeredSessions.has(sessionId)))
-      return false;
-    this.pendingContinuations.delete(sessionId);
-    child.write(`\u001b[200~${prompt}\u001b[201~\r`);
-    return true;
-  }
-  continueWhenReady(sessionId, prompt) {
-    if (!this.session(sessionId)) throw new Error(`Unknown session: ${sessionId}`);
-    if (!`${prompt || ''}`.trim()) throw new Error('Continuation prompt is required');
-    this.store.setSessionTurnState?.(sessionId, 'working', 'automatic continuation');
-    this.pendingContinuations.set(sessionId, `${prompt}`.trim());
-    return this.flushContinuation(sessionId);
-  }
-  recoverBridge(sessionId, reason = 'BDFL proxy heartbeat was lost') {
-    const child = this.processes.get(sessionId);
-    if (!child) return false;
-    const current = this.now();
-    const session = this.session(sessionId);
-    const persistedAt = session?.bridgeRecoveryAt ? Date.parse(session.bridgeRecoveryAt) : null;
-    const previous =
-      this.bridgeRecoveries.get(sessionId) ||
-      (Number.isFinite(persistedAt) ? { attempts: session.bridgeRecoveryAttempt || 0, at: persistedAt } : null);
-    const attempts = previous && current - previous.at <= this.bridgeRecoveryWindow ? previous.attempts + 1 : 1;
-    this.bridgeRecoveries.set(sessionId, { attempts, at: current });
-    if (attempts > this.maxBridgeRecoveries) {
-      const message = 'BDFL bridge recovery failed repeatedly';
+    if (automatic) {
       this.store.update((value) => {
-        const session = value.sessions.find((item) => item.id === sessionId);
-        if (session) {
-          session.status = 'bridge-error';
-          session.bridgeError = message;
-          session.bridgeRecoveryAttempt = attempts;
-          session.bridgeRecoveryAt = new Date(current).toISOString();
-          session.bridgeRecoveryReason = reason;
+        const current = value.sessions.find((item) => item.id === session.id);
+        if (current && !current.waitingForRail) {
+          current.waitingForRail = true;
+          current.waitingReason = 'Waiting for rail space';
+          current.turnState = 'idle';
         }
         return value;
       });
-      this.onBridgeError?.(sessionId, new Error(message));
-      this.onOutput?.(sessionId);
-      return false;
-    }
-    const terminal = this.terminals.get(sessionId);
-    this.recoveryDimensions = { columns: terminal?.cols || 80, rows: terminal?.rows || 24 };
-    this.store.update((value) => {
-      const session = value.sessions.find((item) => item.id === sessionId);
-      if (session) {
-        session.status = 'bridge-reconnecting';
-        session.bridgeRecoveryAttempt = attempts;
-        session.bridgeRecoveryAt = new Date(current).toISOString();
-        session.bridgeRecoveryReason = reason;
-      }
-      return value;
-    });
-    this.terminationIntent.set(child, 'bridge-recovery');
-    child.kill();
-    this.onOutput?.(sessionId);
-    return true;
+    } else
+      this.tmux.message('BDFL: close an agent or session, or widen the narrowest client before opening another agent');
+    return false;
   }
-  open(sessionId, { columns = 80, rows = 24 } = {}) {
-    const state = this.store.load();
-    let session = state.sessions.find((item) => item.id === sessionId);
-    if (!session) throw new Error(`Unknown session: ${sessionId}`);
-    if (session.role === 'delegator') this.planningSessions.add(sessionId);
-    if (session.attention) this.attentionNotified.add(sessionId);
-    if (this.processes.has(sessionId)) return session;
-    if ((session.status === 'paused' || session.explicitlyClosed) && this.store.resumeSession) {
-      this.store.resumeSession(sessionId);
-      session = this.session(sessionId);
+  invocation(session) {
+    const bridge = this.providerBridge(session);
+    const resume = Boolean(session.providerSessionId && session.providerSessionReady !== false);
+    const direct = session.role === 'direct' || session.sessionType === 'direct';
+    return buildLaunch(session.profile, {
+      role: session.role,
+      permissionMode: direct
+        ? 'workspace-write'
+        : session.role === 'delegator' || session.role === 'verifier'
+          ? 'read-only'
+          : session.profile.permissionMode,
+      dangerous: this.dangerous,
+      cwd: session.worktree || this.rootFor(session),
+      ...bridge,
+      roleInstruction: direct
+        ? null
+        : session.role === 'delegator' && !resume && this.bridge
+          ? ROLE
+          : session.roleInstruction,
+      resume,
+      sessionId: session.providerSessionId
+    });
+  }
+  claimedProviderIds() {
+    return new Set(
+      this.store
+        .load()
+        .sessions.map((session) => session.providerSessionId)
+        .filter(Boolean)
+    );
+  }
+  pollCodexIndex() {
+    this.codexTimer = null;
+    if (!this.codexPending.size) return;
+    const claimed = this.claimedProviderIds();
+    const indexed = this.codexIndex.refresh();
+    for (const [sessionId, pending] of this.codexPending) {
+      const match = indexed.find(
+        (item) =>
+          item.cwd === path.resolve(pending.cwd) && item.created >= pending.launchedAt - 2000 && !claimed.has(item.id)
+      );
+      if (!match) continue;
+      claimed.add(match.id);
+      this.store.update((value) => {
+        const session = value.sessions.find((item) => item.id === sessionId);
+        if (session && !session.providerSessionId) {
+          session.providerSessionId = match.id;
+          session.providerSessionReady = true;
+        }
+        return value;
+      });
+      this.codexPending.delete(sessionId);
     }
-    this.clearActivity(sessionId);
-    this.registeredSessions.delete(sessionId);
+    if (this.codexPending.size) {
+      this.codexTimer = this.schedule(() => this.pollCodexIndex(), 500);
+      this.codexTimer.unref?.();
+    }
+  }
+  captureCodexIdentity(session, invocation, launchedAt) {
+    if (!codexRuntime(session.profile.provider) || session.providerSessionId) return;
+    this.codexPending.set(session.id, { cwd: invocation.cwd, launchedAt });
+    if (!this.codexTimer) {
+      this.codexTimer = this.schedule(() => this.pollCodexIndex(), 100);
+      this.codexTimer.unref?.();
+    }
+  }
+  restartForBridge(sessionId) {
+    const session = this.session(sessionId);
+    if (!session || session.role === 'direct' || session.sessionType === 'direct') return false;
+    return this.restart(sessionId);
+  }
+  restart(sessionId) {
+    const session = this.session(sessionId);
+    if (!session) return false;
+    const owner = session.lifecycleOwner || 'managed';
+    this.snapshot(sessionId);
+    this.tmux.killPane(sessionId);
+    this.openSessions.delete(sessionId);
+    return Boolean(
+      this.open(sessionId, { lifecycleOwner: owner, automatic: owner === 'managed', bypassAdmission: true })
+    );
+  }
+  open(sessionId, { automatic, lifecycleOwner, bypassAdmission = false } = {}) {
+    let session = this.session(sessionId);
+    if (!session) throw new Error(`Unknown session: ${sessionId}`);
+    lifecycleOwner ||= ['worker', 'verifier', 'integration'].includes(session.role) ? 'managed' : 'user';
+    automatic ??= lifecycleOwner === 'managed';
+    if (this.isOpen(sessionId)) return session;
+    if (!bypassAdmission && !this.canOpen(session, automatic)) return null;
     if (session.profile.provider === 'claude' && !session.providerSessionId) {
       const providerSessionId = crypto.randomUUID();
       this.store.update((value) => {
@@ -556,336 +264,211 @@ class SessionManager {
         current.providerSessionReady = false;
         return value;
       });
-      session = this.store.load().sessions.find((item) => item.id === sessionId);
+      session = this.session(sessionId);
     }
-    const bridge = this.providerBridge(session);
-    const resume = Boolean(session.providerSessionId && session.providerSessionReady !== false);
-    const direct = session.role === 'direct' || session.sessionType === 'direct';
-    const roleInstruction = direct
-      ? null
-      : session.role === 'delegator'
-        ? !resume && this.bridge
-          ? ROLE
-          : null
-        : session.roleInstruction || null;
-    const sessionRoot = this.rootFor(session);
-    const invocation = buildLaunch(session.profile, {
-      role: session.role,
-      permissionMode: direct
-        ? 'workspace-write'
-        : session.role === 'delegator' || session.role === 'verifier'
-          ? 'read-only'
-          : session.profile.permissionMode,
-      dangerous: this.dangerous,
-      cwd: session.worktree || sessionRoot,
-      ...bridge,
-      roleInstruction,
-      resume,
-      sessionId: session.providerSessionId
-    });
-    const { Terminal } = require('@xterm/headless');
-    const terminal = new Terminal({ cols: columns, rows, allowProposedApi: true, scrollback: 5000 });
-    terminal.onBell(() => this.notifyAttention(sessionId));
-    let child;
-    const launchedAt = Date.now();
-    try {
-      child = this.pty.spawn(invocation.command, invocation.args, {
-        cwd: invocation.cwd,
-        env: { ...process.env, ...invocation.env },
-        cols: columns,
-        rows
-      });
-    } catch (error) {
-      terminal.dispose();
-      throw new Error(
-        `Unable to launch ${session.profile.provider} provider (${invocation.command}): ${error.message}`,
-        { cause: error }
-      );
-    }
-    const generation = (this.sessionGenerations.get(sessionId) || 0) + 1;
-    this.sessionGenerations.set(sessionId, generation);
-    this.terminals.set(sessionId, terminal);
-    this.loadingSessions.add(sessionId);
-    child.onData?.((data) =>
-      terminal.write(data, () => {
-        if (this.sessionGenerations.get(sessionId) !== generation) return;
-        if (this.terminalHasVisibleContent(terminal)) this.loadingSessions.delete(sessionId);
-        const entered = this.markActivity(sessionId);
-        if (!entered) this.onOutput?.(sessionId);
-      })
-    );
-    this.processes.set(sessionId, child);
+    const stream = this.stream(session);
+    if (!stream) throw new Error(`Unknown session window: ${session.workstreamId}`);
+    const launchedAt = this.now();
+    const invocation = this.invocation(session);
+    const paneId = this.tmux.openPane(stream, session, invocation);
+    this.captureCodexIdentity(session, invocation, launchedAt);
+    this.openSessions.add(sessionId);
     this.store.update((value) => {
       const current = value.sessions.find((item) => item.id === sessionId);
       current.status = 'running';
       current.explicitlyClosed = false;
-      current.pid = child.pid;
-      current.launchProfile = structuredClone(session.profile);
-      delete current.bridgeError;
-      if (current.profile.provider === 'claude') current.providerSessionReady = true;
+      current.lifecycleOwner = lifecycleOwner;
+      current.turnState = 'working';
+      current.turnStateReason = 'provider launched';
+      current.paneId = paneId;
+      current.launchedAt = new Date(launchedAt).toISOString();
+      delete current.waitingForRail;
+      delete current.waitingReason;
       return value;
     });
-    if (codexRuntime(session.profile.provider) && !session.providerSessionId)
-      this.captureCodexSession(sessionId, invocation.cwd, launchedAt, {
-        waitForRuntime: session.profile.provider === 'ollama'
+    this.tmux.setLabel(paneId, this.session(sessionId));
+    return this.session(sessionId);
+  }
+  markOutput(sessionId) {
+    if (!this.session(sessionId)) return;
+    this.store.update((value) => {
+      const session = value.sessions.find((item) => item.id === sessionId);
+      session.activityAt = new Date(this.now()).toISOString();
+      if (session.profile.provider === 'claude' && session.providerSessionId) session.providerSessionReady = true;
+      if (session.status === 'running') {
+        session.turnState = 'working';
+        session.turnStateReason = 'provider output';
+      }
+      return value;
+    });
+    this.onActivity?.(sessionId, true);
+    this.onOutput?.(sessionId);
+  }
+  markIdle(sessionId, reason = 'provider completed') {
+    if (!this.session(sessionId)) return;
+    this.store.update((value) => {
+      const session = value.sessions.find((item) => item.id === sessionId);
+      session.turnState = 'idle';
+      session.turnStateReason = reason;
+      return value;
+    });
+    const pane = this.tmux.paneFor(sessionId);
+    if (pane) this.tmux.setLabel(pane.paneId, this.session(sessionId));
+    this.onActivity?.(sessionId, false);
+  }
+  paneExited(sessionId, code = 0) {
+    this.openSessions.delete(sessionId);
+    if (!this.session(sessionId)) return;
+    this.store.update((value) => {
+      const session = value.sessions.find((item) => item.id === sessionId);
+      session.status = code ? 'failed' : 'exited';
+      session.exitCode = code;
+      session.turnState = 'idle';
+      session.turnStateReason = 'provider exited';
+      return value;
+    });
+    this.onExit?.(sessionId, code);
+  }
+  isOpen(sessionId) {
+    const pane = this.tmux.paneFor(sessionId);
+    return Boolean(pane && pane.dead !== '1');
+  }
+  isActive(sessionId) {
+    return this.session(sessionId)?.turnState === 'working';
+  }
+  activityState(sessionId) {
+    return this.isActive(sessionId) ? 'running' : 'idle';
+  }
+  focus(sessionId) {
+    const focused = this.tmux.focus(sessionId);
+    if (focused) this.store.markSessionViewed?.(sessionId);
+    return focused;
+  }
+  view(sessionId) {
+    return this.focus(sessionId);
+  }
+  snapshot(sessionId) {
+    const session = this.session(sessionId);
+    if (!session) return null;
+    const file = path.join(this.rootFor(session), '.bdfl', 'sessions', sessionId, 'terminal.txt');
+    return this.tmux.snapshot(sessionId, file);
+  }
+  screen(sessionId, rows = 24) {
+    const file = this.snapshot(sessionId);
+    if (!file) return [];
+    try {
+      return this.io.readFileSync(file, 'utf8').replace(/\n$/u, '').split('\n').slice(-rows);
+    } catch {
+      return [];
+    }
+  }
+  presentation(sessionId, rows) {
+    return { lines: this.screen(sessionId, rows), cursor: null };
+  }
+  close(sessionId, explicit = true) {
+    const session = this.session(sessionId);
+    if (!session) return false;
+    this.snapshot(sessionId);
+    this.tmux.killPane(sessionId);
+    this.openSessions.delete(sessionId);
+    this.store.update((value) => {
+      const current = value.sessions.find((item) => item.id === sessionId);
+      current.status = explicit ? 'paused' : 'closed';
+      current.explicitlyClosed = explicit;
+      current.turnState = 'idle';
+      current.turnStateReason = explicit ? 'paused by user' : 'closed by supervisor';
+      if (explicit) current.lifecycleOwner = 'user';
+      return value;
+    });
+    return true;
+  }
+  pause(sessionId) {
+    return this.close(sessionId, true);
+  }
+  resume(sessionId, options = {}) {
+    return this.open(sessionId, { ...options, lifecycleOwner: 'user' });
+  }
+  delete(sessionId) {
+    this.close(sessionId, false);
+    if (this.store.deleteSession) this.store.deleteSession(sessionId);
+    else
+      this.store.update((value) => {
+        value.sessions = value.sessions.filter((session) => session.id !== sessionId);
+        return value;
       });
-    child.onExit?.(({ exitCode, signal }) => {
-      const intent = this.terminationIntent.get(child);
-      this.terminationIntent.delete(child);
-      if (this.sessionGenerations.get(sessionId) !== generation) {
-        terminal.dispose();
-        return;
-      }
-      const timer = this.captureTimers.get(sessionId);
-      if (timer) this.cancel(timer);
-      this.captureTimers.delete(sessionId);
-      this.clearActivity(sessionId, true);
-      this.loadingSessions.delete(sessionId);
-      this.registeredSessions.delete(sessionId);
-      if (intent === 'delete') {
-        terminal.dispose();
-        this.terminals.delete(sessionId);
-        this.processes.delete(sessionId);
-        this.pendingContinuations.delete(sessionId);
-        this.sessionGenerations.delete(sessionId);
-        this.onOutput?.(sessionId);
-        return;
-      }
-      if (intent === 'bridge-recovery') {
-        terminal.dispose();
-        this.terminals.delete(sessionId);
-        this.processes.delete(sessionId);
+    return true;
+  }
+  restore() {
+    const state = this.store.load();
+    const live = new Set(
+      this.tmux
+        .panes()
+        .filter((pane) => pane.dead !== '1')
+        .map((pane) => pane.sessionId)
+    );
+    const restored = [];
+    const errors = [];
+    for (const session of state.sessions) {
+      if (live.has(session.id)) {
+        this.openSessions.add(session.id);
+        restored.push(session.id);
+        if (session.turnState === 'working' && session.status !== 'running') this.markIdle(session.id, 'restored');
+      } else if (session.status === 'running' && !session.explicitlyClosed) {
         try {
-          const recovered = this.open(sessionId, this.recoveryDimensions);
-          const prompt =
-            recovered.role === 'delegator'
-              ? 'The BDFL bridge recovered. Re-read durable current plan state with bdfl_plan current detail revision, then retry the failed operation once.'
-              : 'The BDFL bridge recovered. Re-read durable execution status before continuing.';
-          this.continueWhenReady(sessionId, prompt);
+          if (
+            this.open(session.id, {
+              lifecycleOwner: session.lifecycleOwner,
+              automatic: session.lifecycleOwner === 'managed',
+              bypassAdmission: true
+            })
+          )
+            restored.push(session.id);
         } catch (error) {
-          this.pendingContinuations.delete(sessionId);
+          errors.push({ sessionId: session.id, error });
           this.store.update((value) => {
-            const current = value.sessions.find((item) => item.id === sessionId);
+            const current = value.sessions.find((item) => item.id === session.id);
             if (current) {
-              current.status = 'bridge-error';
-              current.bridgeError = error.message;
-              delete current.pid;
+              current.status = 'failed';
+              current.turnState = 'idle';
+              current.turnStateReason = `restore failed: ${error.message}`;
             }
             return value;
           });
         }
-        this.onOutput?.(sessionId);
-        return;
-      }
-      this.closedScreens.set(sessionId, this.terminalLines(terminal));
-      this.snapshot(sessionId, terminal);
-      terminal.dispose();
-      this.terminals.delete(sessionId);
-      this.processes.delete(sessionId);
-      this.pendingContinuations.delete(sessionId);
-      if (intent === 'pause') this.store.pauseSession?.(sessionId);
-      else
-        this.store.update((value) => {
-          const current = value.sessions.find((item) => item.id === sessionId);
-          if (current) {
-            current.status = 'closed';
-            if (!intent) current.explicitlyClosed = true;
-            current.exitCode = exitCode;
-            current.signal = signal;
-            current.snapshot = path.join(sessionRoot, '.bdfl', 'sessions', sessionId, 'terminal.txt');
-            delete current.pid;
-          }
-          return value;
-        });
-      if (intent === 'pause')
-        this.store.update((value) => {
-          const current = value.sessions.find((item) => item.id === sessionId);
-          if (current) {
-            current.exitCode = exitCode;
-            current.signal = signal;
-            current.snapshot = path.join(sessionRoot, '.bdfl', 'sessions', sessionId, 'terminal.txt');
-          }
-          return value;
-        });
-      if (!intent) this.onExit?.(this.session(sessionId), { exitCode, signal });
-      this.onOutput?.(sessionId);
-    });
-    return session;
-  }
-  close(sessionId, explicit = true) {
-    const child = this.processes.get(sessionId);
-    const terminal = this.terminals.get(sessionId);
-    let snapshot;
-    if (child && terminal) {
-      this.closedScreens.set(sessionId, this.terminalLines(terminal));
-      snapshot = this.snapshot(sessionId, terminal);
+      } else if (session.turnState === 'working') this.markIdle(session.id, 'restored without a live pane');
     }
-    if (child) this.terminationIntent.set(child, explicit ? 'pause' : 'shutdown');
-    child?.kill();
-    this.processes.delete(sessionId);
-    const timer = this.captureTimers.get(sessionId);
-    if (timer) this.cancel(timer);
-    this.captureTimers.delete(sessionId);
-    this.clearActivity(sessionId, true);
-    this.registeredSessions.delete(sessionId);
-    this.pendingContinuations.delete(sessionId);
-    this.promptBuffers.delete(sessionId);
-    if (explicit && this.store.pauseSession) this.store.pauseSession(sessionId);
-    else
-      this.store.update((value) => {
-        const session = value.sessions.find((item) => item.id === sessionId);
-        if (!session) throw new Error(`Unknown session: ${sessionId}`);
-        session.status = 'closed';
-        session.explicitlyClosed = explicit;
-        delete session.pid;
-        return value;
-      });
-    if (snapshot)
-      this.store.update((value) => {
-        const session = value.sessions.find((item) => item.id === sessionId);
-        if (session) session.snapshot = snapshot;
-        return value;
-      });
+    restored.errors = errors;
+    return restored;
   }
-  pause(sessionId) {
-    this.close(sessionId, true);
-    return this.session(sessionId);
-  }
-  resume(sessionId, options = {}) {
-    if (this.processes.has(sessionId)) return this.session(sessionId);
-    this.store.resumeSession?.(sessionId);
-    return this.open(sessionId, options);
-  }
-  delete(sessionId) {
-    const child = this.processes.get(sessionId);
-    if (child) {
-      this.terminationIntent.set(child, 'delete');
-      child.kill();
-      this.processes.delete(sessionId);
-    }
-    const timer = this.captureTimers.get(sessionId);
-    if (timer) clearTimeout(timer);
-    this.captureTimers.delete(sessionId);
-    this.clearActivity(sessionId);
-    this.loadingSessions.delete(sessionId);
-    this.registeredSessions.delete(sessionId);
-    this.pendingContinuations.delete(sessionId);
-    this.promptBuffers.delete(sessionId);
-    this.viewedSessions.delete(sessionId);
-    this.planningSessions.delete(sessionId);
-    this.attentionNotified.delete(sessionId);
-    const root = this.rootFor(this.session(sessionId));
-    const directory = path.resolve(root, '.bdfl', 'sessions', sessionId);
-    const base = `${path.resolve(root, '.bdfl', 'sessions')}${path.sep}`;
-    if (!directory.startsWith(base)) throw new Error(`Unsafe session path: ${sessionId}`);
-    this.io.rmSync(directory, { recursive: true, force: true });
-  }
-  shutdown() {
-    for (const sessionId of [...this.processes.keys()]) this.close(sessionId, false);
-  }
-  restore(options = {}) {
-    const state = this.store.load();
-    const active = new Set(state.workstreams.filter((stream) => stream.status !== 'closed').map((stream) => stream.id));
-    const opened = [];
-    const errors = [];
-    for (const session of state.sessions.filter((item) => !item.explicitlyClosed && active.has(item.workstreamId))) {
-      try {
-        opened.push(this.open(session.id, options));
-      } catch (error) {
-        errors.push({ sessionId: session.id, error });
-      }
-    }
-    return { opened, errors };
-  }
-  scroll(sessionId, lines, mouse) {
-    const child = this.processes.get(sessionId);
-    const terminal = this.terminals.get(sessionId);
-    if (!child || !terminal) return false;
-    if (terminal.buffer.active.type === 'alternate' && terminal.modes.mouseTrackingMode !== 'none' && mouse) {
-      child.write(`\u001b[<${mouse.button};${mouse.column};${mouse.row}${mouse.final || 'M'}`);
-      this.markActivity(sessionId);
-      return true;
-    }
-    if (terminal.buffer.active.type !== 'normal') return false;
-    const before = terminal.buffer.active.viewportY;
-    terminal.scrollLines(lines);
-    const moved = terminal.buffer.active.viewportY - before;
-    if (moved) this.onOutput?.(sessionId, { scroll: moved });
-    return true;
-  }
-  mouse(sessionId, value) {
-    const child = this.processes.get(sessionId);
-    if (!child) return false;
-    child.write(value);
-    this.markActivity(sessionId);
-    return true;
-  }
-  capturePlanningInput(sessionId, value) {
-    let buffer = this.promptBuffers.get(sessionId) || { value: '', cursor: 0 };
-    let submitted = false;
-    for (const token of planningInputTokens(value)) {
-      let characters = [...buffer.value];
-      if (token === '\r' || token === '\n') {
-        const prompt = substantivePlanningPrompt(buffer.value);
-        if (prompt) {
-          submitted = true;
-          if (this.planningSessions.has(sessionId) && this.store.setSessionTaskSnippet)
-            this.store.setSessionTaskSnippet(sessionId, prompt);
-        }
-        buffer = { value: '', cursor: 0 };
-        continue;
-      }
-      if (token === '\u007f' || token === '\b' || token === '\u001b\u007f') {
-        if (buffer.cursor > 0) {
-          characters.splice(buffer.cursor - 1, 1);
-          buffer.cursor -= 1;
-        }
-      } else if (token === '\u0001' || /^(?:\u001b\[(?:1~|7~|H)|\u001bOH)$/u.test(token)) buffer.cursor = 0;
-      else if (token === '\u0005' || /^(?:\u001b\[(?:4~|8~|F)|\u001bOF)$/u.test(token))
-        buffer.cursor = characters.length;
-      else if (token === '\u001bb' || (/^\u001b\[[0-9;]*[D]$/u.test(token) && token.includes(';')))
-        buffer.cursor = moveWordLeft(characters, buffer.cursor);
-      else if (token === '\u001bf' || (/^\u001b\[[0-9;]*[C]$/u.test(token) && token.includes(';')))
-        buffer.cursor = moveWordRight(characters, buffer.cursor);
-      else if (/^(?:\u001b\[D|\u001bOD)$/u.test(token)) buffer.cursor = Math.max(0, buffer.cursor - 1);
-      else if (/^(?:\u001b\[C|\u001bOC)$/u.test(token)) buffer.cursor = Math.min(characters.length, buffer.cursor + 1);
-      else if (token === '\u001b[3~') {
-        if (buffer.cursor < characters.length) characters.splice(buffer.cursor, 1);
-      } else if (token === '\u0015') {
-        characters.splice(0, buffer.cursor);
-        buffer.cursor = 0;
-      } else if (token === '\u000b') characters.splice(buffer.cursor);
-      else if (token === '\u0017') {
-        const start = moveWordLeft(characters, buffer.cursor);
-        characters.splice(start, buffer.cursor - start);
-        buffer.cursor = start;
-      } else if (!/[\u0000-\u001f\u007f-\u009f]/u.test(token)) {
-        characters.splice(buffer.cursor, 0, ...token);
-        buffer.cursor += [...token].length;
-      }
-      buffer.value = characters.join('');
-    }
-    this.promptBuffers.set(sessionId, buffer);
-    return submitted;
+  resize() {
+    for (const window of this.tmux.windows())
+      this.tmux.command.tryRun(['select-layout', '-t', window.windowId, 'tiled']);
   }
   write(sessionId, value) {
-    const child = this.processes.get(sessionId);
-    if (!child) throw new Error(`Session is not running: ${sessionId}`);
-    const terminal = this.terminals.get(sessionId);
-    const scrolled =
-      terminal?.buffer.active.type === 'normal' && terminal.buffer.active.viewportY < terminal.buffer.active.baseY;
-    if (scrolled) terminal.scrollToBottom();
-    const substantive = this.capturePlanningInput(sessionId, value);
-    const submitted = /[\r\n]/u.test(value);
-    if (submitted) this.attentionNotified.delete(sessionId);
-    child.write(value);
-    const entered = substantive ? this.markActivity(sessionId, true, true) : false;
-    if (scrolled && !entered) this.onOutput?.(sessionId);
+    const pane = this.tmux.paneFor(sessionId);
+    if (!pane) return false;
+    this.tmux.command.run(['send-keys', '-t', pane.paneId, '-l', `${value}`]);
+    return true;
   }
-  resize(sessionId, columns, rows) {
-    this.processes.get(sessionId)?.resize(columns, rows);
-    this.terminals.get(sessionId)?.resize(columns, rows);
+  acknowledgeAttention(sessionId) {
+    this.store.setSessionAttention?.(sessionId, false);
+  }
+  notifyAttention(sessionId) {
+    this.store.setSessionAttention?.(sessionId, true);
+    this.onAttention?.(sessionId);
+  }
+  continueWhenReady(sessionId, prompt) {
+    if (!this.isOpen(sessionId)) this.resume(sessionId);
+    this.write(sessionId, prompt);
+    this.tmux.command.run(['send-keys', '-t', this.tmux.paneFor(sessionId).paneId, 'Enter']);
+    return true;
+  }
+  shutdown() {
+    if (this.codexTimer) this.cancel(this.codexTimer);
+    this.codexTimer = null;
+    this.codexPending.clear();
+    for (const session of this.store.load().sessions) if (this.isOpen(session.id)) this.snapshot(session.id);
   }
 }
 
-module.exports = { SessionManager, ensurePtyHelperExecutable, substantivePlanningPrompt };
+module.exports = { SessionManager, substantivePlanningPrompt };

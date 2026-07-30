@@ -15,7 +15,7 @@
 
 BDFL is a terminal supervisor for Codex, Claude Code, and Ollama-backed Codex sessions. Work with a planning agent, compare and approve versioned plans or individual sections, then let isolated worker agents implement the approved work while BDFL handles scheduling, checks, review, verification, integration, and recovery.
 
-Mouse tracking keeps BDFL chrome clickable and lets unmodified drags select structured diff excerpts in Review. Use Shift-drag for native terminal text selection everywhere.
+BDFL and its private tmux server leave mouse tracking disabled. Normal terminal drags select native text; use `C-b [` for reliable scrollback and keyboard copy mode. Review excerpts use `v`, the arrow keys, and Enter.
 
 _BDFL also stands for [Benevolent Dictator for Life](https://en.wikipedia.org/wiki/Benevolent_dictator_for_life). In this project, BDFL delegates the work to LLMs. Hence the name!_
 
@@ -32,9 +32,11 @@ _BDFL also stands for [Benevolent Dictator for Life](https://en.wikipedia.org/wi
 <a id="quick-start"></a>
 ## ⚡ Quick start
 
-You need macOS or Linux _(Windows support is planned)_, Node.js 20+, Git, and at least one supported agent CLI installed and authenticated.
+You need macOS or Linux _(Windows support is planned)_, Node.js 20+, Git, tmux 3.2+, and at least one supported agent CLI installed and authenticated.
 
 ```bash
+# macOS: brew install tmux
+# Debian/Ubuntu: sudo apt install tmux
 npm install --global @thisisnsh/bdfl
 cd your-git-repository
 bdfl
@@ -55,7 +57,7 @@ npm install --global @thisisnsh/bdfl@staging
 
 #### Use with Codex or Claude Code
 
-Install the [Codex CLI](https://developers.openai.com/codex/cli) or [Claude Code](https://code.claude.com/docs/en/getting-started), run it once to sign in, then start BDFL in your Git repository.
+Install tmux 3.2 or newer (`brew install tmux` on macOS or `sudo apt install tmux` on Debian/Ubuntu), then install the [Codex CLI](https://developers.openai.com/codex/cli) or [Claude Code](https://code.claude.com/docs/en/getting-started), run it once to sign in, and start BDFL in your Git repository. BDFL uses a private tmux socket and never modifies your normal tmux server.
 
 Choose **Codex** or **Claude Code** for the planning agent, worker agent, or both. Each role can use a different model and effort level. You can also mix Codex with Claude Code or Ollama.
 
@@ -93,13 +95,13 @@ Use Codex, Claude Code, or Ollama independently for planning, worker, or direct-
 - Create a planning session with a read-only planning agent and isolated managed workers, or a direct session with one editable agent in the repository.
 - Each repository remembers planning and direct settings independently.
 
-- Manage running agents or reopen paused ones from their saved session.
+- Manage running agents or reopen any saved agent with its exact provider conversation and editable permissions.
 
-- Agents accept typing and terminal editing keys immediately. Click an open agent in the bottom rail to switch without stealing provider keystrokes.
+- Each live session is a tmux window and every open agent is a tiled pane. Standard `C-b` navigation, `C-b z` zoom, and `C-b [` copy mode work normally. Mouse handling is disabled so terminal drag selection stays native.
 
-- The top action rail opens New, Plans, Sessions, Reviews, or Close. Close pauses only the selected agent; selecting that agent in Sessions resumes its exact provider conversation in one action. Press `Ctrl+C` twice to quit BDFL.
+- `C-b N/P/S/R` opens New, Plans, Sessions, or Reviews in a full-width bottom popup. `Esc` returns to the agents, `C-b X` pauses the active agent, and `C-b Q` snapshots providers and performs a normal shutdown. Arrow keys and `Ctrl+C` go directly to the active provider.
 
-- On a Sessions parent, press `r` to rename it or `d` to permanently delete that session and its agents; `D` separately deletes all sessions. On Plans, `r` renames the selected plan, `d` deletes it, and `D` deletes all plans. Deletions require Enter confirmation at the bottom; Esc cancels. Active plan executions block plan deletion.
+- In Sessions, `d` deletes one managed agent; deleting the primary or pressing `D` cascades through that session. In Plans, `d` deletes one plan and `D` deletes plans belonging to the selected session. There are no global delete-all shortcuts. Deletions require Enter confirmation, and active executions block affected deletions.
 
   Plan cleanup removes only BDFL plan lineage and versions. It does not cascade to executions, sessions, Git history, worktrees, or provider-retained transcripts.
 
@@ -125,7 +127,7 @@ Plans use immutable versions with individually managed sections.
 
 Each implementation worker receives an isolated worktree plus the complete frozen plan and an explicit assignment. One durable execution agent owns combined verification and reconciliation; accepted verification fixes return to the affected original workers in fresh isolated worktrees.
 
-- Navigate to any worker or the execution agent from the bottom rail to follow its progress or respond when it needs attention.
+- Navigate to any worker or execution-agent pane to follow its progress or respond when it needs attention.
 - Independent chunks can run in parallel within the configured worker limit.
 - Prerequisites and named locks keep dependent or conflicting work in the correct order.
 

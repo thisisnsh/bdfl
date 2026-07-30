@@ -13,8 +13,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@xterm/headless": "^6.0.0",
-    "node-pty": "^1.1.0",
     "semver": "^7.8.5"
   },
   "bin": {
@@ -34,6 +32,7 @@
     "bin/bdfl",
     "bin/bfdl",
     "bin/bdfl-mcp.js",
+    "bin/bdfl-internal.js",
     "skills/",
     "src/",
     "LICENSE",

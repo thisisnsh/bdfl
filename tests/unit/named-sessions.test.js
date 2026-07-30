@@ -5,7 +5,6 @@ const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { WorkspaceStore, defaultWorkspace, normalizeTaskSnippet } = require('../../src/state/workspace');
-const { SessionManager, substantivePlanningPrompt } = require('../../src/sessions/manager');
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-named-'));
@@ -56,7 +55,7 @@ test('assigns provider-local planning names and non-recycled worker names', (t) 
   assert.deepEqual([workerOne.name, workerThree.name], ['Worker 1', 'Worker 3']);
   assert.deepEqual([workerOne.roleSequence, workerThree.roleSequence], [1, 3]);
 });
-test('migrates only collision-free exact legacy worker defaults', (t) => {
+test('preserves exact legacy worker names without rewriting schema-2 history', (t) => {
   const { root, store, config } = fixture(t);
   const stream = store.createWorkstream(config);
   const exact = store.createSession(stream.id, 'worker', config.workerProfile);
@@ -69,7 +68,30 @@ test('migrates only collision-free exact legacy worker defaults', (t) => {
   state.sessions.find((item) => item.id === collidingLegacy.id).name = 'W 3';
   fs.writeFileSync(file, JSON.stringify(state));
   const names = store.load().sessions.map((session) => session.name);
-  assert.deepEqual(names, ['Worker 1', customLegacyLike.name, 'W 3', 'Worker 3']);
+  assert.deepEqual(names, ['W 1', customLegacyLike.name, 'W 3', 'Worker 3']);
+});
+test('loads duplicate historical agents and defaults lifecycle ownership without rewriting fixture history', (t) => {
+  const { root, store, config } = fixture(t);
+  const stream = store.createWorkstream(config);
+  const first = store.createSession(stream.id, 'worker', config.workerProfile);
+  const second = store.createSession(stream.id, 'worker', config.workerProfile);
+  const file = path.join(root, '.bdfl', 'workspace.json');
+  const state = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (const session of state.sessions) {
+    session.name = 'Historical worker';
+    session.roleSequence = 1;
+    session.status = session.id === first.id ? 'accepted' : 'completed';
+    delete session.lifecycleOwner;
+  }
+  const fixtureHistory = `${JSON.stringify(state, null, 2)}\n`;
+  fs.writeFileSync(file, fixtureHistory);
+  const loaded = store.load().sessions;
+  assert.deepEqual(
+    loaded.map((session) => session.lifecycleOwner),
+    ['managed', 'managed']
+  );
+  assert.equal(loaded[1].id, second.id);
+  assert.equal(fs.readFileSync(file, 'utf8'), fixtureHistory);
 });
 test('renames workstreams while agent names remain immutable', (t) => {
   const { store, config } = fixture(t);
@@ -149,66 +171,6 @@ test('reports invalid current-schema records without telling users to delete dur
     (error) =>
       error.code === 'STATE_INVALID' && /was not changed/.test(error.message) && !/remove.*\.bdfl/i.test(error.message)
   );
-});
-test('captures only substantive submitted planning prompts', (t) => {
-  const { root, store, config } = fixture(t);
-  const stream = store.createWorkstream(config);
-  const session = store.createSession(stream.id, 'delegator', config.delegatorProfile);
-  const writes = [];
-  const child = {
-    pid: 1,
-    onData() {},
-    onExit() {},
-    write(value) {
-      writes.push(value);
-    },
-    kill() {}
-  };
-  const manager = new SessionManager(root, store, {
-    pty: {
-      spawn() {
-        return child;
-      }
-    }
-  });
-  manager.open(session.id);
-  manager.write(session.id, 'Please build');
-  manager.write(session.id, ' the named rail\r');
-  assert.equal(store.load().sessions[0].taskSnippet, 'Please build the named rail');
-  for (const ignored of ['yes\r', '/help\r', '\u0007\r', '   \r']) manager.write(session.id, ignored);
-  assert.equal(store.load().sessions[0].taskSnippet, 'Please build the named rail');
-  assert.equal(substantivePlanningPrompt('okay'), null);
-  assert.equal(substantivePlanningPrompt('Explain okay handling'), 'Explain okay handling');
-  assert.equal(writes.join(''), 'Please build the named rail\ryes\r/help\r\u0007\r   \r');
-  manager.shutdown();
-});
-test('captures edited planning prompts without recording word-navigation keys', (t) => {
-  const { root, store, config } = fixture(t);
-  const stream = store.createWorkstream(config);
-  const session = store.createSession(stream.id, 'delegator', config.delegatorProfile);
-  const writes = [];
-  const child = {
-    pid: 1,
-    onData() {},
-    onExit() {},
-    write(value) {
-      writes.push(value);
-    },
-    kill() {}
-  };
-  const manager = new SessionManager(root, store, {
-    pty: {
-      spawn() {
-        return child;
-      }
-    }
-  });
-  manager.open(session.id);
-  for (const input of ['Build python script', '\u001bb', '\u001bb', 'bash & ', '\u001bf', ' and', '\r'])
-    manager.write(session.id, input);
-  assert.equal(store.load().sessions[0].taskSnippet, 'Build bash & python and script');
-  assert.equal(writes.join(''), 'Build python script\u001bb\u001bbbash & \u001bf and\r');
-  manager.shutdown();
 });
 test('bulk deletion clears workstream records and numbering while preserving configuration and other durable data', (t) => {
   const { root, store, config } = fixture(t);

@@ -94,9 +94,9 @@ test('the CLI documents direct controls and enables provider bypass only for sta
   assert.equal(code, 0);
   assert.equal(options.dangerous, true);
   assert.match(HELP, /--dangerous/);
-  assert.match(HELP, /bottom rail/);
-  assert.match(HELP, /Top actions/);
-  assert.match(HELP, /D deletes all plans/);
+  assert.match(HELP, /tmux 3\.2/);
+  assert.match(HELP, /C-b N\/P\/S\/R/);
+  assert.match(HELP, /D deletes plans for the selected session/);
   const invalid = io();
   assert.equal(
     run(['--dangerous', 'status'], invalid, '/tmp/workspace', undefined, () => Promise.resolve()),

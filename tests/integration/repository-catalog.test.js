@@ -9,6 +9,7 @@ const { execFileSync } = require('node:child_process');
 const { discoverRepositories, WorkspaceCatalog, LineageCatalog } = require('../../src/state/repositories');
 const { SessionManager } = require('../../src/sessions/manager');
 const { TerminalSupervisor } = require('../../src/tui/supervisor');
+const { FakeTmux } = require('../helpers/fake-tmux');
 
 function git(root, args) {
   return `${execFileSync('git', args, { cwd: root, encoding: 'utf8' })}`.trim();
@@ -140,17 +141,10 @@ test('launches a planning session in its owning repository', (t) => {
   const catalog = new WorkspaceCatalog(root);
   const stream = catalog.createWorkstream(config(), undefined, claudia);
   const session = catalog.createSession(stream.id, 'delegator', config().delegatorProfile);
-  let cwd;
-  const manager = new SessionManager(root, catalog, {
-    pty: {
-      spawn(_command, _args, options) {
-        cwd = options.cwd;
-        return { pid: 1, onData() {}, onExit() {}, kill() {} };
-      }
-    }
-  });
+  const tmux = new FakeTmux();
+  const manager = new SessionManager(root, catalog, { tmux });
   manager.open(session.id);
-  assert.equal(cwd, fs.realpathSync(claudia));
+  assert.equal(tmux.launches[0].invocation.cwd, fs.realpathSync(claudia));
   manager.shutdown();
 });
 

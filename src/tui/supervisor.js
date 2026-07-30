@@ -528,6 +528,7 @@ class TerminalSupervisor {
       output = process.stdout,
       store = null,
       sessions,
+      tmux,
       lineage,
       git,
       scheduler,
@@ -594,7 +595,8 @@ class TerminalSupervisor {
       bridge || new ControlServer({ planService: new PlanService(this.lineage), workerService: this.workerService });
     this.bridge.setToolSuccessHandler?.((event) => this.handleToolSuccess(event));
     this.sessions =
-      sessions || new SessionManager(this.root, this.store, { bridge: this.bridge, requireBridge: true, dangerous });
+      sessions ||
+      new SessionManager(this.root, this.store, { tmux, bridge: this.bridge, requireBridge: true, dangerous });
     this.sessions.onOutput = (sessionId, event) => {
       if (this.visibleSessionId() !== sessionId) return;
       if (event?.scroll || event?.activity) this.scheduleDraw();
@@ -995,6 +997,7 @@ class TerminalSupervisor {
       .sessions.filter(
         (item) =>
           ['worker', 'verifier', 'integration'].includes(item.role) &&
+          item.lifecycleOwner !== 'user' &&
           item.executionId &&
           !item.explicitlyClosed &&
           !active.has(item.id)

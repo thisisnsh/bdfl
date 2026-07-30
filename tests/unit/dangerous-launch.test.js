@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { SessionManager } = require('../../src/sessions/manager');
 const { WorkspaceStore } = require('../../src/state/workspace');
+const { FakeTmux } = require('../helpers/fake-tmux');
 
 test('session manager translates one dangerous supervisor option for every provider', (t) => {
   for (const provider of ['claude', 'codex', 'ollama']) {
@@ -22,22 +23,16 @@ test('session manager translates one dangerous supervisor option for every provi
       workerCapacity: 1
     });
     const session = store.createSession(stream.id, 'delegator', profile);
-    let launch;
+    const tmux = new FakeTmux();
     const manager = new SessionManager(root, store, {
       dangerous: true,
-      pty: {
-        spawn(command, args) {
-          launch = { command, args };
-          return { pid: 1, onData() {}, onExit() {}, kill() {} };
-        }
-      },
+      tmux,
       codexSessions: path.join(root, 'missing')
     });
-    manager.captureCodexSession = () => {};
     manager.open(session.id);
     const expected =
       provider === 'claude' ? '--dangerously-skip-permissions' : '--dangerously-bypass-approvals-and-sandbox';
-    assert.ok(launch.args.includes(expected), `${provider} launch should include ${expected}`);
+    assert.ok(tmux.launches[0].invocation.args.includes(expected), `${provider} launch should include ${expected}`);
     manager.shutdown();
   }
 });

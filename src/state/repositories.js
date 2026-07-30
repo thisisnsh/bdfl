@@ -266,6 +266,21 @@ class WorkspaceCatalog {
     const { root, entry } = this.owner('sessions', id);
     return this.decorate(entry.store.touchSession(id, conversation), root);
   }
+  markSessionViewed(id) {
+    const { root, entry } = this.owner('sessions', id);
+    return this.decorate(entry.store.markSessionViewed(id), root);
+  }
+  pauseSession(id) {
+    const { root, entry } = this.owner('sessions', id);
+    return this.decorate(entry.store.pauseSession(id), root);
+  }
+  resumeSession(id) {
+    const { root, entry } = this.owner('sessions', id);
+    return this.decorate(entry.store.resumeSession(id), root);
+  }
+  deleteSession(id) {
+    return this.owner('sessions', id).entry.store.deleteSession(id);
+  }
 }
 
 class LineageCatalog {
