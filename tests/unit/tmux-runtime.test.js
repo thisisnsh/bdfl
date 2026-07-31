@@ -18,7 +18,7 @@ const { paneRows, clientWidths, FIELD_SEPARATOR } = require('../../src/tmux/serv
 const { parseControlLine } = require('../../src/tmux/control');
 const { readLaunchDescriptor } = require('../../src/tmux/pane-helper');
 const { cellWidth, cropCells, fitsRail } = require('../../src/tmux/cells');
-const { agentLabel, statusToken } = require('../../src/tmux/status');
+const { agentLabel, statusToken, agentRail } = require('../../src/tmux/status');
 const { encodeMessage, createDecoder, listen, request, subscribe } = require('../../src/daemon/protocol');
 const { popupLines } = require('../../src/tui/popup');
 
@@ -52,23 +52,22 @@ test('generates an isolated clickable tmux configuration with consistent session
   assert.match(config, /set -g mouse on/);
   assert.match(config, /set -g history-limit 5000/);
   assert.match(config, /set -g remain-on-exit on/);
-  assert.match(config, /set -g status 3/);
-  assert.match(config, /pane-border-status top/);
+  assert.match(config, /set -g status 2/);
+  assert.match(config, /pane-border-status off/);
   assert.match(config, /bind N display-popup/);
   assert.match(config, /bind n display-popup/);
-  assert.match(config, /bind Q run-shell/);
-  assert.match(config, /bind Left previous-window/);
-  assert.match(config, /bind Right next-window/);
-  assert.match(config, /bind Up select-pane -t :\.-/);
-  assert.match(config, /bind Down select-pane -t :\.\+/);
-  assert.match(config, /range=pane\|#\{pane_id\}/);
-  assert.match(config, /range=window\|#\{window_index\}/);
+  assert.match(config, /bind Q display-popup .*Shutdown/);
+  assert.match(config, /bind Left if-shell .*focus-relative/);
+  assert.match(config, /bind Right if-shell .*focus-relative/);
+  assert.match(config, /bind o run-shell .*toggle-overview/);
+  assert.match(config, /bind Enter if-shell/);
+  assert.match(config, /bind \? display-popup/);
   assert.match(config, /bind -T root MouseDown1Control2 display-popup/);
   assert.doesNotMatch(config, /bind C-c/);
 });
 
 test('parses tmux pane and control notifications without constructing a VT buffer', () => {
-  const row = ['%1', '@2', 'session-1', 'workstream-1', '0', '1'].join(FIELD_SEPARATOR);
+  const row = ['%1', '@2', 'session-1', 'workstream-1', '0', '1', '1', '1'].join(FIELD_SEPARATOR);
   assert.deepEqual(paneRows(row), [
     {
       paneId: '%1',
@@ -76,7 +75,9 @@ test('parses tmux pane and control notifications without constructing a VT buffe
       sessionId: 'session-1',
       workstreamId: 'workstream-1',
       dead: '0',
-      active: '1'
+      active: '1',
+      windowActive: '1',
+      zoomed: '1'
     }
   ]);
   assert.deepEqual(clientWidths('120\n80\n'), [120, 80]);
@@ -107,6 +108,31 @@ test('uses rendered terminal cells for canonical labels and admission', () => {
   assert.equal(cropCells('構築 agent', 6), '構築 …');
   assert.equal(fitsRail(['one', '構築'], 8), true);
   assert.equal(fitsRail(['one', '構築'], 7), false);
+});
+
+test('builds one safe global rail centered on the active agent', () => {
+  const workspace = {
+    workstreams: [
+      { id: 'one', name: 'First # session' },
+      { id: 'two', name: 'Second session' }
+    ],
+    sessions: [
+      { id: 'a', workstreamId: 'one', name: 'Planning', paneNumber: 1, turnState: 'idle' },
+      { id: 'b', workstreamId: 'one', name: 'Worker', paneNumber: 2, turnState: 'working' },
+      { id: 'c', workstreamId: 'two', name: 'Review', paneNumber: 1, attention: true }
+    ]
+  };
+  const panes = [
+    { paneId: '%1', sessionId: 'a', workstreamId: 'one', dead: '0', active: '1', windowActive: '0' },
+    { paneId: '%2', sessionId: 'b', workstreamId: 'one', dead: '0', active: '0', windowActive: '0' },
+    { paneId: '%3', sessionId: 'c', workstreamId: 'two', dead: '0', active: '1', windowActive: '1' }
+  ];
+  const rail = agentRail(workspace, panes, 42);
+  assert.match(rail, /range=pane\|%3/);
+  assert.match(rail, /Second session/);
+  assert.match(rail, /!/);
+  assert.doesNotMatch(rail, /First # session/);
+  assert.doesNotMatch(rail, /range=pane\|[^%]/);
 });
 
 test('decodes fragmented JSON protocol messages and popup rows start with one blank line', () => {

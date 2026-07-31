@@ -96,8 +96,9 @@ test('the CLI documents direct controls and enables provider bypass only for sta
   assert.match(HELP, /--dangerous/);
   assert.match(HELP, /tmux 3\.2/);
   assert.match(HELP, /C-b n\/p\/s\/r/);
-  assert.match(HELP, /Left\/Right to switch sessions/);
-  assert.match(HELP, /Click an agent or session label/);
+  assert.match(HELP, /Left\/Right .*cycle through every open agent/);
+  assert.match(HELP, /Click a global agent tab/);
+  assert.match(HELP, /C-b o toggles a tiled overview/);
   assert.match(HELP, /D deletes plans for the selected session/);
   const invalid = io();
   assert.equal(

@@ -36,11 +36,10 @@ async function main(argv = process.argv.slice(2)) {
     if (name === 'shutdown') return request(socket, 'shutdown');
     if (name === 'dangerous-on' || name === 'dangerous-off')
       return request(socket, 'configure', { dangerous: name === 'dangerous-on' });
-    if (name === 'pause-active') {
-      const active = await request(socket, 'active');
-      if (active?.sessionId) return request(socket, 'pause', { sessionId: active.sessionId });
-      return;
-    }
+    if (name === 'pause-active') return request(socket, 'pause-active');
+    if (name === 'focus-relative')
+      return request(socket, 'focus-relative', { direction: option(argv, '--direction') || 'next' });
+    if (name === 'toggle-overview') return request(socket, 'toggle-overview');
   }
   throw new Error('Unsupported BDFL internal entrypoint');
 }

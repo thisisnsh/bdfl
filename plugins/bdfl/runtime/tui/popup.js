@@ -13,6 +13,23 @@ const ANSI = {
   reset: '\u001b[0m'
 };
 const STATUS = { Working: ANSI.yellow, Idle: ANSI.gray, Paused: ANSI.cyan, Waiting: ANSI.gray, Exited: ANSI.red };
+const HELP_LINES = [
+  `${ANSI.cyan}Focused agents${ANSI.reset}`,
+  'C-b Left/Right or C-b h/l  Cycle through every open agent',
+  'C-b o                       Toggle the current session overview',
+  'C-b x                       Pause the focused agent and choose a fallback',
+  'C-b [ / C-b z               Copy mode / tmux zoom',
+  '',
+  `${ANSI.cyan}Workflows${ANSI.reset}`,
+  'C-b n / p / s / r           New / Plans / Sessions / Reviews',
+  'C-b q                       Confirm a normal BDFL shutdown',
+  'C-b ?                       Show these controls',
+  '',
+  `${ANSI.gray}Unprefixed keys always go to the provider. Hold Shift while dragging to select native terminal text.${ANSI.reset}`,
+  `${ANSI.gray}In an overview, prefixed arrows move spatially; Enter or C-b o returns to the selected agent.${ANSI.reset}`,
+  '',
+  `${ANSI.cyan}Esc or q closes help${ANSI.reset}`
+];
 
 function entityRow(item, selected = false) {
   return `${selected ? `${ANSI.cyan}› ` : '  '}${ANSI.white}${item.name}${ANSI.reset} ${ANSI.gray}${item.agent || ''}${ANSI.reset} ${STATUS[item.status] || ANSI.gray}${item.status}${ANSI.reset}`;
@@ -46,14 +63,25 @@ class PopupClient {
     this.rangeStart = null;
   }
   async load() {
-    if (this.page === 'New') {
+    if (this.page === 'Help') this.detail = { id: 'help', lines: HELP_LINES };
+    else if (this.page === 'Shutdown') this.confirmation = { shutdown: true };
+    else if (this.page === 'New') {
       const state = await request(this.socket, 'new-context');
       this.wizard = new WorkstreamWizard(state);
     } else this.items = await request(this.socket, 'rows', { page: this.page });
   }
   draw() {
     let value;
-    if (this.wizard) value = ['', ...this.wizard.render().split('\n')];
+    if (this.page === 'Shutdown')
+      value = [
+        '',
+        `${ANSI.red}Shut down BDFL?${ANSI.reset}`,
+        '',
+        'Providers will be snapshotted and paused. Saved sessions and provider identities remain resumable.',
+        '',
+        `${ANSI.cyan}Enter confirms · Esc/q cancels${ANSI.reset}`
+      ];
+    else if (this.wizard) value = ['', ...this.wizard.render().split('\n')];
     else if (this.detail) {
       const start = this.rangeStart === null ? null : Math.min(this.rangeStart, this.detailIndex);
       const end = this.rangeStart === null ? null : Math.max(this.rangeStart, this.detailIndex);
@@ -70,6 +98,14 @@ class PopupClient {
   }
   async key(value) {
     if (value === '\u001b') return this.stop();
+    if (this.page === 'Shutdown') {
+      if (value === 'q') return this.stop();
+      if (value === '\r') {
+        await request(this.socket, 'shutdown');
+        return this.stop();
+      }
+      return;
+    }
     if (this.wizard) {
       const config = this.wizard.handle(value);
       if (config) {

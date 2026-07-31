@@ -23,13 +23,13 @@ test(
     const tmux = new TmuxServer(root, command, paths, { packageRoot: path.resolve(__dirname, '../..') });
     t.after(() => tmux.kill());
     tmux.start();
-    assert.equal(command.run(['show-options', '-gv', 'status']), '3');
+    assert.equal(command.run(['show-options', '-gv', 'status']), '2');
     assert.equal(command.run(['show-options', '-gv', 'mouse']), 'on');
     assert.equal(command.run(['show-options', '-gv', 'history-limit']), '5000');
     assert.equal(command.run(['show-options', '-gv', 'remain-on-exit']), 'on');
-    assert.equal(command.run(['show-options', '-gv', 'pane-border-status']), 'top');
-    assert.match(command.run(['list-keys', '-T', 'prefix']), /Left\s+previous-window/);
-    assert.match(command.run(['list-keys', '-T', 'prefix']), /Down\s+select-pane -t :\.\+/);
+    assert.equal(command.run(['show-options', '-gv', 'pane-border-status']), 'off');
+    assert.match(command.run(['list-keys', '-T', 'prefix']), /Left\s+if-shell.*focus-relative/);
+    assert.match(command.run(['list-keys', '-T', 'prefix']), /o\s+run-shell.*toggle-overview/);
     assert.match(command.run(['list-keys', '-T', 'root']), /MouseDown1Control2\s+display-popup/);
     const stream = { id: 'workstream-1', name: 'Session 1' };
     const invocation = {
@@ -51,7 +51,13 @@ test(
     assert.equal(reattached.start(), false);
     assert.equal(command.run(['display-message', '-p', '#{session_id}']), before);
     const pane = tmux.paneFor('agent-1');
-    command.run(['resize-pane', '-t', pane.paneId, '-Z']);
+    tmux.focus('agent-1');
+    assert.equal(command.run(['display-message', '-p', '-t', pane.paneId, '#{window_zoomed_flag}']), '1');
+    tmux.openPane(stream, { id: 'agent-3', name: 'Worker 2', role: 'worker', turnState: 'idle' }, invocation);
+    assert.equal(command.run(['display-message', '-p', '-t', pane.paneId, '#{window_zoomed_flag}']), '1');
+    assert.equal(tmux.toggleOverview(), true);
+    assert.equal(command.run(['display-message', '-p', '-t', pane.paneId, '#{window_zoomed_flag}']), '0');
+    assert.equal(tmux.toggleOverview(), false);
     assert.equal(command.run(['display-message', '-p', '-t', pane.paneId, '#{window_zoomed_flag}']), '1');
   }
 );

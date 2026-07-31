@@ -9,7 +9,7 @@ const { TerminalSupervisor } = require('../tui/supervisor');
 const { fitsRail } = require('../tmux/cells');
 const { planningProviderName } = require('../state/workspace');
 const { atomicWrite } = require('../core/plans');
-const { ROLE_LABELS } = require('../tmux/status');
+const { ROLE_LABELS, agentRail } = require('../tmux/status');
 const { encodeMessage, listen } = require('./protocol');
 
 function activeExecutionForSession(state, session) {
@@ -98,7 +98,11 @@ class DaemonSupervisor {
       if (sessionId) this.store.markSessionViewed?.(sessionId);
       this.refreshLabels();
     });
-    this.control.on('window', () => this.refreshLabels());
+    this.control.on('window', () => {
+      const active = this.tmux.activePane();
+      if (active?.sessionId && !this.tmux.overview()) this.sessions.focus(active.sessionId);
+      this.refreshLabels();
+    });
     this.control.start();
   }
   refreshLabels() {
@@ -111,6 +115,40 @@ class DaemonSupervisor {
       const columns = Math.max(1, Math.floor((width - Math.max(0, count - 1)) / count));
       if (session) this.tmux.setLabel(pane.paneId, session, pane.active === '1', columns);
     }
+    this.tmux.setStatusRail?.(agentRail(this.store.load(), panes, width));
+  }
+  orderedOpenSessions() {
+    const state = this.store.load();
+    const panes = new Map(this.tmux.panes().filter((pane) => pane.dead !== '1').map((pane) => [pane.sessionId, pane]));
+    return state.workstreams.flatMap((stream) =>
+      state.sessions
+        .filter((session) => session.workstreamId === stream.id && panes.has(session.id))
+        .sort((left, right) => (left.paneNumber || 0) - (right.paneNumber || 0))
+    );
+  }
+  focusRelative(direction = 'next') {
+    const sessions = this.orderedOpenSessions();
+    if (!sessions.length) return null;
+    const active = this.tmux.activePane()?.sessionId;
+    const index = Math.max(0, sessions.findIndex((session) => session.id === active));
+    const offset = direction === 'previous' ? -1 : 1;
+    const selected = sessions[(index + sessions.length + offset) % sessions.length];
+    this.sessions.focus(selected.id);
+    this.refreshLabels();
+    return selected;
+  }
+  pauseActive() {
+    const active = this.tmux.activePane()?.sessionId;
+    if (!active) return null;
+    const sessions = this.orderedOpenSessions();
+    const index = sessions.findIndex((session) => session.id === active);
+    const sameStream = sessions.find((session) => session.id !== active && session.workstreamId === sessions[index]?.workstreamId);
+    const fallback = sameStream || sessions[(index + 1) % sessions.length];
+    const paused = this.sessions.pause(active);
+    if (fallback && fallback.id !== active) this.sessions.focus(fallback.id);
+    this.admitWaiting();
+    this.refreshLabels();
+    return paused;
   }
   notifySubscribers() {
     if (!this.subscribers.size) return;
@@ -369,6 +407,9 @@ class DaemonSupervisor {
       return true;
     }
     if (action === 'active') return this.tmux.activePane();
+    if (action === 'focus-relative') return this.focusRelative(params.direction);
+    if (action === 'toggle-overview') return this.tmux.toggleOverview();
+    if (action === 'pause-active') return this.pauseActive();
     if (action === 'shutdown') {
       setImmediate(() => this.stop(true));
       return true;

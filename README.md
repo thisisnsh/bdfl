@@ -97,9 +97,9 @@ Use Codex, Claude Code, or Ollama independently for planning, worker, or direct-
 
 - Manage running agents or reopen any saved agent with its exact provider conversation and editable permissions.
 
-- Each live session is a tmux window and every open agent is a tiled pane. Click their labels to switch directly. With the keyboard, press `C-b` then Left/Right to switch sessions or Up/Down to switch agents. `C-b z` zooms a pane and `C-b [` enters copy mode. Hold Shift while dragging to select native terminal text.
+- Each live session remains a tmux window internally, but one focused agent fills the terminal by default. The global agent rail contains every open agent, grouped and labeled by session. Click a tab or press `C-b` then Left/Right (or `h`/`l`) to cycle through all agents. `C-b o` toggles a tiled overview of the current session; prefixed arrows move spatially there, and Enter returns to the selected full-screen agent. `C-b [` enters copy mode. Hold Shift while dragging to select native terminal text.
 
-- The always-visible controls and `C-b n/p/s/r` open New, Plans, Sessions, or Reviews in a full-width bottom popup; uppercase aliases also work. `Esc` returns to the agents, `C-b x` pauses the active agent, and `C-b q` snapshots providers and performs a normal shutdown. Unprefixed arrow keys and `Ctrl+C` go directly to the active provider.
+- The two compact status rows keep workflow controls and global agent tabs visible. The controls and `C-b n/p/s/r` open New, Plans, Sessions, or Reviews; uppercase aliases also work. `Esc` returns to the agents, `C-b x` pauses the active agent and chooses a fallback, `C-b q` opens shutdown confirmation, and `C-b ?` shows the complete controls. Unprefixed keys always go directly to the active provider.
 
 - In Sessions, `d` deletes one managed agent; deleting the primary or pressing `D` cascades through that session. In Plans, `d` deletes one plan and `D` deletes plans belonging to the selected session. There are no global delete-all shortcuts. Deletions require Enter confirmation, and active executions block affected deletions.
 

@@ -114,6 +114,56 @@ test('opening a session from navigation always focuses its pane', async () => {
   ]);
 });
 
+test('global relative focus follows durable session and agent order', () => {
+  const value = Object.create(DaemonSupervisor.prototype);
+  const focused = [];
+  value.store = {
+    load: () => ({
+      workstreams: [{ id: 'first' }, { id: 'second' }],
+      sessions: [
+        { id: 'a', workstreamId: 'first', paneNumber: 1 },
+        { id: 'b', workstreamId: 'first', paneNumber: 2 },
+        { id: 'c', workstreamId: 'second', paneNumber: 1 }
+      ]
+    })
+  };
+  value.tmux = {
+    panes: () => [
+      { sessionId: 'a', dead: '0' },
+      { sessionId: 'b', dead: '0' },
+      { sessionId: 'c', dead: '0' }
+    ],
+    activePane: () => ({ sessionId: 'b' })
+  };
+  value.sessions = { focus: (id) => focused.push(id) };
+  value.refreshLabels = () => {};
+  assert.equal(value.focusRelative('next').id, 'c');
+  assert.equal(value.focusRelative('previous').id, 'a');
+  assert.deepEqual(focused, ['c', 'a']);
+});
+
+test('pausing an active agent chooses an open sibling before another session', () => {
+  const value = Object.create(DaemonSupervisor.prototype);
+  const calls = [];
+  value.tmux = { activePane: () => ({ sessionId: 'worker' }) };
+  value.orderedOpenSessions = () => [
+    { id: 'planning', workstreamId: 'one' },
+    { id: 'worker', workstreamId: 'one' },
+    { id: 'other', workstreamId: 'two' }
+  ];
+  value.sessions = {
+    pause: (id) => (calls.push(['pause', id]), { id }),
+    focus: (id) => calls.push(['focus', id])
+  };
+  value.admitWaiting = () => {};
+  value.refreshLabels = () => {};
+  assert.deepEqual(value.pauseActive(), { id: 'worker' });
+  assert.deepEqual(calls, [
+    ['pause', 'worker'],
+    ['focus', 'planning']
+  ]);
+});
+
 test('review range recording writes one durable mode-0600 excerpt', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-review-excerpt-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

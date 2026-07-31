@@ -21,7 +21,16 @@ function parseRows(output, fields) {
 }
 
 function paneRows(output) {
-  return parseRows(output, ['paneId', 'windowId', 'sessionId', 'workstreamId', 'dead', 'active']);
+  return parseRows(output, [
+    'paneId',
+    'windowId',
+    'sessionId',
+    'workstreamId',
+    'dead',
+    'active',
+    'windowActive',
+    'zoomed'
+  ]);
 }
 
 function windowRows(output) {
@@ -84,7 +93,9 @@ class TmuxServer {
           '#{@bdfl-session-id}',
           '#{@bdfl-workstream-id}',
           '#{pane_dead}',
-          '#{pane_active}'
+          '#{pane_active}',
+          '#{window_active}',
+          '#{window_zoomed_flag}'
         ].join(FIELD_SEPARATOR)
       ])
     );
@@ -174,6 +185,8 @@ class TmuxServer {
     const descriptor = this.launchDescriptor(session, invocation);
     let paneId;
     const window = this.windowFor(stream.id);
+    const focused = this.activePane();
+    const preserveZoom = Boolean(focused && focused.windowId === window?.windowId && focused.zoomed === '1');
     if (!window) paneId = this.ensureWindow(stream, descriptor, invocation.cwd);
     else if (existing) {
       this.command.run([
@@ -204,6 +217,8 @@ class TmuxServer {
     this.command.run(['set-option', '-p', '-t', paneId, '@bdfl-workstream-id', stream.id]);
     this.setLabel(paneId, session);
     this.command.run(['select-layout', '-t', paneId, 'tiled']);
+    if (preserveZoom && focused && this.zoomed(focused.paneId) !== true)
+      this.command.tryRun(['resize-pane', '-t', focused.paneId, '-Z']);
     return paneId;
   }
   setLabel(paneId, session, focused = false, columns = Infinity) {
@@ -226,10 +241,39 @@ class TmuxServer {
     if (!pane) return false;
     this.command.run(['select-window', '-t', pane.windowId]);
     this.command.run(['select-pane', '-t', pane.paneId]);
+    this.command.tryRun(['set-option', '-w', '-t', pane.windowId, '@bdfl-overview', '0']);
+    if (!this.zoomed(pane.paneId)) this.command.run(['resize-pane', '-t', pane.paneId, '-Z']);
     return true;
   }
   activePane() {
-    return this.panes().find((pane) => pane.active === '1');
+    const panes = this.panes();
+    return panes.find((pane) => pane.active === '1' && pane.windowActive === '1') || panes.find((pane) => pane.active === '1');
+  }
+  zoomed(target = null) {
+    const pane = target ? this.panes().find((item) => item.paneId === target || item.sessionId === target) : this.activePane();
+    return pane ? pane.zoomed === '1' : false;
+  }
+  overview(target = null) {
+    const pane = target ? this.panes().find((item) => item.paneId === target || item.sessionId === target) : this.activePane();
+    if (!pane) return false;
+    return this.command.tryRun(['show-options', '-wv', '-t', pane.windowId, '@bdfl-overview']) === '1';
+  }
+  toggleOverview() {
+    const pane = this.activePane();
+    if (!pane) return false;
+    const overview = this.overview(pane.paneId);
+    if (overview) {
+      this.command.tryRun(['set-option', '-w', '-t', pane.windowId, '@bdfl-overview', '0']);
+      if (!this.zoomed(pane.paneId)) this.command.tryRun(['resize-pane', '-t', pane.paneId, '-Z']);
+      return false;
+    }
+    this.command.tryRun(['set-option', '-w', '-t', pane.windowId, '@bdfl-overview', '1']);
+    if (this.zoomed(pane.paneId)) this.command.tryRun(['resize-pane', '-t', pane.paneId, '-Z']);
+    this.command.tryRun(['select-layout', '-t', pane.windowId, 'tiled']);
+    return true;
+  }
+  setStatusRail(value) {
+    return this.command.tryRun(['set-option', '-g', 'status-format[1]', value]);
   }
   killPane(sessionId) {
     const pane = this.paneFor(sessionId);
