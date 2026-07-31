@@ -98,7 +98,7 @@ function agentRail(workspace, panes, columns = 80) {
     const leftFirst = active - start <= end - active;
     const candidateStart = leftFirst && start > 0 ? start - 1 : start;
     const candidateEnd = !leftFirst && end < live.length - 1 ? end + 1 : end;
-    if (selectionWidth(candidateStart, candidateEnd) <= budget) {
+    if ((candidateStart !== start || candidateEnd !== end) && selectionWidth(candidateStart, candidateEnd) <= budget) {
       start = candidateStart;
       end = candidateEnd;
       continue;

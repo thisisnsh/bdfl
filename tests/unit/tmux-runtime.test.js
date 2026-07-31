@@ -143,6 +143,12 @@ test('builds one safe global rail centered on the active agent', () => {
   assert.doesNotMatch(rail, /range=pane\|[^%]/);
   const visible = rail.replace(/#\[[^\]]*\]/gu, '').replaceAll('##', '#');
   assert.ok(cellWidth(visible) <= 42, `${cellWidth(visible)} cells: ${visible}`);
+
+  panes[0].windowActive = '1';
+  panes[2].windowActive = '0';
+  const firstActive = agentRail(workspace, panes, 120);
+  assert.match(firstActive, /range=pane\|%1/);
+  assert.match(firstActive, /range=pane\|%3/);
 });
 
 test('decodes fragmented JSON protocol messages and popup rows start with one blank line', () => {
