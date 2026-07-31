@@ -19,7 +19,15 @@ const { parseControlLine } = require('../../src/tmux/control');
 const { readLaunchDescriptor } = require('../../src/tmux/pane-helper');
 const { cellWidth, cropCells, fitsRail } = require('../../src/tmux/cells');
 const { agentLabel, statusToken, agentRail } = require('../../src/tmux/status');
-const { encodeMessage, createDecoder, listen, request, subscribe } = require('../../src/daemon/protocol');
+const {
+  PROTOCOL_VERSION,
+  SURFACE_SNAPSHOT_VERSION,
+  encodeMessage,
+  createDecoder,
+  listen,
+  request,
+  subscribe
+} = require('../../src/daemon/protocol');
 const { popupLines } = require('../../src/tui/popup');
 
 test('parses the tmux compatibility floor and gives platform-specific installation help', () => {
@@ -136,6 +144,8 @@ test('builds one safe global rail centered on the active agent', () => {
 });
 
 test('decodes fragmented JSON protocol messages and popup rows start with one blank line', () => {
+  assert.equal(PROTOCOL_VERSION, 2);
+  assert.equal(SURFACE_SNAPSHOT_VERSION, 1);
   const messages = [];
   const decode = createDecoder((value) => messages.push(value));
   const encoded = encodeMessage({ id: 1, action: 'state' });

@@ -10,7 +10,7 @@ const { fitsRail } = require('../tmux/cells');
 const { planningProviderName } = require('../state/workspace');
 const { atomicWrite } = require('../core/plans');
 const { ROLE_LABELS, agentRail } = require('../tmux/status');
-const { encodeMessage, listen } = require('./protocol');
+const { PROTOCOL_VERSION, SURFACE_SNAPSHOT_VERSION, encodeMessage, listen } = require('./protocol');
 
 function activeExecutionForSession(state, session) {
   return (state.executions || []).some(
@@ -119,7 +119,12 @@ class DaemonSupervisor {
   }
   orderedOpenSessions() {
     const state = this.store.load();
-    const panes = new Map(this.tmux.panes().filter((pane) => pane.dead !== '1').map((pane) => [pane.sessionId, pane]));
+    const panes = new Map(
+      this.tmux
+        .panes()
+        .filter((pane) => pane.dead !== '1')
+        .map((pane) => [pane.sessionId, pane])
+    );
     return state.workstreams.flatMap((stream) =>
       state.sessions
         .filter((session) => session.workstreamId === stream.id && panes.has(session.id))
@@ -130,7 +135,10 @@ class DaemonSupervisor {
     const sessions = this.orderedOpenSessions();
     if (!sessions.length) return null;
     const active = this.tmux.activePane()?.sessionId;
-    const index = Math.max(0, sessions.findIndex((session) => session.id === active));
+    const index = Math.max(
+      0,
+      sessions.findIndex((session) => session.id === active)
+    );
     const offset = direction === 'previous' ? -1 : 1;
     const selected = sessions[(index + sessions.length + offset) % sessions.length];
     this.sessions.focus(selected.id);
@@ -142,7 +150,9 @@ class DaemonSupervisor {
     if (!active) return null;
     const sessions = this.orderedOpenSessions();
     const index = sessions.findIndex((session) => session.id === active);
-    const sameStream = sessions.find((session) => session.id !== active && session.workstreamId === sessions[index]?.workstreamId);
+    const sameStream = sessions.find(
+      (session) => session.id !== active && session.workstreamId === sessions[index]?.workstreamId
+    );
     const fallback = sameStream || sessions[(index + 1) % sessions.length];
     const paused = this.sessions.pause(active);
     if (fallback && fallback.id !== active) this.sessions.focus(fallback.id);
@@ -277,6 +287,183 @@ class DaemonSupervisor {
     this.io.chmodSync?.(file, 0o600);
     return true;
   }
+  surfaceSnapshot(page, params = {}) {
+    const state = this.store.load();
+    const base = {
+      protocolVersion: PROTOCOL_VERSION,
+      snapshotVersion: SURFACE_SNAPSHOT_VERSION,
+      page,
+      generatedAt: new Date().toISOString()
+    };
+    if (page === 'Sessions') {
+      const activeId = this.tmux.activePane()?.sessionId || null;
+      return {
+        ...base,
+        activeId,
+        groups: state.workstreams.map((stream) => ({
+          id: stream.id,
+          name: stream.name || stream.title || 'Session',
+          status: stream.status,
+          sessionType: stream.sessionType,
+          updatedAt: stream.updatedAt || stream.createdAt,
+          agents: state.sessions
+            .filter((session) => session.workstreamId === stream.id)
+            .sort((left, right) => (left.paneNumber || 0) - (right.paneNumber || 0))
+            .map((session) => ({
+              id: session.id,
+              name: session.name,
+              role: session.role,
+              status: session.status,
+              turnState: session.turnState,
+              turnStateReason: session.turnStateReason,
+              taskSnippet: session.taskSnippet,
+              attention: Boolean(session.attention),
+              lifecycleOwner: session.lifecycleOwner,
+              open: this.sessions.isOpen(session.id),
+              active: session.id === activeId,
+              createdAt: session.createdAt,
+              updatedAt: session.updatedAt
+            }))
+        }))
+      };
+    }
+    if (page === 'Plans') {
+      const plans = this.lineages.list().map((plan) => ({
+        id: plan.planId,
+        workstreamId: plan.workstreamId,
+        originSessionId: plan.originSessionId,
+        name: plan.name || plan.title || plan.planId,
+        currentVersion: plan.currentVersion,
+        createdAt: plan.createdAt,
+        updatedAt: plan.updatedAt,
+        status: this.controller?.planExecutionLabel(plan, plan.currentVersion) || 'Idle'
+      }));
+      let detail = null;
+      if (params.id) {
+        const lineage = this.lineages.load(params.id);
+        const version = Math.max(1, Math.min(Number(params.version) || lineage.currentVersion, lineage.currentVersion));
+        const manifest = this.lineages.readManifest(params.id, version);
+        const sections = [manifest.summary, manifest.shared, ...(manifest.chunks || []), manifest.globalValidation]
+          .filter(Boolean)
+          .map((section) => ({
+            ...section,
+            approved: manifest.approvals?.[section.id]?.sectionSha === section.sha,
+            content: this.lineages.readSection(params.id, version, section.id)
+          }));
+        let diff = '';
+        if (version > 1) {
+          const before = this.io.readFileSync(
+            path.join(this.lineages.versionDirectory(params.id, version - 1), 'consolidated.md'),
+            'utf8'
+          );
+          const after = this.io.readFileSync(
+            path.join(this.lineages.versionDirectory(params.id, version), 'consolidated.md'),
+            'utf8'
+          );
+          diff = require('../core/plans')
+            .diffLines(before, after)
+            .map((line) => `${line.type === 'addition' ? '+' : line.type === 'removal' ? '-' : ' '} ${line.text}`)
+            .join('\n');
+        }
+        detail = {
+          id: lineage.planId,
+          name: lineage.name || lineage.title || lineage.planId,
+          version,
+          currentVersion: lineage.currentVersion,
+          workstreamId: lineage.workstreamId,
+          executable: this.lineages.executable(params.id, version),
+          executionStatus: this.controller?.planExecutionLabel(lineage, version) || 'Idle',
+          sections,
+          diff
+        };
+      }
+      return { ...base, plans, detail };
+    }
+    if (page === 'Reviews') {
+      const items = (this.controller?.reviewItems(state) || []).map((item) => ({
+        id: `${item.executionId}:${item.id}`,
+        executionId: item.executionId,
+        itemId: item.id,
+        workstreamId: item.workstreamId,
+        kind: item.kind,
+        status: item.status,
+        planTitle: item.planTitle,
+        agentLabel: item.agentLabel,
+        summary: item.summary,
+        changedPaths: item.changedPaths || [],
+        attention: Boolean(item.attention)
+      }));
+      let detail = null;
+      if (params.id) {
+        const source = (this.controller?.reviewItems(state) || []).find(
+          (item) => `${item.executionId}:${item.id}` === params.id
+        );
+        if (!source) throw new Error(`Unknown review item: ${params.id}`);
+        const item = this.controller.reviewDetailItem(source);
+        detail = {
+          ...items.find((candidate) => candidate.id === params.id),
+          diff: item.diff || '',
+          checks: item.checks || item.checkResults || [],
+          verification: item.verification,
+          phase: item.phase
+        };
+      }
+      return { ...base, items, detail };
+    }
+    throw new Error(`Unknown workflow surface: ${page}`);
+  }
+  sessionAction(params) {
+    if (params.name === 'focus' || params.name === 'resume') {
+      if (params.name === 'resume' || !this.sessions.isOpen(params.id))
+        this.sessions.open(params.id, { lifecycleOwner: 'user' });
+      this.sessions.focus(params.id);
+      return true;
+    }
+    if (params.name === 'rename') return this.store.renameWorkstream(params.id, params.value);
+    if (params.name === 'delete-agent') return this.deleteSession(params.id, false);
+    if (params.name === 'delete-session') {
+      const session = this.store
+        .load()
+        .sessions.find((item) => item.workstreamId === params.id && ['delegator', 'direct'].includes(item.role));
+      if (!session) throw new Error(`Unknown session: ${params.id}`);
+      return this.deleteSession(session.id, true);
+    }
+    throw new Error(`Unknown Sessions action: ${params.name}`);
+  }
+  planAction(params) {
+    if (params.name === 'rename') return this.lineages.rename(params.id, params.value);
+    if (params.name === 'delete') return this.deletePlan(params.id, false);
+    if (params.name === 'delete-session-plans') return this.deletePlan(params.id, true);
+    if (params.name === 'toggle-approval') {
+      const manifest = this.lineages.readManifest(params.id, params.version);
+      const section = [manifest.summary, manifest.shared, ...(manifest.chunks || []), manifest.globalValidation]
+        .filter(Boolean)
+        .find((item) => item.id === params.sectionId);
+      if (!section) throw new Error(`Unknown plan section: ${params.sectionId}`);
+      if (manifest.approvals?.[section.id]?.sectionSha === section.sha)
+        return this.lineages.removeApproval(params.id, params.version, section.id);
+      return this.lineages.approve(params.id, params.version, section.id);
+    }
+    if (params.name === 'execute') {
+      const manifest = this.lineages.readManifest(params.id, params.version);
+      return this.controller.scheduler.freeze(params.id, params.version, manifest.workstreamId);
+    }
+    throw new Error(`Unknown Plans action: ${params.name}`);
+  }
+  reviewAction(params) {
+    if (params.name === 'accept') return this.controller.scheduler.accept(params.executionId, params.itemId);
+    if (params.name === 'feedback')
+      return this.controller.scheduler.feedback(
+        params.executionId,
+        params.itemId,
+        { message: params.message || '', selections: params.selections || [] },
+        (executionId, chunkId, message) => this.controller.sendWorker(executionId, chunkId, message)
+      );
+    if (params.name === 'remedy') return this.controller.integration.remedy(params.executionId, params.message || '');
+    if (params.name === 'integrate' || params.name === 'override')
+      return this.controller.integration.finalize(params.executionId, {}, { override: params.name === 'override' });
+    throw new Error(`Unknown Reviews action: ${params.name}`);
+  }
   deleteSession(id, cascade = false) {
     const state = this.store.load();
     const session = state.sessions.find((item) => item.id === id);
@@ -328,7 +515,7 @@ class DaemonSupervisor {
   }
   async handle(request, socket = null) {
     const { action, params = {} } = request || {};
-    if (action === 'ping') return { pid: process.pid };
+    if (action === 'ping') return { pid: process.pid, protocolVersion: PROTOCOL_VERSION };
     if (action === 'state') return this.store.load();
     if (action === 'configure') {
       const dangerous = params.dangerous === true;
@@ -347,6 +534,10 @@ class DaemonSupervisor {
       return this.store.load();
     }
     if (action === 'rows') return this.pageRows(params.page);
+    if (action === 'surface-snapshot') return this.surfaceSnapshot(params.page, params);
+    if (action === 'sessions-action') return this.sessionAction(params);
+    if (action === 'plans-action') return this.planAction(params);
+    if (action === 'reviews-action') return this.reviewAction(params);
     if (action === 'review-detail') return this.reviewDetail(params.id);
     if (action === 'review-excerpt') return this.recordReviewExcerpt(params);
     if (action === 'new-context') {

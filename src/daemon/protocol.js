@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const net = require('node:net');
 
 const MAX_MESSAGE = 1024 * 1024;
+const PROTOCOL_VERSION = 2;
+const SURFACE_SNAPSHOT_VERSION = 1;
 
 function encodeMessage(value) {
   return `${JSON.stringify(value)}\n`;
@@ -108,4 +110,13 @@ function subscribe(socketPath, onState, { connect = net.createConnection } = {})
   return () => socket.end();
 }
 
-module.exports = { MAX_MESSAGE, encodeMessage, createDecoder, listen, request, subscribe };
+module.exports = {
+  MAX_MESSAGE,
+  PROTOCOL_VERSION,
+  SURFACE_SNAPSHOT_VERSION,
+  encodeMessage,
+  createDecoder,
+  listen,
+  request,
+  subscribe
+};

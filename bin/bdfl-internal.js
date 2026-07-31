@@ -7,7 +7,7 @@ const { TmuxServer } = require('../src/tmux/server');
 const { launchPane } = require('../src/tmux/pane-helper');
 const { DaemonSupervisor } = require('../src/daemon/supervisor');
 const { PopupClient } = require('../src/tui/popup');
-const { request } = require('../src/daemon/protocol');
+const { PROTOCOL_VERSION, request } = require('../src/daemon/protocol');
 
 function option(argv, name) {
   const index = argv.indexOf(name);
@@ -33,6 +33,18 @@ async function main(argv = process.argv.slice(2)) {
   if (command === 'action') {
     const socket = option(argv, '--socket');
     const name = option(argv, '--name');
+    if (name === 'protocol') {
+      const response = await request(socket, 'ping');
+      if (response?.protocolVersion !== PROTOCOL_VERSION) {
+        const error = new Error(
+          `BDFL protocol mismatch: expected ${PROTOCOL_VERSION}, received ${response?.protocolVersion || 'legacy'}`
+        );
+        error.code = 'PROTOCOL_MISMATCH';
+        throw error;
+      }
+      process.stdout.write(`${JSON.stringify(response)}\n`);
+      return response;
+    }
     if (name === 'shutdown') return request(socket, 'shutdown');
     if (name === 'dangerous-on' || name === 'dangerous-off')
       return request(socket, 'configure', { dangerous: name === 'dangerous-on' });

@@ -136,7 +136,8 @@ class PopupClient {
       return;
     }
     if (value === '\u001b[A' || value === 'k') this.selection = Math.max(0, this.selection - 1);
-    else if (value === '\u001b[B' || value === 'j') this.selection = Math.min(this.items.length - 1, this.selection + 1);
+    else if (value === '\u001b[B' || value === 'j')
+      this.selection = Math.min(this.items.length - 1, this.selection + 1);
     else if (value === 'd' || value === 'D') {
       const item = this.items[this.selection];
       if (item && ['Sessions', 'Plans'].includes(this.page)) this.confirmation = { item, cascade: value === 'D' };

@@ -6,6 +6,7 @@ const { execFileSync, spawn } = require('node:child_process');
 const { requireTmux, runtimePaths, ensureRuntime, TmuxCommand } = require('../tmux/command');
 const { TmuxServer } = require('../tmux/server');
 const { WorkspaceCatalog } = require('../state/repositories');
+const { PROTOCOL_VERSION } = require('./protocol');
 
 function processAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -34,6 +35,15 @@ function waitForFile(file, timeout = 5000, io = fs) {
   return false;
 }
 
+function waitForProcessExit(pid, timeout = 5000, alive = processAlive) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (!alive(pid)) return true;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  }
+  return !alive(pid);
+}
+
 class ForegroundLauncher {
   constructor(
     root,
@@ -43,6 +53,8 @@ class ForegroundLauncher {
       io = fs,
       spawnProcess = spawn,
       runProcess = execFileSync,
+      killProcess = process.kill,
+      isProcessAlive = processAlive,
       commandOptions
     } = {}
   ) {
@@ -52,6 +64,8 @@ class ForegroundLauncher {
     this.io = io;
     this.spawnProcess = spawnProcess;
     this.runProcess = runProcess;
+    this.killProcess = killProcess;
+    this.isProcessAlive = isProcessAlive;
     this.paths = runtimePaths(root);
     this.commandOptions = commandOptions;
   }
@@ -77,17 +91,62 @@ class ForegroundLauncher {
       throw error;
     }
   }
+  daemonCompatible() {
+    try {
+      const output = this.runProcess(
+        process.execPath,
+        [
+          path.join(this.packageRoot, 'bin', 'bdfl-internal.js'),
+          'action',
+          '--socket',
+          this.paths.daemonSocket,
+          '--name',
+          'protocol'
+        ],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+      );
+      return JSON.parse(`${output}`)?.protocolVersion === PROTOCOL_VERSION;
+    } catch {
+      return false;
+    }
+  }
+  replaceIncompatibleDaemon() {
+    const pid = readPid(this.paths.pid, this.io);
+    if (this.isProcessAlive(pid)) {
+      try {
+        this.killProcess(pid, 'SIGTERM');
+      } catch (error) {
+        if (error.code !== 'ESRCH') throw error;
+      }
+      if (!waitForProcessExit(pid, 5000, this.isProcessAlive)) {
+        const error = new Error('The incompatible BDFL supervisor did not stop');
+        error.code = 'DAEMON_RESTART_FAILED';
+        throw error;
+      }
+    }
+    for (const file of [this.paths.daemonSocket, this.paths.pid]) {
+      try {
+        this.io.unlinkSync(file);
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+    }
+    this.startDaemon();
+  }
   start() {
     requireTmux(this.commandOptions);
     ensureRuntime(this.paths, this.io);
-    if (!processAlive(readPid(this.paths.pid, this.io)) || !this.io.existsSync(this.paths.daemonSocket)) {
+    let started = false;
+    if (!this.isProcessAlive(readPid(this.paths.pid, this.io)) || !this.io.existsSync(this.paths.daemonSocket)) {
       try {
         this.io.unlinkSync(this.paths.daemonSocket);
       } catch (error) {
         if (error.code !== 'ENOENT') throw error;
       }
       this.startDaemon();
+      started = true;
     }
+    if (!started && !this.daemonCompatible()) this.replaceIncompatibleDaemon();
     this.runProcess(
       process.execPath,
       [
@@ -119,4 +178,4 @@ class ForegroundLauncher {
   }
 }
 
-module.exports = { processAlive, readPid, waitForFile, ForegroundLauncher };
+module.exports = { processAlive, readPid, waitForFile, waitForProcessExit, ForegroundLauncher };

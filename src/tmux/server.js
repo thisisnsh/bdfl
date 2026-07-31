@@ -247,14 +247,21 @@ class TmuxServer {
   }
   activePane() {
     const panes = this.panes();
-    return panes.find((pane) => pane.active === '1' && pane.windowActive === '1') || panes.find((pane) => pane.active === '1');
+    return (
+      panes.find((pane) => pane.active === '1' && pane.windowActive === '1') ||
+      panes.find((pane) => pane.active === '1')
+    );
   }
   zoomed(target = null) {
-    const pane = target ? this.panes().find((item) => item.paneId === target || item.sessionId === target) : this.activePane();
+    const pane = target
+      ? this.panes().find((item) => item.paneId === target || item.sessionId === target)
+      : this.activePane();
     return pane ? pane.zoomed === '1' : false;
   }
   overview(target = null) {
-    const pane = target ? this.panes().find((item) => item.paneId === target || item.sessionId === target) : this.activePane();
+    const pane = target
+      ? this.panes().find((item) => item.paneId === target || item.sessionId === target)
+      : this.activePane();
     if (!pane) return false;
     return this.command.tryRun(['show-options', '-wv', '-t', pane.windowId, '@bdfl-overview']) === '1';
   }
