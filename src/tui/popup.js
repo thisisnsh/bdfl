@@ -19,7 +19,12 @@ function entityRow(item, selected = false) {
 }
 
 function popupLines(page, items, selection = 0, confirmation = null) {
-  const lines = [''];
+  const action = page === 'Sessions' ? 'open agent' : page === 'Reviews' ? 'open review' : 'select';
+  const lines = [
+    '',
+    `${ANSI.gray}  ${page} · ↑/↓ or j/k to select · Enter to ${action} · Esc/q to close${['Sessions', 'Plans'].includes(page) ? ' · d/D to delete' : ''}${ANSI.reset}`,
+    ''
+  ];
   if (!items.length) lines.push(`${ANSI.gray}  No ${page.toLowerCase()} available.${ANSI.reset}`);
   else lines.push(...items.map((item, index) => entityRow(item, index === selection)));
   if (confirmation) lines.push('', `${ANSI.red}${confirmation} Press Enter to confirm; Esc cancels.${ANSI.reset}`);
@@ -74,9 +79,11 @@ class PopupClient {
       this.draw();
       return;
     }
+    if (value === 'q') return this.stop();
     if (this.detail) {
-      if (value === '\u001b[A') this.detailIndex = Math.max(0, this.detailIndex - 1);
-      else if (value === '\u001b[B') this.detailIndex = Math.min(this.detail.lines.length - 1, this.detailIndex + 1);
+      if (value === '\u001b[A' || value === 'k') this.detailIndex = Math.max(0, this.detailIndex - 1);
+      else if (value === '\u001b[B' || value === 'j')
+        this.detailIndex = Math.min(this.detail.lines.length - 1, this.detailIndex + 1);
       else if (value === 'v') this.rangeStart = this.detailIndex;
       else if (value === '\r' && this.rangeStart !== null) {
         const start = Math.min(this.rangeStart, this.detailIndex);
@@ -92,8 +99,8 @@ class PopupClient {
       this.draw();
       return;
     }
-    if (value === '\u001b[A') this.selection = Math.max(0, this.selection - 1);
-    else if (value === '\u001b[B') this.selection = Math.min(this.items.length - 1, this.selection + 1);
+    if (value === '\u001b[A' || value === 'k') this.selection = Math.max(0, this.selection - 1);
+    else if (value === '\u001b[B' || value === 'j') this.selection = Math.min(this.items.length - 1, this.selection + 1);
     else if (value === 'd' || value === 'D') {
       const item = this.items[this.selection];
       if (item && ['Sessions', 'Plans'].includes(this.page)) this.confirmation = { item, cascade: value === 'D' };
@@ -110,6 +117,9 @@ class PopupClient {
       const item = this.items[this.selection];
       if (item && this.page === 'Sessions') {
         await request(this.socket, 'open', { sessionId: item.id });
+        // Keep compatibility with supervisors started by older releases where
+        // opening an existing session did not also focus its pane.
+        await request(this.socket, 'focus', { sessionId: item.id });
         return this.stop();
       } else if (item && this.page === 'Reviews') {
         this.detail = await request(this.socket, 'review-detail', { id: item.id });

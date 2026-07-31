@@ -351,7 +351,11 @@ class DaemonSupervisor {
       this.sessions.focus(session.id);
       return session;
     }
-    if (action === 'open') return this.sessions.open(params.sessionId, { lifecycleOwner: 'user' });
+    if (action === 'open') {
+      const opened = this.sessions.open(params.sessionId, { lifecycleOwner: 'user' });
+      if (opened) this.sessions.focus(params.sessionId);
+      return opened;
+    }
     if (action === 'focus') return this.sessions.focus(params.sessionId);
     if (action === 'pause') {
       const paused = this.sessions.pause(params.sessionId);

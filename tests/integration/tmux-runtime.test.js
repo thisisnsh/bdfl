@@ -12,7 +12,7 @@ const { TmuxServer } = require('../../src/tmux/server');
 const available = spawnSync('tmux', ['-V'], { encoding: 'utf8' }).status === 0;
 
 test(
-  'real isolated tmux provides tiled panes, zoom, two status rows, and crash reattachment',
+  'real isolated tmux provides clickable navigation, tiled panes, zoom, and crash reattachment',
   { skip: !available },
   (t) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-real-tmux-'));
@@ -23,11 +23,14 @@ test(
     const tmux = new TmuxServer(root, command, paths, { packageRoot: path.resolve(__dirname, '../..') });
     t.after(() => tmux.kill());
     tmux.start();
-    assert.equal(command.run(['show-options', '-gv', 'status']), '2');
-    assert.equal(command.run(['show-options', '-gv', 'mouse']), 'off');
+    assert.equal(command.run(['show-options', '-gv', 'status']), '3');
+    assert.equal(command.run(['show-options', '-gv', 'mouse']), 'on');
     assert.equal(command.run(['show-options', '-gv', 'history-limit']), '5000');
     assert.equal(command.run(['show-options', '-gv', 'remain-on-exit']), 'on');
     assert.equal(command.run(['show-options', '-gv', 'pane-border-status']), 'top');
+    assert.match(command.run(['list-keys', '-T', 'prefix']), /Left\s+previous-window/);
+    assert.match(command.run(['list-keys', '-T', 'prefix']), /Down\s+select-pane -t :\.\+/);
+    assert.match(command.run(['list-keys', '-T', 'root']), /MouseDown1Control2\s+display-popup/);
     const stream = { id: 'workstream-1', name: 'Session 1' };
     const invocation = {
       command: process.execPath,

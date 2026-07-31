@@ -15,7 +15,7 @@
 
 BDFL is a terminal supervisor for Codex, Claude Code, and Ollama-backed Codex sessions. Work with a planning agent, compare and approve versioned plans or individual sections, then let isolated worker agents implement the approved work while BDFL handles scheduling, checks, review, verification, integration, and recovery.
 
-BDFL and its private tmux server leave mouse tracking disabled. Normal terminal drags select native text; use `C-b [` for reliable scrollback and keyboard copy mode. Review excerpts use `v`, the arrow keys, and Enter.
+BDFL's agent and session labels are clickable. Hold Shift while dragging for native terminal text selection, or use `C-b [` for reliable scrollback and keyboard copy mode. Review excerpts use `v`, the arrow keys, and Enter.
 
 _BDFL also stands for [Benevolent Dictator for Life](https://en.wikipedia.org/wiki/Benevolent_dictator_for_life). In this project, BDFL delegates the work to LLMs. Hence the name!_
 
@@ -97,9 +97,9 @@ Use Codex, Claude Code, or Ollama independently for planning, worker, or direct-
 
 - Manage running agents or reopen any saved agent with its exact provider conversation and editable permissions.
 
-- Each live session is a tmux window and every open agent is a tiled pane. Standard `C-b` navigation, `C-b z` zoom, and `C-b [` copy mode work normally. Mouse handling is disabled so terminal drag selection stays native.
+- Each live session is a tmux window and every open agent is a tiled pane. Click their labels to switch directly. With the keyboard, press `C-b` then Left/Right to switch sessions or Up/Down to switch agents. `C-b z` zooms a pane and `C-b [` enters copy mode. Hold Shift while dragging to select native terminal text.
 
-- `C-b N/P/S/R` opens New, Plans, Sessions, or Reviews in a full-width bottom popup. `Esc` returns to the agents, `C-b X` pauses the active agent, and `C-b Q` snapshots providers and performs a normal shutdown. Arrow keys and `Ctrl+C` go directly to the active provider.
+- The always-visible controls and `C-b n/p/s/r` open New, Plans, Sessions, or Reviews in a full-width bottom popup; uppercase aliases also work. `Esc` returns to the agents, `C-b x` pauses the active agent, and `C-b q` snapshots providers and performs a normal shutdown. Unprefixed arrow keys and `Ctrl+C` go directly to the active provider.
 
 - In Sessions, `d` deletes one managed agent; deleting the primary or pressing `D` cascades through that session. In Plans, `d` deletes one plan and `D` deletes plans belonging to the selected session. There are no global delete-all shortcuts. Deletions require Enter confirmation, and active executions block affected deletions.
 

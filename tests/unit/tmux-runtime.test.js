@@ -45,18 +45,26 @@ test('parses the tmux compatibility floor and gives platform-specific installati
   );
 });
 
-test('generates an isolated two-row keyboard-only tmux configuration', () => {
+test('generates an isolated clickable tmux configuration with consistent session and agent navigation', () => {
   const root = '/tmp/bdfl package';
   const paths = runtimePaths(root);
   const config = tmuxConfig({ packageRoot: root, daemonSocket: paths.daemonSocket });
-  assert.match(config, /set -g mouse off/);
+  assert.match(config, /set -g mouse on/);
   assert.match(config, /set -g history-limit 5000/);
   assert.match(config, /set -g remain-on-exit on/);
-  assert.match(config, /set -g status 2/);
+  assert.match(config, /set -g status 3/);
   assert.match(config, /pane-border-status top/);
   assert.match(config, /bind N display-popup/);
+  assert.match(config, /bind n display-popup/);
   assert.match(config, /bind Q run-shell/);
-  assert.doesNotMatch(config, /bind (?:Up|Down|Left|Right|C-c)/);
+  assert.match(config, /bind Left previous-window/);
+  assert.match(config, /bind Right next-window/);
+  assert.match(config, /bind Up select-pane -t :\.-/);
+  assert.match(config, /bind Down select-pane -t :\.\+/);
+  assert.match(config, /range=pane\|#\{pane_id\}/);
+  assert.match(config, /range=window\|#\{window_index\}/);
+  assert.match(config, /bind -T root MouseDown1Control2 display-popup/);
+  assert.doesNotMatch(config, /bind C-c/);
 });
 
 test('parses tmux pane and control notifications without constructing a VT buffer', () => {
@@ -110,7 +118,8 @@ test('decodes fragmented JSON protocol messages and popup rows start with one bl
   assert.deepEqual(messages, [{ id: 1, action: 'state' }]);
   const lines = popupLines('Sessions', [{ name: 'Worker 2', agent: 'Worker 2', status: 'Idle' }]);
   assert.equal(lines[0], '');
-  assert.match(lines[1], /Worker 2/);
+  assert.match(lines[1], /↑\/↓ or j\/k/);
+  assert.match(lines[3], /Worker 2/);
 });
 
 test('serves UI actions over a private mode-0600 Unix socket', async (t) => {

@@ -95,6 +95,25 @@ test('a safe reconnect clears dangerous mode and restarts live providers with th
   assert.deepEqual(restarted, ['agent']);
 });
 
+test('opening a session from navigation always focuses its pane', async () => {
+  const value = Object.create(DaemonSupervisor.prototype);
+  const calls = [];
+  value.sessions = {
+    open(id, options) {
+      calls.push(['open', id, options]);
+      return { id };
+    },
+    focus(id) {
+      calls.push(['focus', id]);
+    }
+  };
+  assert.deepEqual(await value.handle({ action: 'open', params: { sessionId: 'worker-2' } }), { id: 'worker-2' });
+  assert.deepEqual(calls, [
+    ['open', 'worker-2', { lifecycleOwner: 'user' }],
+    ['focus', 'worker-2']
+  ]);
+});
+
 test('review range recording writes one durable mode-0600 excerpt', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bdfl-review-excerpt-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

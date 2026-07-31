@@ -102,6 +102,9 @@ class ForegroundLauncher {
     );
     const command = new TmuxCommand(this.paths.tmuxSocket, this.commandOptions);
     const tmux = new TmuxServer(this.root, command, this.paths, { packageRoot: this.packageRoot, io: this.io });
+    // Re-source the installed configuration on every attach so navigation fixes
+    // do not require an already-running supervisor to be shut down first.
+    tmux.start();
     tmux.selectFirst();
     const hasSavedSessions = new WorkspaceCatalog(this.root).load().sessions.length > 0;
     if (!hasSavedSessions)
