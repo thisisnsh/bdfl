@@ -141,6 +141,8 @@ test('builds one safe global rail centered on the active agent', () => {
   assert.match(rail, /!/);
   assert.doesNotMatch(rail, /First # session/);
   assert.doesNotMatch(rail, /range=pane\|[^%]/);
+  const visible = rail.replace(/#\[[^\]]*\]/gu, '').replaceAll('##', '#');
+  assert.ok(cellWidth(visible) <= 42, `${cellWidth(visible)} cells: ${visible}`);
 });
 
 test('decodes fragmented JSON protocol messages and popup rows start with one blank line', () => {

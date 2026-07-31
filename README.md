@@ -101,6 +101,8 @@ Use Codex, Claude Code, or Ollama independently for planning, worker, or direct-
 
 - The two compact status rows keep workflow controls and global agent tabs visible. The controls and `C-b n/p/s/r` open New, Plans, Sessions, or Reviews; uppercase aliases also work. `Esc` returns to the agents, `C-b x` pauses the active agent and chooses a fallback, `C-b q` opens shutdown confirmation, and `C-b ?` shows the complete controls. Unprefixed keys always go directly to the active provider.
 
+- Workflow surfaces use near-full-screen native overlays. Use arrows or `j`/`k`, Enter, Esc, Page Up/Down, the mouse wheel, and convenient row clicking throughout. Sessions exposes the grouped agent tree, live task context, resume, rename, and scoped cleanup. Plans provides version and section navigation, reading, diffs, approvals, naming, cleanup, and guarded execution. Reviews provides complete diff scrolling and excerpt selection plus accept, feedback, remedy, override, and integration flows.
+
 - In Sessions, `d` deletes one managed agent; deleting the primary or pressing `D` cascades through that session. In Plans, `d` deletes one plan and `D` deletes plans belonging to the selected session. There are no global delete-all shortcuts. Deletions require Enter confirmation, and active executions block affected deletions.
 
   Plan cleanup removes only BDFL plan lineage and versions. It does not cascade to executions, sessions, Git history, worktrees, or provider-retained transcripts.

@@ -95,7 +95,8 @@ class DaemonSupervisor {
     });
     this.control.on('focus', ({ paneId }) => {
       const sessionId = sessionForPane(paneId);
-      if (sessionId) this.store.markSessionViewed?.(sessionId);
+      if (sessionId && !this.tmux.overview()) this.sessions.focus(sessionId);
+      else if (sessionId) this.store.markSessionViewed?.(sessionId);
       this.refreshLabels();
     });
     this.control.on('window', () => {
@@ -377,7 +378,12 @@ class DaemonSupervisor {
           diff
         };
       }
-      return { ...base, plans, detail };
+      return {
+        ...base,
+        groups: state.workstreams.map((stream) => ({ id: stream.id, name: stream.name || stream.title || 'Session' })),
+        plans,
+        detail
+      };
     }
     if (page === 'Reviews') {
       const items = (this.controller?.reviewItems(state) || []).map((item) => ({
@@ -404,11 +410,17 @@ class DaemonSupervisor {
           ...items.find((candidate) => candidate.id === params.id),
           diff: item.diff || '',
           checks: item.checks || item.checkResults || [],
+          feedback: item.feedback || [],
           verification: item.verification,
           phase: item.phase
         };
       }
-      return { ...base, items, detail };
+      return {
+        ...base,
+        groups: state.workstreams.map((stream) => ({ id: stream.id, name: stream.name || stream.title || 'Session' })),
+        items,
+        detail
+      };
     }
     throw new Error(`Unknown workflow surface: ${page}`);
   }

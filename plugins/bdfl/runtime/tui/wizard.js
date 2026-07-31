@@ -416,14 +416,18 @@ class WorkstreamWizard {
       return null;
     }
   }
+  acceptsText() {
+    return (
+      TEXT_STEPS.has(this.key()) ||
+      (this.key().endsWith('Model') && (this.manualModelOnly() || this.message.startsWith('Type the model')))
+    );
+  }
   handle(value) {
     if (value === '\u001b[D') {
       this.back();
       return null;
     }
-    const typingModel =
-      this.key().endsWith('Model') && (this.manualModelOnly() || this.message.startsWith('Type the model'));
-    if (TEXT_STEPS.has(this.key()) || typingModel) {
+    if (this.acceptsText()) {
       if (value === '\r') return this.submitText();
       if (value === '\u007f' || value === '\b') this.input = this.input.slice(0, -1);
       else if (

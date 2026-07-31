@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const net = require('node:net');
 
-const MAX_MESSAGE = 1024 * 1024;
+const MAX_MESSAGE = 16 * 1024 * 1024;
 const PROTOCOL_VERSION = 2;
 const SURFACE_SNAPSHOT_VERSION = 1;
 

@@ -211,6 +211,53 @@ test('workflow snapshots are versioned and preserve durable session identities',
   assert.equal(snapshot.groups[0].agents[0].taskSnippet, 'Implement durable snapshots');
 });
 
+test('Plans and Reviews snapshots expose complete selected detail without client writes', () => {
+  const value = Object.create(DaemonSupervisor.prototype);
+  value.io = fs;
+  value.store = {
+    load: () => ({
+      workstreams: [{ id: 'stream', name: 'Session' }],
+      sessions: []
+    })
+  };
+  value.lineages = {
+    list: () => [{ planId: 'plan', workstreamId: 'stream', name: 'Plan', currentVersion: 1 }],
+    load: () => ({ planId: 'plan', workstreamId: 'stream', name: 'Plan', currentVersion: 1 }),
+    readManifest: () => ({
+      workstreamId: 'stream',
+      approvals: { summary: { sectionSha: 'sha' } },
+      summary: { id: 'summary', sha: 'sha', title: 'Summary' },
+      shared: { id: 'shared', sha: 'shared' },
+      chunks: [],
+      globalValidation: { id: 'global-validation', sha: 'validation' }
+    }),
+    readSection: (_id, _version, section) => `${section} body`,
+    executable: () => false
+  };
+  const review = {
+    executionId: 'execution',
+    id: 'chunk',
+    workstreamId: 'stream',
+    kind: 'chunk',
+    status: 'review',
+    planTitle: 'Plan',
+    agentLabel: 'Worker 1',
+    summary: 'Ready',
+    feedback: [{ message: 'Earlier feedback' }]
+  };
+  value.controller = {
+    planExecutionLabel: () => 'Awaiting approval',
+    reviewItems: () => [review],
+    reviewDetailItem: () => ({ ...review, diff: '@@ -1 +1 @@\n-old\n+new', checks: [{ ok: true }] })
+  };
+  const plans = value.surfaceSnapshot('Plans', { id: 'plan', version: 1 });
+  assert.equal(plans.detail.sections[0].content, 'summary body');
+  assert.equal(plans.detail.sections[0].approved, true);
+  const reviews = value.surfaceSnapshot('Reviews', { id: 'execution:chunk' });
+  assert.match(reviews.detail.diff, /\+new/);
+  assert.equal(reviews.detail.feedback[0].message, 'Earlier feedback');
+});
+
 test('explicit workflow actions keep mutations behind the supervisor', () => {
   const value = Object.create(DaemonSupervisor.prototype);
   const calls = [];

@@ -112,6 +112,11 @@ function agentRail(workspace, panes, columns = 80) {
     }
     break;
   }
+  const omissionWidth = () => (start > 0 ? 2 : 0) + (end < live.length - 1 ? 2 : 0);
+  while (start < end && selectionWidth(start, end) + omissionWidth() > budget) {
+    if (active - start > end - active) start += 1;
+    else end -= 1;
+  }
   const visible = live.slice(start, end + 1);
   let previous = null;
   const formatted = visible.map((pane, offset) => {
@@ -119,7 +124,7 @@ function agentRail(workspace, panes, columns = 80) {
     const current = pane.workstreamId;
     const focused = start + offset === active;
     const only = visible.length === 1;
-    const plain = label(pane, current !== previous, only ? budget : Infinity);
+    const plain = label(pane, current !== previous, only ? Math.max(1, budget - omissionWidth()) : Infinity);
     previous = current;
     const status = railStatus(session);
     const style = focused ? '#[bold,fg=colour81]' : `#[fg=${status.color}]`;

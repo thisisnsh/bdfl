@@ -171,7 +171,7 @@ class ForegroundLauncher {
         'set-hook',
         '-g',
         'client-attached',
-        `display-popup -E -w '100%' -h '75%' -x 0 -y S '${process.execPath}' '${path.join(this.packageRoot, 'bin', 'bdfl-internal.js')}' popup --socket '${this.paths.daemonSocket}' --page New`
+        `display-popup -E -w '95%' -h '90%' '${process.execPath}' '${path.join(this.packageRoot, 'bin', 'bdfl-internal.js')}' popup --socket '${this.paths.daemonSocket}' --page New`
       ]);
     else command.tryRun(['set-hook', '-gu', 'client-attached']);
     return command.attach('bdfl');
